@@ -1,0 +1,4 @@
+interface:
+  display_name: "Governed Change"
+  short_description: "Evidence-first code and specification changes"
+  default_prompt: "Use $governed-change to implement this repository change with deterministic evidence and fresh independent review."

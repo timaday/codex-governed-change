@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "gate_id": "blueprint-quality",
+  "profile": "mixed",
+  "candidate_before": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_after": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "command": [
+    "python3",
+    "scripts/validate_blueprint.py"
+  ],
+  "started_at": "2026-08-26T12:00:00Z",
+  "ended_at": "2026-08-26T12:00:01Z",
+  "duration_ms": 1000,
+  "termination": {
+    "kind": "exited",
+    "exit_code": 0
+  },
+  "artifacts": [
+    {
+      "stream": "stdout",
+      "path": "artifacts/governance/example/gates/blueprint-quality/stdout.bin",
+      "bytes": 81,
+      "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "truncated": false
+    },
+    {
+      "stream": "stderr",
+      "path": "artifacts/governance/example/gates/blueprint-quality/stderr.bin",
+      "bytes": 0,
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "truncated": false
+    }
+  ],
+  "observation_complete": true,
+  "status": "PASS",
+  "limitations": [],
+  "producer_version": "0.1.0-example"
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/gate-result.schema.json",
+  "title": "Deterministic gate result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "gate_id", "profile", "candidate_before", "candidate_after", "command", "started_at", "ended_at", "duration_ms", "termination", "artifacts", "observation_complete", "status", "limitations", "producer_version"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "gate_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+    "profile": { "enum": ["code", "specification", "mixed", "governance"] },
+    "candidate_before": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_after": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "started_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "ended_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "termination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["exited", "timeout", "signal", "launch_error", "cancelled"] },
+        "exit_code": { "type": "integer" },
+        "signal": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stream", "path", "bytes", "sha256", "truncated"],
+        "properties": {
+          "stream": { "enum": ["stdout", "stderr", "file"] },
+          "path": { "type": "string", "minLength": 1 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "truncated": { "type": "boolean" }
+        }
+      }
+    },
+    "observation_complete": { "type": "boolean" },
+    "status": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "producer_version": { "type": "string", "minLength": 1 }
+  }
+}

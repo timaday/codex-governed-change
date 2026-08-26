@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-governed-change"
+version = "0.0.0"
+description = "Fail-closed evidence and fresh-context review governance for Codex changes"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Tim Day" }]
+dependencies = []
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+codex-governance = "codex_governance.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.codex-governed-change]
+implementation_status = "NOT_STARTED"
+release_disposition = "BLOCK"

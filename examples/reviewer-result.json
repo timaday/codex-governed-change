@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "gate_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "reviewer_prompt_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "model": "gpt-5.6",
+  "invocation_id": "example-review-001",
+  "verdict": "PASS",
+  "reviewed_surfaces": [
+    "Exact base-to-candidate diff",
+    "Affected contracts and callers",
+    "Gate evidence and candidate binding",
+    "Security and governance boundaries"
+  ],
+  "findings": [],
+  "missing_evidence": [],
+  "claims": [
+    {
+      "claim": "The blueprint quality gate passed for the supplied candidate",
+      "classification": "PROVEN",
+      "evidence_refs": [
+        "gates/blueprint-quality/result.json"
+      ]
+    },
+    {
+      "claim": "No blocking defect was discovered in the reviewed surfaces",
+      "classification": "SUPPORTED",
+      "evidence_refs": [
+        "reviewer/result.json"
+      ]
+    }
+  ],
+  "limitations": [
+    "A reviewer PASS does not prove correctness or authorize merge"
+  ]
+}

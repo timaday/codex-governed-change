@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/candidate.schema.json",
+  "title": "Governed candidate identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_id", "mode", "base_commit", "tracked_diff_sha256", "untracked_entries", "submodules", "effective_policy_sha256", "dirty"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "mode": { "enum": ["commit", "working_tree"] },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "head_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "tracked_diff_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "untracked_entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "mode", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "mode": { "type": "string", "pattern": "^[0-7]{6}$" },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "submodules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "commit"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" }
+        }
+      }
+    },
+    "effective_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "dirty": { "type": "boolean" }
+  }
+}

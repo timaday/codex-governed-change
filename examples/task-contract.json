@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "EXAMPLE-001",
+  "profile": "mixed",
+  "base_commit": "1111111111111111111111111111111111111111",
+  "authoritative_sources": [
+    {
+      "path": "docs/specification.md",
+      "kind": "requirement",
+      "sha256": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
+    },
+    {
+      "path": "docs/architecture.md",
+      "kind": "architecture",
+      "sha256": "sha256:2020202020202020202020202020202020202020202020202020202020202020"
+    }
+  ],
+  "scope": [
+    "Implement candidate-bound gate evidence",
+    "Implement fresh read-only reviewer execution"
+  ],
+  "non_goals": [
+    "Automatic merge or deployment",
+    "HiveGate integration"
+  ],
+  "facts": [
+    "The repository requires Python 3.11 or newer"
+  ],
+  "assumptions": [
+    "Git and Codex executables are discoverable on PATH"
+  ],
+  "hypotheses": [
+    "Fresh reviewer context reduces author-framing bias"
+  ],
+  "unknowns": [
+    "Production CI runner policy has not been selected"
+  ],
+  "acceptance_oracles": [
+    {
+      "id": "ORACLE-CANDIDATE-BINDING",
+      "description": "Any candidate mutation invalidates prior evidence",
+      "evidence_type": "test",
+      "mandatory": true
+    },
+    {
+      "id": "ORACLE-FRESH-REVIEW",
+      "description": "The strict reviewer uses a new ephemeral read-only Codex process",
+      "evidence_type": "test",
+      "mandatory": true
+    }
+  ],
+  "risks": [
+    {
+      "id": "RISK-STALE",
+      "description": "Evidence for one candidate is accepted for another",
+      "impact": "critical",
+      "mitigation": "Bind every artifact to the exact candidate and policy digest"
+    },
+    {
+      "id": "RISK-CONTEXT",
+      "description": "The reviewer receives the author transcript",
+      "impact": "high",
+      "mitigation": "Use a fresh process and an explicit input allowlist"
+    }
+  ],
+  "affected_surfaces": [
+    {
+      "path": "src/codex_governance/",
+      "reason": "Production implementation"
+    },
+    {
+      "path": "tests/acceptance/",
+      "reason": "Executable acceptance contract"
+    }
+  ],
+  "required_gate_ids": [
+    "blueprint-quality",
+    "acceptance",
+    "security-adversarial"
+  ],
+  "specialist_reviews": [
+    "business",
+    "engineering",
+    "qa",
+    "architecture",
+    "security",
+    "operations",
+    "agentic_ai",
+    "rst"
+  ],
+  "governance_change_authorized": false
+}

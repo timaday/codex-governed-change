@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "manifest_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "state": "READY_FOR_HUMAN",
+  "reasons": [
+    {
+      "code": "ALL_MANDATORY_EVIDENCE_VALID",
+      "message": "All mandatory evidence is valid for the exact candidate; human approval remains required",
+      "evidence_refs": [
+        "manifest.json",
+        "reviewer/result.json"
+      ]
+    }
+  ],
+  "human_action_required": true,
+  "approved": false,
+  "evaluated_at": "2026-08-26T12:05:01Z",
+  "producer_version": "0.1.0-example"
+}

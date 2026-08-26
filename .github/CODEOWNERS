@@ -1,0 +1,14 @@
+# Governance assets require repository-owner review.
+AGENTS.md @timaday
+.agents/ @timaday
+.codex/ @timaday
+schemas/ @timaday
+scripts/ @timaday
+tests/acceptance/ @timaday
+.github/CODEOWNERS @timaday
+.github/workflows/ @timaday
+IMPLEMENTATION_STATUS.md @timaday
+IMPLEMENT_WITH_GPT_5_6.md @timaday
+docs/requirements.md @timaday
+docs/specification.md @timaday
+docs/decisions/ @timaday

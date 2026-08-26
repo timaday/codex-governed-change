@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/task-contract.schema.json",
+  "title": "Governed change task contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "profile",
+    "base_commit",
+    "authoritative_sources",
+    "scope",
+    "non_goals",
+    "facts",
+    "assumptions",
+    "hypotheses",
+    "unknowns",
+    "acceptance_oracles",
+    "risks",
+    "affected_surfaces",
+    "required_gate_ids",
+    "specialist_reviews",
+    "governance_change_authorized"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "task_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "profile": { "enum": ["code", "specification", "mixed", "governance"] },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "authoritative_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["requirement", "contract", "decision", "architecture", "policy", "code", "test"] },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "scope": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "non_goals": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "facts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "hypotheses": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "unknowns": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "acceptance_oracles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "evidence_type", "mandatory"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+          "description": { "type": "string", "minLength": 1 },
+          "evidence_type": { "enum": ["test", "analysis", "measurement", "inspection", "human_decision"] },
+          "mandatory": { "type": "boolean" }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "impact", "mitigation"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+          "description": { "type": "string", "minLength": 1 },
+          "impact": { "enum": ["low", "medium", "high", "critical"] },
+          "mitigation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "affected_surfaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "required_gate_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" }
+    },
+    "specialist_reviews": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["business", "engineering", "qa", "architecture", "security", "performance", "data", "operations", "ux", "accessibility", "agentic_ai", "rst"] }
+    },
+    "governance_change_authorized": { "type": "boolean" }
+  }
+}

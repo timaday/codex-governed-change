@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/waiver.schema.json",
+  "title": "Human governance waiver",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "waiver_id", "candidate_id", "requirement_ids", "approver", "rationale", "compensating_controls", "created_at", "expires_at", "single_use"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "waiver_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "requirement_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^GOV-[0-9]{3}$" } },
+    "approver": { "type": "string", "minLength": 1 },
+    "rationale": { "type": "string", "minLength": 1 },
+    "compensating_controls": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "created_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "expires_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "single_use": { "const": true }
+  }
+}

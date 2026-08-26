@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "mode": "working_tree",
+  "base_commit": "1111111111111111111111111111111111111111",
+  "head_commit": "1111111111111111111111111111111111111111",
+  "tracked_diff_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "untracked_entries": [
+    {
+      "path": "src/codex_governance/new_adapter.py",
+      "mode": "100644",
+      "sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ],
+  "submodules": [],
+  "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "dirty": true
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Local continuation guard. Rename to hooks.json only after the implementation and tests are green.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/stop_hook.py\"",
+            "commandWindows": "py -3 scripts\\stop_hook.py",
+            "timeout": 30,
+            "statusMessage": "Checking candidate-bound governance evidence"
+          }
+        ]
+      }
+    ]
+  }
+}

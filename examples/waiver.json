@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "waiver_id": "WAIVER-EXAMPLE-001",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "requirement_ids": [
+    "GOV-014"
+  ],
+  "approver": "human-maintainer",
+  "rationale": "Illustrative schema example only; this does not waive a real gate",
+  "compensating_controls": [
+    "A separate protected manual test is required before merge"
+  ],
+  "created_at": "2026-08-26T12:00:00Z",
+  "expires_at": "2026-08-27T12:00:00Z",
+  "single_use": true
+}
