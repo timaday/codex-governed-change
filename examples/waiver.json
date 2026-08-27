@@ -1,11 +1,15 @@
 {
-  "schema_version": "1.0.0",
-  "waiver_id": "WAIVER-EXAMPLE-001",
+  "schema_version": "2.0.0",
+  "waiver_id": "sha256:98c5dd619114917e5812ea714eec5a73e180ce2538510c1716aedaedf61da2ad",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "requirement_ids": [
     "GOV-014"
   ],
-  "approver": "human-maintainer",
+  "issuance_decision_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "consumption_decision_id": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "rationale": "Illustrative schema example only; this does not waive a real gate",
   "compensating_controls": [
     "A separate protected manual test is required before merge"

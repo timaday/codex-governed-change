@@ -30,6 +30,17 @@ Core value objects:
 - `Waiver`
 - `Disposition`
 - `ClaimClassification`
+- `RiskAssessment`
+- `ReviewCharter`
+- `RapidReviewSession`
+- `RapidReviewDebrief`
+- `RiskDisposition`
+- `AuthenticatedDecision`
+- `AssuranceClaim` and `AssuranceCase`
+- `EvidenceLocator`
+- `ProvenanceStatement`
+- `MutationRecord`
+- `ContextReceipt`
 
 Core policies:
 
@@ -40,6 +51,10 @@ Core policies:
 - governance-change authorization;
 - waiver applicability;
 - transition from `SCOPED` to `READY_FOR_HUMAN`.
+- authenticated authority and protected risk/gate floors;
+- LKG promotion and rollback applicability;
+- assurance argument evaluation and disposition monotonicity;
+- context-profile escalation and budget failure.
 
 ### Application use cases
 
@@ -51,6 +66,15 @@ Core policies:
 - `EvaluateDisposition`
 - `CheckStopState`
 - `VerifyGovernanceIntegrity`
+- `AssessCandidateRisk`
+- `PlanRapidReview`
+- `EvaluateRapidReview`
+- `VerifyAuthenticatedDecisions`
+- `BuildProvenanceStatement`
+- `CompileReviewContext`
+- `RunGovernanceMutationCorpus`
+- `EvaluateAssuranceCase`
+- `AdmitCandidate`
 
 Application services orchestrate ports but MUST NOT duplicate domain policy.
 
@@ -61,9 +85,13 @@ Application services orchestrate ports but MUST NOT duplicate domain policy.
 | `RepositoryPort` | Resolve repository root, base/head, diff, untracked files, submodules and immutable worktree |
 | `HasherPort` | SHA-256 bytes and canonical JSON |
 | `GateProcessPort` | Launch bounded commands and capture termination/output observations |
+| `SandboxPort` | Establish and attest disposable no-secret/no-network candidate execution |
 | `ReviewerProcessPort` | Launch a fresh isolated Codex reviewer |
 | `ArtifactStorePort` | Atomically write/read artifacts without path escape |
 | `PolicySourcePort` | Load and identify effective protected governance policy |
+| `DecisionSourcePort` | Verify authenticated human decisions without granting them |
+| `EvidenceResolverPort` | Resolve typed digest-bound artifact and excerpt locators |
+| `ContextRetrievalPort` | Expose read-only full artifacts/repository and record expansions |
 | `ClockPort` | Supply auditable timestamps and durations |
 | `RedactorPort` | Apply declared bounded redaction before model exposure |
 
@@ -72,6 +100,7 @@ Application services orchestrate ports but MUST NOT duplicate domain policy.
 - `GitCliRepositoryAdapter`
 - `Sha256HasherAdapter`
 - `SubprocessGateAdapter`
+- `DisposableContainerSandboxAdapter`
 - `CodexExecReviewerAdapter`
 - `FilesystemArtifactStore`
 - `RepositoryPolicyAdapter`
@@ -79,6 +108,8 @@ Application services orchestrate ports but MUST NOT duplicate domain policy.
 - `PatternRedactorAdapter`
 - `CodexStopHookAdapter`
 - `CommandLineAdapter`
+- `ProtectedDecisionAdapter`
+- `DeterministicContextCompilerAdapter`
 
 ## Dependency rule
 
@@ -116,6 +147,7 @@ Preferred for CI:
 
 ```text
 candidate = SHA256(canonical_json({
+  repository_id,
   mode,
   base_commit,
   head_commit,
@@ -133,6 +165,7 @@ Used for local feedback:
 
 ```text
 candidate = SHA256(canonical_json({
+  repository_id,
   mode,
   base_commit,
   tracked_diff_sha256,
@@ -161,8 +194,13 @@ codex exec
   --ephemeral
   --ignore-user-config
   --ignore-rules
-  --model <configured-gpt-5.6>
-  --sandbox read-only
+  --strict-config
+  --model gpt-5.6-sol
+  --json
+  --config default_permissions="governed_reviewer"
+  --config permissions=<root-deny/workspace-read/runtime-minimum/network-off>
+  --config approval_policy="never"
+  --config shell_environment_policy=<fixed-non-secret-key-allowlist>
   --config model_reasoning_effort="xhigh"
   --config features.hooks=false
   --config agents.enabled=false
@@ -172,9 +210,15 @@ codex exec
   -
 ```
 
-The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The fixed protected prompt and normalized permitted inputs are sent on stdin. The launcher environment is an allowlist and contains no author transcript path. Authentication remains Codex-managed, but its files are not copied into evidence.
+The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The fixed protected prompt and normalized permitted inputs are sent on stdin. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
-The implementation records an invocation descriptor with secrets and environment values excluded.
+The implementation records a content-addressed reviewer-execution statement with
+secrets and environment values excluded. It binds the exact mode-specific
+qualification, prompt, output schema, model, launcher package closure, prepared
+and post-run context receipts, reviewer output, termination, candidate pre/post
+identity, digest-only argv/stdin identities, Codex thread/CLI versions, workflow
+run/attempt, bounds, materials, event-stream digests and Codex CLI-reported token
+usage. No host path or environment value is persisted.
 
 ## Evidence storage
 
@@ -187,12 +231,44 @@ artifacts/governance/<candidate-id>/
 ├── gates/<gate-id>/result.json
 ├── gates/<gate-id>/stdout.bin
 ├── gates/<gate-id>/stderr.bin
+├── gates/manifest.json
 ├── reviewer/result.json
+├── reviewer/execution.json
+├── reviewer/context-prepared.json
+├── reviewer/context-execution.json
+├── rapid-review/risk-assessment.json
+├── rapid-review/charters/<charter-id>.json
+├── rapid-review/sessions/<session-id>.json
+├── rapid-review/debrief.json
+├── rapid-review/risk-disposition.json
 ├── manifest.json
 └── disposition.json
 ```
 
-Writes use temporary files in the same directory followed by atomic replacement. The store rejects symlinks and path escape. Artifacts are read back and rehashed before aggregation.
+Writes use temporary files in the same directory followed by a no-replacement
+atomic publication step. Repeating the same path and identical bytes is
+idempotent; any different content at an existing path blocks. The store rejects
+symlinks and path escape. Artifacts are read back and rehashed before aggregation.
+The same no-replacement rule applies to every CLI output path, including
+intermediate manifests and context receipts; a command may never replace an
+existing output with different bytes.
+
+Gate and mutation reconstruction resolves the bounded stdout and stderr
+references, re-hashes their bytes, reconciles declared sizes and provenance
+subjects, and requires complete, non-truncated, exited termination semantics.
+The reconstructed status must agree with the exit code. Missing or altered raw
+streams, timeouts, signals, incomplete observations and truncation are
+`UNKNOWN`, even when a schema-valid result document claims `PASS`.
+
+Each candidate directory includes provenance statements, authenticated-decision
+references, a context receipt, mutation records and a deterministic assurance
+case. Their content IDs omit exactly the document's own top-level ID before
+canonical hashing. A protected stable `repository_id` is present in every
+authority-bearing subject.
+
+Gate, mutation and reviewer producers retain their own workflow/run identities.
+Causal content-addressed materials and subjects relate those distinct runs;
+aggregation never requires unrelated producers to claim the same workflow.
 
 ## Configuration
 
@@ -205,6 +281,8 @@ Configuration sources, from low to high precedence:
 
 Environment variables do not silently override governance policy. The resolved effective configuration is serialized, redacted, hashed, and referenced by evidence.
 
+`schemas/effective-policy.schema.json` is the portable protected-policy representation. It uses repository-relative paths and argument arrays; it contains no developer path, hostname, endpoint, credential, or environment-derived value. A deployment may replace the example only through protected governance review.
+
 ## Failure semantics
 
 Exceptions are translated only at adapter boundaries:
@@ -216,6 +294,82 @@ Exceptions are translated only at adapter boundaries:
 
 There is no generic catch that converts a known block into a softer unknown or converts unknown into pass.
 
+## Rapid-review policy boundary
+
+Rapid-review planning and aggregation are pure domain policy. The model-facing adapter may investigate and produce a structured session report, but it cannot declare its artifacts complete, accept a finding or residual risk, or change disposition. The application validates exact candidate and charter digests, provenance, direct oracle/evidence linkage, coverage and omission reporting, session status, three-story debrief completeness, and human authorization for material acceptance.
+
+Protected changed-surface obligations and the authenticated task define a
+minimum risk and rapid-review floor. A candidate-supplied risk assessment may
+escalate that floor but cannot lower its risk profile, mandatory charter count,
+or required-review flag. An attempted downgrade is a confirmed policy block.
+
+The same sanitized reviewer harness is used with the rapid-review session schema and additional allowlisted risk-assessment and charter references. Candidate instructions remain inactive evidence. Any candidate mutation starts a new evidence lineage.
+
+## Admission reference monitor
+
+The admission kernel is a pure domain function consuming already verified domain
+values. It has no filesystem, process, network, credential, repository-setting,
+merge, deployment or waiver-granting adapter. The application resolves all
+references and authenticated decisions first, then presents fixed assurance
+claims and defeaters. Only this kernel may produce `READY_FOR_HUMAN`.
+
+Content-addressed decision bytes are not authentication. Every decision policy
+also requires its `decision_id` in the explicit result of the protected
+decision-source adapter. The default set is empty; absence or mismatch therefore
+cannot be recovered from issuer prose embedded in the decision.
+
+CI uses the kernel from the previous protected LKG governance commit. Its final
+job runs regardless of direct dependency status, validates that every dependency
+is exactly `success`, reconstructs required artifacts, and exits nonzero for any
+other state. Candidate workflow text is evidence, not the authority source.
+
+## Untrusted gate execution
+
+The host supervisor creates a fresh disposable candidate/build copy for each
+gate and asks a sandbox adapter to enforce the protected capability policy. A
+writable copy never becomes the input to a sibling gate and is removed with the
+disposable supervisor state. The supervisor independently identifies every copy
+before launch and rejects a candidate mismatch. Reviewer snapshots receive the
+same post-copy identity check; dirty/unavailable submodule worktrees fail closed,
+and the current MVP blocks reviewer execution for non-empty submodule sets until
+immutable recursive object materialization is available. Candidate processes receive
+no authoritative evidence or governance mount and no inherited secret. The
+sandbox output channel is bounded and untrusted. After process-tree termination,
+the trusted supervisor re-identifies the source and packages outputs into the
+write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
+does not fall back to a host subprocess.
+
+## Context compiler
+
+The deterministic compiler re-identifies the candidate from the exact repository
+and effective policy, then derives a conservative affected closure as the full
+Git-visible repository inventory plus changed paths, excluding only the declared
+evidence root. This includes unchanged dependencies, callers, contracts and
+tests without trusting a language-specific or caller-selected graph. It rejects
+a caller changed-file list or affected closure that differs from those protected
+derivations; a coarse directory summary cannot replace either inventory. The
+closure is content-bound into the projection and receipt. The compiler produces COMPACT,
+STANDARD or DEEP projections
+with a stable protected prefix and candidate-specific content-addressed delta.
+The assurance kernel is indivisible. Other evidence follows progressive
+disclosure, and all exclusions/retrieval expansions are recorded in the
+candidate-bound prepared receipt. After a model invocation, the trusted launcher
+emits a separate content-addressed execution receipt linked to the prepared
+receipt and reviewer output. It records every reported retrieval plus actual
+Codex JSONL usage; missing event usage or a receipt mismatch blocks. Budget
+insufficiency escalates or blocks.
+
+The compiler never receives the author transcript or persisted reasoning. The
+fresh-context reviewer can search the complete read-only repository and resolve
+unabridged artifacts, but the prompt initially contains only the deterministic
+projection.
+
 ## Concurrency
 
-MVP runs one governance pipeline per working tree. A lock under the evidence root prevents concurrent writers. Review runs against an immutable detached worktree where possible. Lock contention is `UNKNOWN/BLOCK`, not a reason to proceed without evidence.
+MVP runs one governance observation-through-publication command per working
+tree. A non-blocking OS-backed lock beneath the evidence root covers the complete
+command lifetime and prevents concurrent candidate observation, copying,
+execution and publication. The workflow must serialize the full multi-command
+pipeline; command-level lock contention is `UNKNOWN/BLOCK`, not a reason to
+proceed without evidence. Review runs against an independently re-identified,
+read-only detached snapshot where possible.

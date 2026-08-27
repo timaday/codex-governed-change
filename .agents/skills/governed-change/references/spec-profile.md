@@ -49,12 +49,14 @@ Record which perspectives are not applicable and why.
 
 ## Rapid Software Testing review
 
-- Create a risk inventory and rank product/implementation risks.
+- Call this an RST-inspired rapid review, not official or fully automated Rapid Software Testing.
+- Create an exact-candidate risk assessment and select proportionate review effort.
 - Identify oracles and where each is weak.
-- Apply consistency, boundary, interruption, concurrency, history, authority, data and platform heuristics.
-- Write focused exploratory charters with setup, mission, evidence and stop conditions.
+- Apply consistency, boundary, interruption, concurrency, history, authority, data and platform heuristics as fallible guidewords.
+- Write focused charters with mission, target, stakeholders, value at risk, hypotheses, quality criteria, coverage, techniques, oracle heuristics, resources, constraints, configurable timebox, required evidence and stopping heuristic.
 - Zoom out to lifecycle/system effects and look in corners: empty, huge, stale, malformed, degraded, cancelled and unauthorized states.
-- Debrief observations, surprises, coverage gaps and next tests.
+- Record experiments and direct observations, counter-hypotheses, coverage, omissions, obstacles, findings, follow-up charters and residual risks.
+- Debrief product, testing, and quality-of-testing stories separately. A checklist or no-findings report is not proof.
 
 ## Required specification output
 

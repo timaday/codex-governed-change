@@ -34,6 +34,10 @@ No model confidence statement is an oracle.
 - Temporary Git repositories for every candidate-state variant.
 - Fake executables for exit, signal, timeout, partial output and injection cases.
 - Fake Codex executable that records argv/stdin/environment and emits controlled results.
+- Native Codex sandbox canary proving that the sanitized workspace is readable,
+  an external host canary is unreadable, network is disabled, and tool
+  environments omit home, Codex-home, proxy, authentication and injected secret
+  variables. Absence or failure of this deployment check remains `UNKNOWN`.
 - Atomic filesystem and symlink/path traversal cases.
 - Fixed clock and deterministic redactor adapters.
 
@@ -41,7 +45,14 @@ No model confidence statement is an oracle.
 
 - Working-tree pipeline with deliberate drift.
 - Immutable commit pipeline.
+- Two-gate adversarial pipeline where the first gate mutates its writable copy
+  and the second gate must receive original candidate bytes.
 - Gate artifact reconstruction.
+- Gate and mutation raw-stream deletion, tampering, size mismatch, timeout,
+  truncation, incomplete observation and exit/status disagreement.
+- Distinct workflow/run identities for gate, mutation and reviewer producers.
+- CLI output replay with identical bytes, conflicting overwrite and symlink
+  targets.
 - Fresh reviewer result binding.
 - Stop-hook stdin/stdout contract.
 - Governance-file change workflow.
@@ -50,9 +61,16 @@ No model confidence statement is an oracle.
 
 - Clean reference repository reaches `READY_FOR_HUMAN` with a fake reviewer.
 - Every seeded evidence defect blocks.
-- A live GPT-5.6 run is a separate, opt-in qualification lane after deterministic tests.
+- A live ChatGPT-authenticated Codex `gpt-5.6-sol` run is a separate, opt-in
+  qualification lane after deterministic tests.
 
 The deterministic suite MUST NOT require a live model, network, API key, or GitHub account.
+
+The seeded-defect suite also attempts to replace an existing schema-valid CLI
+output, alter a referenced raw execution stream, force unrelated producers to
+share a workflow identity, and lower a protected or task-required risk and
+rapid-review floor through a candidate-supplied assessment. None may preserve
+readiness.
 
 ## Core decision tables
 
@@ -153,9 +171,15 @@ Oracle: repository content is treated as evidence data; fixed reviewer instructi
 
 Review installation, configuration precedence, portability, cleanup, disk exhaustion, clock anomalies, Git worktrees, bare repos, shallow clones, detached HEAD, nested repositories and user cancellation.
 
+Use separate processes to contend for the evidence-root working-tree lock and
+require the losing process to return `UNKNOWN/BLOCK`. Race source mutation
+against reviewer snapshot construction and require post-copy candidate identity
+failure. Dirty/untracked submodule state and non-empty reviewer submodules fail
+closed until recursively immutable object materialization is supported.
+
 Oracle: unsupported states are explicit `UNKNOWN/BLOCK`, not silent defaults.
 
-## Mutation evaluation
+## Mandatory governance mutation evaluation
 
 Seed at least these mutations:
 
@@ -174,6 +198,91 @@ Seed at least these mutations:
 
 Every mutation must be killed by deterministic tests. Surviving high-risk mutations block release.
 
+The curated list is an MVP gate, not later optional hardening. Add skipped final
+disposition, cross-repository replay, forged task authorization, writable
+governance/evidence paths, manifest replacement, unverified reviewer locators,
+risk downgrade, old-policy self-replacement and missing provenance mutants.
+
+Run only after a green baseline, in a disposable worktree/sandbox, before the
+final fresh-context review. A mutant is `KILLED` only when an expected test
+causally detects a valid non-equivalent semantic change. `SURVIVED`, `INVALID`,
+`TIMEOUT`, `EQUIVALENT_CLAIMED` and `UNKNOWN` remain distinct and block or remain
+unknown. Compiler failure, harness failure or non-execution is not a kill.
+
+Generated mutation is a separate bounded adapter selected by changed/risk-bearing
+surfaces. Record operator/tool/version, patch digest, location/requirement,
+selected tests, causal evidence, triage and limitations for every mutant. Sample
+equivalence claims; do not use a global percentage as the sole gate.
+
+## Hardening decision tables
+
+### Admission prerequisite outcome
+
+| Direct `needs` result | Artifact reconstruction | Expected final check |
+|---|---|---|
+| every `success` | valid and complete | evaluate assurance case |
+| `failure` | any | nonzero `BLOCK` |
+| `cancelled` | any | nonzero `UNKNOWN/BLOCK` |
+| `skipped` or absent | any | nonzero `UNKNOWN/BLOCK` |
+| every `success` | missing/malformed/stale | nonzero `UNKNOWN/BLOCK` |
+
+### Sandbox capability
+
+| Isolation report | Candidate result | Expected |
+|---|---|---|
+| complete protected capability set | zero/nonzero | classify observed result |
+| network/secrets/write boundary unknown | any | `UNKNOWN` |
+| provider absent or launch ambiguous | any | `UNKNOWN` |
+| protected sentinel changed | any | `BLOCK` plus invalid evidence lineage |
+
+### Context budget
+
+| Kernel fits | Selected profile | Optional evidence fits | Expected |
+|---:|---|---:|---|
+| yes | COMPACT/STANDARD | yes | deterministic projection |
+| no | COMPACT/STANDARD | any | escalate to DEEP |
+| no | DEEP | any | `CONTEXT_BUDGET_INSUFFICIENT`, `UNKNOWN/BLOCK` |
+| yes | any | no | references only; no mandatory truncation |
+
+## Meta-properties
+
+Exhaustively vary required gate/reviewer/RST/mutation/context/authority evidence.
+For a fixed authorization set, adding failure, unknown, limitation or defeater;
+removing evidence; changing repository/candidate/policy/producer/environment; or
+making evidence stale must never improve disposition. Resolve every typed
+artifact and line/excerpt locator; a nonexistent or digest-mismatched locator is
+unknown.
+
+## Context compiler and reviewer qualification
+
+Fixtures must prove:
+
+- irrelevant large files are absent initially but fully retrievable;
+- the complete changed-file inventory is derived from the verified candidate and
+  coarse, missing or extra caller paths fail closed;
+- the trusted CLI re-identifies the repository/policy and derives a conservative
+  Git-visible closure that includes unchanged callers, contracts and affected
+  tests without author selection;
+- missing, extra or reordered caller-supplied closure paths fail closed;
+- identical inputs produce byte-identical projections and receipts;
+- failures, warnings, survivors, limitations and unknowns survive every summary;
+- protected/high-risk surfaces and selector uncertainty choose `DEEP`;
+- unchanged evidence is referenced by content digest rather than duplicated;
+- author conversation and persisted reasoning never enter source or retrieval;
+- a prepared receipt is immutable and a post-run execution receipt binds it to
+  the reviewer output, execution statement, all retrievals and Codex JSONL usage;
+- receipt metrics keep tokens, bytes, cache, latency, cost, retrieval and quality
+  measurements distinct, and absent CLI usage blocks rather than becoming zero.
+
+Human-labelled seeded critical defects and prompt injections qualify each review
+mode's exact prompt, schema, model and material launcher identity; a conformance
+qualification cannot authorize the rapid-review schema. Compare
+COMPACT/STANDARD/DEEP and
+optimization variants using critical recall, false pass/block, unknown rate,
+mutation kill, RST findings, traceability, unresolved unknowns, tokens, bytes,
+latency, retrieval and cost. Reject any optimization with material assurance
+regression regardless of token savings.
+
 ## Debrief template
 
 - What was tested and why?
@@ -184,3 +293,5 @@ Every mutation must be killed by deterministic tests. Surviving high-risk mutati
 - Which oracles were weak or conflicting?
 - What should the next charter or automated check cover?
 - Is the disposition still justified for the exact candidate?
+
+The implemented rapid-review debrief records three separate stories: the product and value learned about, the testing and coverage performed, and the quality of testing including weak or unavailable oracles. A completed checklist, consumed timebox, session count, or empty findings list is never an acceptance oracle.

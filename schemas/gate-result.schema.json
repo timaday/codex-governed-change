@@ -4,16 +4,21 @@
   "title": "Deterministic gate result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "gate_id", "profile", "candidate_before", "candidate_after", "command", "started_at", "ended_at", "duration_ms", "termination", "artifacts", "observation_complete", "status", "limitations", "producer_version"],
+  "required": ["schema_version", "repository_id", "task_contract_sha256", "gate_id", "profile", "candidate_before", "candidate_after", "source_identity", "execution_identity", "sandbox_capability_sha256", "command", "started_at", "ended_at", "duration_ms", "termination", "artifacts", "redactions", "observation_complete", "status", "limitations", "provenance_statement", "producer_version"],
   "properties": {
     "schema_version": { "const": "1.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "gate_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
     "profile": { "enum": ["code", "specification", "mixed", "governance"] },
     "candidate_before": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "candidate_after": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "source_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "execution_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sandbox_capability_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-    "started_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
-    "ended_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "started_at": { "$ref": "#/$defs/timestamp" },
+    "ended_at": { "$ref": "#/$defs/timestamp" },
     "duration_ms": { "type": "integer", "minimum": 0 },
     "termination": {
       "type": "object",
@@ -42,9 +47,34 @@
         }
       }
     },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "replacement", "occurrences"],
+        "properties": {
+          "category": { "enum": ["sandbox_candidate_path", "supervisor_path"] },
+          "replacement": { "type": "string", "minLength": 1 },
+          "occurrences": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
     "observation_complete": { "type": "boolean" },
     "status": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
     "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "provenance_statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
     "producer_version": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
   }
 }

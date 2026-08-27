@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "locator_id": "sha256:8462213f584392d5717c4967227e44ca6ac20e9f35df7921dfa92d0954d4b951",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "kind": "repository_excerpt",
+  "path": "docs/requirements.md",
+  "artifact_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "media_type": "text/markdown",
+  "start_line": 1,
+  "end_line": 4,
+  "excerpt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}

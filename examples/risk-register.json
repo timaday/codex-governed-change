@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "risk_register_id": "sha256:14f747c693bcc88f0ebfad6f8abea9d2b4b2102db3f4085f0906a2e7aa1060b5",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_id": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "risks": [
+    {
+      "risk_id": "RISK-AUTHORITY-BYPASS",
+      "description": "Candidate input may attempt to replace protected authority.",
+      "threatened_value": "human-controlled admission",
+      "impact": "critical",
+      "status": "investigating",
+      "source_refs": ["GOV-043"],
+      "charter_refs": ["CHARTER-AUTHORITY"]
+    }
+  ],
+  "updated_from": ["requirement:GOV-043"],
+  "created_at": "2026-08-26T10:00:00Z",
+  "producer_version": "0.1.0"
+}

@@ -1,9 +1,14 @@
 {
   "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
   "gate_id": "blueprint-quality",
   "profile": "mixed",
   "candidate_before": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "candidate_after": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_identity": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "execution_identity": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "sandbox_capability_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
   "command": [
     "python3",
     "scripts/validate_blueprint.py"
@@ -31,8 +36,13 @@
       "truncated": false
     }
   ],
+  "redactions": [],
   "observation_complete": true,
   "status": "PASS",
   "limitations": [],
+  "provenance_statement": {
+    "path": "artifacts/governance/example/gates/blueprint-quality/provenance.json",
+    "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
   "producer_version": "0.1.0-example"
 }

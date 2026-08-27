@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "session_id": "SESSION-EVIDENCE-001",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "charter_id": "CHARTER-EVIDENCE-001",
+  "charter_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "reviewer_prompt_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "qualification_id": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+  "model": "gpt-5.6-sol",
+  "status": "completed",
+  "environment": ["sanitized read-only harness", "synthetic deterministic fixtures"],
+  "tools": ["fresh Codex reviewer", "Python acceptance suite"],
+  "experiments": [
+    {
+      "id": "EXP-STALE-001",
+      "activity_kind": "investigation",
+      "procedure": "Substitute a different candidate digest in otherwise valid session evidence.",
+      "observation": "The rapid-review policy classified the evidence as stale and returned UNKNOWN.",
+      "oracle": "GOV-033 exact candidate binding",
+      "evidence_refs": ["tests/acceptance/test_rapid_review.py"]
+    }
+  ],
+  "retrieval_expansions": [
+    {
+      "reference": "artifacts/governance/example/gate-manifest.json",
+      "sha256": "sha256:2323232323232323232323232323232323232323232323232323232323232323",
+      "level": "complete_artifact",
+      "reason": "Inspect raw gate evidence for the charter experiment."
+    }
+  ],
+  "findings": [],
+  "counter_hypotheses": ["A schema-valid report might still be stale; candidate equality was checked separately."],
+  "coverage_achieved": ["candidate mismatch", "missing charter", "explicit residual-risk reporting"],
+  "omitted_areas": ["live hosted CI behavior was outside this illustrative session"],
+  "obstacles": ["none observed in the deterministic fixture"],
+  "new_risks": [],
+  "follow_up_charters": ["Review fresh-process environment isolation in a separate charter."],
+  "residual_risks": [
+    {
+      "risk_id": "RESIDUAL-CORRELATION-001",
+      "description": "A same-model reviewer may share blind spots with the author even with fresh context.",
+      "material": true,
+      "evidence_refs": ["docs/threat-model.md"]
+    }
+  ],
+  "started_at": "2026-08-26T12:08:00Z",
+  "ended_at": "2026-08-26T12:38:00Z",
+  "producer_version": "0.1.0-example",
+  "provenance": {
+    "produced_by": "fresh read-only reviewer",
+    "method": "chartered RST-inspired rapid review",
+    "source_refs": ["examples/review-charter.json", "examples/evidence-manifest.json"]
+  }
+}

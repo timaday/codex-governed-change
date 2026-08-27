@@ -2,7 +2,7 @@
 
 ## Current phase
 
-This repository is `DESIGN_READY / IMPLEMENTATION_NOT_STARTED / RELEASE_BLOCKED`. Read `IMPLEMENTATION_STATUS.md` before making claims.
+This repository is `IMPLEMENTED_CANDIDATE / FINAL_QUALIFICATION_UNKNOWN / RELEASE_BLOCKED`. Read `IMPLEMENTATION_STATUS.md` before making claims.
 
 ## Mandatory workflow
 

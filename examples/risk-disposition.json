@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "risk_disposition_id": "RISK-DISPOSITION-EXAMPLE-001",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "debrief_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "items": [
+    {
+      "item_id": "RESIDUAL-CORRELATION-001",
+      "kind": "residual_risk",
+      "severity": "high",
+      "disposition": "deferred",
+      "rationale": "The automated system records this material residual risk for human decision and cannot accept it.",
+      "evidence_refs": ["examples/rapid-review-debrief.json"],
+      "decision_ref": ""
+    }
+  ],
+  "state": "READY_FOR_HUMAN",
+  "human_owned": true,
+  "approved": false,
+  "created_at": "2026-08-26T12:41:00Z",
+  "producer_version": "0.1.0-example",
+  "provenance": {
+    "produced_by": "deterministic governor",
+    "method": "candidate-bound finding and residual-risk aggregation",
+    "source_refs": ["examples/rapid-review-debrief.json"]
+  }
+}

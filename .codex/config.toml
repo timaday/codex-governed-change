@@ -1,10 +1,10 @@
 # Convenience configuration for development in this blueprint repository.
 # The strict isolated reviewer is launched by a separate codex exec process.
 
-review_model = "gpt-5.6"
+review_model = "gpt-5.6-sol"
 
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 2
-default_subagent_model = "gpt-5.6"
+default_subagent_model = "gpt-5.6-sol"
 default_subagent_reasoning_effort = "high"

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "capability_id": "sha256:ed964e293079973274945832be75fab00b1fb30e7b86d3e85e3bb8274c9c3afb",
+  "provider": "example-disposable-container",
+  "provider_version": "1.0",
+  "implementation_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "source_identity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "execution_identity": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "disposable": true,
+  "secrets_present": false,
+  "network_mode": "none",
+  "candidate_copy_writable": true,
+  "protected_paths_writable": false,
+  "evidence_paths_writable": false,
+  "supervisor_paths_writable": false,
+  "process_limit": 128,
+  "memory_bytes": 1073741824,
+  "cpu_seconds": 600,
+  "timeout_seconds": 900,
+  "output_bytes": 1000000,
+  "verified_at": "2026-08-26T10:00:00Z",
+  "limitations": ["The capability report does not prove the host is uncompromised."]
+}

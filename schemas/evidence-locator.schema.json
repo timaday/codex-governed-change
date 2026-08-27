@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/evidence-locator.schema.json",
+  "title": "Typed evidence locator",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "locator_id", "repository_id", "task_contract_sha256", "candidate_id", "kind", "path", "artifact_sha256", "media_type"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "locator_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "kind": { "enum": ["artifact", "repository_file", "repository_excerpt"] },
+    "path": { "type": "string", "minLength": 1 },
+    "artifact_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "media_type": { "type": "string", "minLength": 1 },
+    "start_line": { "type": "integer", "minimum": 1 },
+    "end_line": { "type": "integer", "minimum": 1 },
+    "excerpt_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

@@ -1,8 +1,8 @@
-# GPT-5.6 implementation mission
+# Codex GPT-5.6 Sol implementation mission
 
 ## Objective
 
-Implement the Codex Governed Change blueprint in this repository. Produce a portable, fail-closed governance tool that binds deterministic quality evidence and a fresh-context, read-only GPT-5.6 review to an exact Git candidate. Do not require HiveGate or any external governance service.
+Implement the Codex Governed Change blueprint in this repository. Produce a portable, fail-closed governance tool that binds deterministic quality evidence and a fresh-context, read-only ChatGPT-authenticated Codex GPT-5.6 Sol (`gpt-5.6-sol`) review to an exact Git candidate. Do not require HiveGate or any external governance service.
 
 The initial repository state is intentionally `DESIGN_READY / IMPLEMENTATION_NOT_STARTED / RELEASE_BLOCKED`.
 
@@ -58,8 +58,14 @@ Use `$governed-change` and follow `Context -> Decide -> Act -> Verify -> Learn`.
 
 - Implement the smallest coherent slice.
 - Keep reviewer execution isolated from the author session.
-- Do not use `codex exec resume` for independent review.
-- Ensure the reviewer command contains `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--sandbox read-only`, disabled hooks/subagents, the configured GPT-5.6 model, `--output-schema`, and a dedicated output path.
+- Do not use `codex exec resume` for fresh-context review.
+- Ensure the reviewer command contains `--ephemeral`, `--ignore-user-config`,
+  `--ignore-rules`, strict config parsing, the root-denying custom read-only
+  permission profile, disabled tool network, synthetic tool home, disabled
+  hooks/subagents, the explicit ChatGPT-authenticated Codex model
+  `gpt-5.6-sol`, `--output-schema`, and a dedicated output path. Do not combine
+  the custom profile with legacy `--sandbox read-only`, and do not use an OpenAI
+  API key for the MVP reviewer identity.
 - Start the reviewer in a sanitized harness Git root. Nest the immutable candidate as read-only evidence so its `.codex`, hooks, rules and skills can be inspected but cannot become active reviewer configuration.
 - Ensure the reviewer receives only the normalized task contract, immutable candidate identifiers, repository read access, and raw evidence locations.
 - Ensure a candidate mutation invalidates all earlier gate and review evidence.
@@ -75,7 +81,13 @@ For every slice:
 5. Inspect the full diff for scope, architecture, contract, test, documentation, and governance drift.
 6. Record exact commands, exits, candidate identity, artifact hashes, failures, unknowns, and limitations.
 
-When implementation is complete, launch the independent review as a new `codex exec --ephemeral` process. The reviewer must not receive this implementation session's chat, plan, self-review, or conclusions. Treat reviewer timeout, failure, malformed output, digest mismatch, missing evidence, or uncertainty as `UNKNOWN/BLOCK`.
+When deterministic gates, sandbox evidence, curated mutation, RST and context
+compilation are complete, launch fresh-context review as a new
+`codex exec --ephemeral` process. The reviewer must not receive this
+implementation session's chat, persisted reasoning, plan, self-review, or
+conclusions. Treat reviewer timeout, failure, malformed output, unqualified
+identity, unresolved evidence reference, digest mismatch, missing evidence, or
+uncertainty as `UNKNOWN/BLOCK`.
 
 If the reviewer identifies a blocking issue, repair it in the author session, invalidate all prior evidence, rerun every affected deterministic gate, and start another fresh reviewer process. Never resume the old reviewer.
 
@@ -92,8 +104,10 @@ Completion requires all of the following for one exact candidate:
 - all blueprint checks pass;
 - all acceptance tests pass with zero skips or expected failures;
 - deterministic unit, integration, security and adversarial gates pass;
-- the fresh reviewer produces schema-valid `PASS` bound to the same candidate;
-- the deterministic aggregator returns `READY_FOR_HUMAN`;
+- the qualified fresh-context reviewer produces schema-valid
+  `NO_BLOCKING_FINDING_OBSERVED` bound to the same repository/candidate/context;
+- the deterministic admission kernel reconstructs the assurance case and returns
+  `READY_FOR_HUMAN`;
 - governance self-tests demonstrate fail-closed behavior for missing, stale, malformed, timed-out, truncated and conflicting evidence;
 - the documentation and examples reflect actual implemented commands;
 - no unauthorised public, merge, release, deployment or policy action occurred.

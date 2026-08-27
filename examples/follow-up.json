@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "follow_up_id": "sha256:41649f8fbe6997a06847c956f349141baa4f99110a164993abb1fdb1c3270852",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_id": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "kind": "charter",
+  "source_kind": "mutant",
+  "source_id": "MUTANT-SKIPPED-FINAL",
+  "description": "Investigate all CI states that can prevent the final admission job from executing.",
+  "priority": "critical",
+  "required": true,
+  "status": "open",
+  "created_at": "2026-08-26T10:00:00Z"
+}

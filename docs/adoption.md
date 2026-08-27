@@ -1,16 +1,23 @@
 # Adoption guide
 
-This guide describes the intended post-implementation adoption. Commands referring to `codex-governance` remain unverified until the implementation is complete.
+This guide describes adoption of the implementation candidate. Local commands
+are covered by the repository suite; enforcement still requires protected
+policy inputs, a real sandbox, reviewer qualification, hosted CI and human
+approval in the adopting repository.
 
 ## 1. Prerequisites
 
 - Git.
 - Python 3.11 or newer.
-- A current Codex CLI with GPT-5.6 access.
+- A current ChatGPT-authenticated Codex CLI with `gpt-5.6-sol` access.
 - A repository with deterministic build/test commands.
 - CI and branch/ruleset administration for hard enforcement.
 
-The deterministic suite must work without a live model. Live independent review requires normal Codex authentication locally or a carefully isolated CI credential.
+The deterministic suite must work without a live model. Live fresh-context review
+uses normal ChatGPT/Codex authentication outside the sanitized harness. The MVP
+reviewer identity does not use an OpenAI API key, and no authentication value or
+machine-specific credential-store location belongs in repository content or
+evidence.
 
 ## 2. Install global guidance
 
@@ -75,15 +82,47 @@ Recommended controls:
 
 The example workflow is illustrative. A repository administrator must map it to the organization's runner, secret, workflow and ruleset policy.
 
+The reference deliberately calls a target-branch-owned `.governance/ci/`
+deployment adapter. That adapter is repository-specific and must materialize
+the authenticated task, policy, RST/context inputs, reviewer allowlist and
+manifest input after the candidate identity is known. It must never be loaded
+from PR code. The reference uses the portable repository-relative evidence root
+`artifacts/governance`; an adopter may select another protected relative root,
+but the policy, adapter and workflow must agree exactly. Missing adapter scripts,
+qualification records or generated inputs block the workflow.
+Decision JSON is never self-authenticating: the protected adapter must return
+the exact decision IDs it verified through the configured authenticated source.
+The evaluator accepts only those explicitly verified IDs; an omitted adapter
+observation, content-address alone, issuer string or model assertion has no
+authority.
+
 ## 7. Per-change operation
 
 1. Create a schema-valid task contract.
-2. Run local deterministic gates.
-3. Run the fresh reviewer.
-4. Evaluate the evidence.
-5. If any file changes, discard prior evidence and repeat.
-6. Push the candidate and let CI reconstruct proof.
-7. Human reviews `READY_FOR_HUMAN`; it is not automatic approval.
+2. Create an exact-candidate risk assessment and select proportionate RST-inspired rapid-review charters.
+3. Run cheap local deterministic gates.
+4. Run the fresh conformance reviewer and required chartered rapid-review sessions.
+5. Debrief the product, testing, and quality-of-testing stories; disposition every finding and residual risk without model-owned acceptance.
+6. Evaluate the evidence.
+7. If any file changes, discard prior evidence and repeat the affected checks and focused charters.
+8. Push the candidate and let CI reconstruct proof.
+9. Human reviews `READY_FOR_HUMAN` and owns material risk acceptance; neither is automatic approval.
+
+The installed CLI exposes `scope`, `identify`, `run-gates`, `mutate`,
+`prepare-review`, `assemble-manifest`, `review`, `import-reviewer-result`,
+`evaluate`, `status`, `verify` and `hook`. Every command returns `0` only for a
+valid/ready bounded outcome, `1` for a confirmed block and `2` for unknown or
+incomplete evidence. Use `codex-governance COMMAND --help` for the portable
+argument contract. Evidence paths are repository-relative; do not place user,
+home-directory, host or local endpoint values in policy or committed artifacts.
+`prepare-review` requires `--repository`, `--policy` and `--candidate`; it
+re-identifies the exact candidate and derives a conservative Git-visible
+dependency/caller/contract/test closure. Callers cannot supply an aggregate or
+restricted replacement for the changed-file inventory or closure. Each `review` call also requires a
+portable workflow run ID and writes three linked outputs: the schema-bound model
+result, reviewer-execution statement, and post-run context-execution receipt.
+The reference CI runs conformance and every protected rapid-review input, then
+passes all three artifact families to the final reconstruction job.
 
 ## 8. Reviewer isolation verification
 
@@ -92,6 +131,7 @@ Before relying on the reviewer lane:
 - inspect the actual argv and stdin created by a fake Codex executable;
 - verify no `resume`, author transcript, self-review, unrelated connector or writable token appears;
 - verify Codex starts in a sanitized harness Git root and candidate-owned `.codex`, hooks, rules and skills are not active configuration;
+- verify every copied review artifact is beneath the policy-selected evidence root, rather than a hard-coded host or user path;
 - place a random canary only in author context and prove its bytes are absent from reviewer-accessible inputs;
 - verify candidate filesystem and repository token are read-only;
 - force timeout, non-zero and malformed output and confirm `UNKNOWN/BLOCK`;
@@ -113,7 +153,9 @@ Make the deterministic disposition a required check. Protect governance assets a
 
 ### Harden
 
-Add mutation evaluation, specialist lanes, organization-managed controls, signed attestations or model diversity according to risk.
+The curated governance mutation corpus is mandatory for MVP admission. Add
+generated language mutation, specialist lanes, organization-managed controls,
+signed attestations or model diversity according to protected risk policy.
 
 ## 10. Removal and rollback
 

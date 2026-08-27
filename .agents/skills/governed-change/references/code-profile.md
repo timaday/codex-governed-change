@@ -37,6 +37,7 @@ Select every relevant gate. Do not mark a gate `N/A` without a reason in the tas
 7. Inspect every changed test for assertion weakening or implementation mirroring.
 8. Review docs, migration and operational behavior for drift.
 9. Preserve raw bounded evidence and exact candidate binding.
+10. After cheap deterministic gates pass, execute the risk-selected RST-inspired rapid-review charters in a fresh read-only context and debrief product, testing, and quality-of-testing stories.
 
 ## Review heuristics
 
@@ -46,3 +47,4 @@ Select every relevant gate. Do not mark a gate `N/A` without a reason in the tas
 - Check idempotency, retry semantics, ownership, lifecycle and partial failure.
 - Check boundary values, empty inputs, oversized inputs, invalid encoding, path/symlink cases and concurrent mutation.
 - Treat a stronger test suite with a poor architecture as technical debt, not success; verify maintainability and dependency direction explicitly.
+- Use HTSM and FEW HICCUPPS only as fallible inquiry prompts. Require direct observations, explicit oracles, evidence linkage, coverage/omission reporting, counter-hypotheses, and residual-risk disposition.

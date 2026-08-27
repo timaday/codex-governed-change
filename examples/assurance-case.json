@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "assurance_case_id": "sha256:8242f947cb968e07c71052f268c8a44cfce49ccb8787566e19cf7ddb207ecc85",
+  "repository_id": "repo:example/codex-governed-change",
+  "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "task_contract_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "effective_policy_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "claims": [
+    {"claim_id": "scope_authorized", "argument_rule": "RULE_SCOPE_AUTH", "supporting_evidence": [], "refuting_evidence": [], "limitations": [], "unresolved_defeaters": ["Example data is not evidence."], "classification": "UNVERIFIED"},
+    {"claim_id": "candidate_current", "argument_rule": "RULE_CANDIDATE_CURRENT", "supporting_evidence": [], "refuting_evidence": [], "limitations": [], "unresolved_defeaters": [], "classification": "DIRECTLY_OBSERVED"},
+    {"claim_id": "gates_complete", "argument_rule": "RULE_GATES_COMPLETE", "supporting_evidence": [], "refuting_evidence": [], "limitations": [], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "governance_integrity", "argument_rule": "RULE_GOVERNANCE_LKG", "supporting_evidence": [], "refuting_evidence": [], "limitations": [], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "rst_complete", "argument_rule": "RULE_RST_COMPLETE", "supporting_evidence": [], "refuting_evidence": [], "limitations": ["Investigation cannot prove absence of defects."], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "mutation_complete", "argument_rule": "RULE_MUTATION_COMPLETE", "supporting_evidence": [], "refuting_evidence": [], "limitations": ["The curated corpus is finite."], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "fresh_review_complete", "argument_rule": "RULE_FRESH_REVIEW", "supporting_evidence": [], "refuting_evidence": [], "limitations": ["Fresh context is not statistical independence."], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "residual_risk_visible", "argument_rule": "RULE_RISK_VISIBLE", "supporting_evidence": [], "refuting_evidence": [], "limitations": ["Unknown semantic defects remain possible."], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"},
+    {"claim_id": "context_complete", "argument_rule": "RULE_CONTEXT_COMPLETE", "supporting_evidence": [], "refuting_evidence": [], "limitations": [], "unresolved_defeaters": [], "classification": "VERIFIED_WITHIN_SCOPE"}
+  ],
+  "unresolved_defeaters": ["Example data is not evidence."],
+  "state": "UNKNOWN",
+  "created_at": "2026-08-26T10:00:00Z",
+  "producer_version": "0.1.0"
+}

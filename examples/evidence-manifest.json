@@ -1,6 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "manifest_id": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "manifest_id": "sha256:2ba1173d1fb0194abac1975f0d8b7d01e60557ace38895073f29ad61b2605334",
+  "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract": {
     "path": "artifacts/governance/example/task-contract.json",
@@ -10,6 +11,19 @@
     "path": "artifacts/governance/example/effective-policy.json",
     "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   },
+  "authenticated_decisions": [
+    {"path": "artifacts/governance/example/decisions/task-approval.json", "sha256": "sha256:1212121212121212121212121212121212121212121212121212121212121212"}
+  ],
+  "evidence_locators": [
+    {"path": "artifacts/governance/example/locators/gate-result.json", "sha256": "sha256:2424242424242424242424242424242424242424242424242424242424242424"}
+  ],
+  "sandbox_capabilities": [
+    {"path": "artifacts/governance/example/sandbox-capability.json", "sha256": "sha256:1313131313131313131313131313131313131313131313131313131313131313"}
+  ],
+  "provenance_statements": [
+    {"path": "artifacts/governance/example/provenance/gates.json", "sha256": "sha256:1414141414141414141414141414141414141414141414141414141414141414"}
+  ],
+  "gate_manifest": {"path": "artifacts/governance/example/gate-manifest.json", "sha256": "sha256:2323232323232323232323232323232323232323232323232323232323232323"},
   "required_gate_ids": [
     "blueprint-quality"
   ],
@@ -25,6 +39,61 @@
   "reviewer_result": {
     "path": "artifacts/governance/example/reviewer/result.json",
     "sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "reviewer_execution": {"path": "artifacts/governance/example/reviewer/execution.json", "sha256": "sha256:2525252525252525252525252525252525252525252525252525252525252525"},
+  "rapid_review_executions": [
+    {"path": "artifacts/governance/example/reviewer/rapid-execution.json", "sha256": "sha256:2828282828282828282828282828282828282828282828282828282828282828"}
+  ],
+  "rapid_review_context_execution_receipts": [
+    {"path": "artifacts/governance/example/reviewer/rapid-context-execution.json", "sha256": "sha256:2929292929292929292929292929292929292929292929292929292929292929"}
+  ],
+  "mutation_corpus": {
+    "path": "tests/mutation/corpus.json",
+    "sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "mutation_baseline": {
+    "path": "artifacts/governance/example/mutation/baseline/result.json",
+    "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "mutant_records": [
+    {"path": "artifacts/governance/example/mutation/skipped-final.json", "sha256": "sha256:1515151515151515151515151515151515151515151515151515151515151515"}
+  ],
+  "reviewer_qualification": {"path": "artifacts/governance/example/reviewer/qualification.json", "sha256": "sha256:1616161616161616161616161616161616161616161616161616161616161616"},
+  "rapid_review_qualification": {"path": "artifacts/governance/example/reviewer/rapid-qualification.json", "sha256": "sha256:2626262626262626262626262626262626262626262626262626262626262626"},
+  "context_receipt": {"path": "artifacts/governance/example/reviewer/context-receipt.json", "sha256": "sha256:1717171717171717171717171717171717171717171717171717171717171717"},
+  "context_execution_receipt": {"path": "artifacts/governance/example/reviewer/context-execution-receipt.json", "sha256": "sha256:2727272727272727272727272727272727272727272727272727272727272727"},
+  "risk_register": {"path": "artifacts/governance/example/rapid-review/risk-register.json", "sha256": "sha256:1818181818181818181818181818181818181818181818181818181818181818"},
+  "oracle_references": [
+    {"path": "artifacts/governance/example/rapid-review/oracle.json", "sha256": "sha256:1919191919191919191919191919191919191919191919191919191919191919"}
+  ],
+  "coverage_notes": [
+    {"path": "artifacts/governance/example/rapid-review/coverage.json", "sha256": "sha256:2020202020202020202020202020202020202020202020202020202020202020"}
+  ],
+  "follow_ups": [],
+  "assurance_case": {"path": "artifacts/governance/example/assurance-case.json", "sha256": "sha256:2121212121212121212121212121212121212121212121212121212121212121"},
+  "risk_assessment": {
+    "path": "artifacts/governance/example/risk-assessment.json",
+    "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "rapid_review_charters": [
+    {
+      "path": "artifacts/governance/example/rapid-review/charters/evidence.json",
+      "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "rapid_review_sessions": [
+    {
+      "path": "artifacts/governance/example/rapid-review/sessions/evidence.json",
+      "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "rapid_review_debrief": {
+    "path": "artifacts/governance/example/rapid-review/debrief.json",
+    "sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "risk_disposition": {
+    "path": "artifacts/governance/example/rapid-review/risk-disposition.json",
+    "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
   },
   "created_at": "2026-08-26T12:05:00Z",
   "producer_version": "0.1.0-example"

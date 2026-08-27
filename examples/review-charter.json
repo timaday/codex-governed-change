@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "charter_id": "CHARTER-EVIDENCE-001",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "risk_assessment_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "mission": "Investigate whether stale or incomplete evidence can create a readiness disposition.",
+  "target": "Candidate identity, evidence reconstruction, and disposition boundaries",
+  "affected_surfaces": ["src/codex_governance/", "schemas/", "tests/"],
+  "stakeholders": ["repository maintainers", "change authors"],
+  "value_at_risk": ["correct fail-closed decisions", "human approval authority"],
+  "risk_hypotheses": ["a candidate mismatch may be missed", "no findings may be reported despite unclear coverage"],
+  "quality_criteria": ["integrity", "testability", "authority separation"],
+  "coverage_areas": ["candidate binding", "missing artifacts", "residual-risk reporting"],
+  "techniques": ["state-transition experiments", "evidence substitution", "counter-hypothesis testing"],
+  "oracle_heuristics": ["explicit requirements", "internal consistency", "history", "purpose"],
+  "resources": ["immutable candidate snapshot", "bounded raw gate artifacts"],
+  "constraints": ["read-only candidate access", "no implementer conversation"],
+  "timebox_minutes": 45,
+  "required_evidence": ["candidate identity", "gate manifest", "direct experiment observations"],
+  "stopping_heuristic": "Stop or redirect when the charter risks are addressed, a blocking obstacle prevents useful observation, or new evidence justifies a follow-up charter.",
+  "created_at": "2026-08-26T12:07:00Z",
+  "producer_version": "0.1.0-example",
+  "provenance": {
+    "produced_by": "human-approved task process",
+    "method": "risk-proportionate charter selection",
+    "source_refs": ["examples/risk-assessment.json"]
+  }
+}

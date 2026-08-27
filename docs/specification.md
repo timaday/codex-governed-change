@@ -12,7 +12,7 @@ The system therefore separates:
 
 1. **Guidance**: `AGENTS.md`, a repository skill, and task contracts help an author model work consistently.
 2. **Evidence production**: deterministic commands produce exact candidate-bound results.
-3. **Independent review**: a fresh read-only model process searches for defects and missing evidence.
+3. **Fresh-context review**: a separate read-only model process searches for defects and missing evidence without receiving the author conversation.
 4. **Disposition**: deterministic aggregation rejects incomplete or stale proof.
 5. **Authority**: protected CI and a human decide whether the candidate may be merged.
 
@@ -25,7 +25,8 @@ The system therefore separates:
 - A repository skill with code and specification profiles.
 - Commit candidates in CI and working-tree candidates locally.
 - Deterministic gate execution with bounded output capture and artifact hashing.
-- Fresh GPT-5.6 review through a new `codex exec` invocation.
+- Fresh ChatGPT-authenticated Codex GPT-5.6 Sol (`gpt-5.6-sol`) review through
+  a new `codex exec` invocation.
 - JSON evidence contracts and a deterministic fail-closed aggregator.
 - A bounded Codex Stop-hook adapter.
 - Local operation without HiveGate, MCP, a database, or a hosted service.
@@ -57,7 +58,7 @@ The system therefore separates:
 | Human task owner | Approve scope, requirements, waivers and merge | Rely on a model claim as sole evidence |
 | Author model | Design, edit, test, self-review, repair | Declare final acceptance or modify gates to benefit its candidate |
 | Deterministic gate runner | Execute configured commands and capture evidence | Interpret missing evidence as success |
-| Independent reviewer | Read the candidate, repository and raw evidence; emit findings | Edit candidate, access author chat, accept risk or certify merge |
+| Fresh-context reviewer | Read the candidate, repository and verified evidence; emit bounded findings | Edit candidate, access author chat/reasoning, accept risk or certify merge |
 | Evidence aggregator | Validate contracts, identities and required results | Infer absent results or override a failure |
 | CI authority | Reproduce gates on an immutable commit | Trust mutable candidate-owned policy without protection |
 
@@ -92,6 +93,13 @@ A normalized, schema-valid declaration of:
 
 The task contract is an input assertion, not automatic truth. The reviewer MUST compare it with repository authority.
 
+A decision object is likewise an assertion until the configured protected
+decision-source adapter verifies it. Content addressing proves only byte
+identity. Every decision-consuming rule MUST receive a separate exact set of
+adapter-verified `decision_id` values; the default is empty. Missing source
+verification is `UNKNOWN/BLOCK` even when repository, candidate, scope, issuer,
+time and decision content all appear valid.
+
 ### 5.2 Candidate identity
 
 A candidate identity binds evidence to one repository state. It includes:
@@ -100,6 +108,8 @@ A candidate identity binds evidence to one repository state. It includes:
 - base commit;
 - head commit when present;
 - canonical tracked diff digest;
+- the independently observed, sorted repository-relative paths changed by that
+  tracked diff plus non-ignored untracked additions;
 - ordered non-ignored untracked path/content/mode digests for working-tree mode;
 - ordered submodule states when submodules are present;
 - effective governance policy digest;
@@ -107,9 +117,14 @@ A candidate identity binds evidence to one repository state. It includes:
 
 Paths MUST be repository-relative and normalized. Collections MUST be sorted. Hashing MUST use raw bytes where content identity matters and canonical JSON for aggregate structures.
 
+The admission kernel MUST use this candidate-bound changed-path set, not the
+task author's affected-surface declaration, when selecting protected governance
+rules and deciding whether governance authorization is required. The task's
+affected surfaces remain an additional assertion used for closure checks.
+
 `.git/` and the configured evidence output root are excluded. No other tracked candidate path may be excluded. Ignored files are outside the candidate contract and MUST NOT be needed for correctness; required generated inputs must be represented by a declared gate artifact digest.
 
-Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. A mismatch makes the result `UNKNOWN`. CI MUST use immutable commit mode.
+Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run, independently re-identify every copied snapshot before execution, and reject dirty or unavailable submodule working trees. A mismatch makes the result `UNKNOWN`. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold the non-blocking OS-backed working-tree lock beneath the evidence root for its complete lifetime; contention is `UNKNOWN/BLOCK`.
 
 ### 5.3 Gate result
 
@@ -130,14 +145,18 @@ Each gate result records:
 The fresh reviewer emits only schema-valid JSON containing:
 
 - candidate binding;
-- verdict: `PASS`, `BLOCK`, or `UNKNOWN`;
+- verdict: `NO_BLOCKING_FINDING_OBSERVED`, `BLOCK`, or `UNKNOWN`;
 - reviewed surfaces;
 - findings with severity, location, claim, violated oracle, evidence and remediation;
 - missing evidence;
-- claim classifications: `PROVEN`, `SUPPORTED`, `UNVERIFIED`, or `UNKNOWN`;
+- claim classifications: `DIRECTLY_OBSERVED`, `VERIFIED_WITHIN_SCOPE`,
+  `UNVERIFIED`, or `UNKNOWN`;
 - limitations.
 
-The reviewer result is invalid if it does not exactly match the candidate, task contract, reviewer prompt version, and required gate manifest supplied by the runner.
+The reviewer result is invalid if it does not exactly match the repository,
+candidate, task contract, context receipt, reviewer prompt/launcher/model/schema
+qualification, and required gate manifest supplied by the runner. Every cited
+evidence locator is resolved and digest-verified before it can support a claim.
 
 ### 5.5 Evidence manifest and disposition
 
@@ -167,7 +186,10 @@ The author MUST make bounded, coherent changes. It MUST NOT modify acceptance au
 
 ### 6.4 Verify
 
-The author runs required deterministic gates, self-reviews the diff, and starts the independent reviewer only after deterministic prerequisites pass. A candidate modification invalidates all earlier affected results.
+The author runs required deterministic gates, self-reviews the diff, and starts
+the fresh-context reviewer only after sandbox, mutation, RST, context and other
+deterministic prerequisites pass. A candidate modification invalidates all
+earlier affected results.
 
 ### 6.5 Learn
 
@@ -208,27 +230,73 @@ A specification change requires:
 
 Mixed changes MUST satisfy both profiles. Documentation-only labeling does not remove code-profile obligations if behavior or authority changes.
 
-## 8. Independent reviewer isolation
+## 8. Fresh-context reviewer isolation
 
-The strict reviewer MUST be a new process and MUST NOT use `codex exec resume` or an in-session subagent.
+The strict reviewer MUST be a new process and MUST NOT use `codex exec resume` or an in-session subagent. This establishes fresh context, not statistical or organizational independence.
 
 The launcher MUST:
 
 - use a new `codex exec --ephemeral` invocation;
 - use `--ignore-user-config` while preserving normal authentication;
 - use `--ignore-rules` and explicit overrides that disable hooks and subagents for the reviewer process;
-- set `--sandbox read-only`;
-- select the configured GPT-5.6 model and reasoning effort;
-- require `--output-schema` and a dedicated final-output path;
+- select a strict custom Codex permission profile that extends `:read-only`,
+  denies the host root, re-allows only the sanitized workspace and minimum
+  detected Codex/tool runtime installation roots, and disables tool network
+  access; runtime roots are derived at launch, never accepted from candidate
+  input, and persist only through the argv digest; the legacy broad-read
+  `--sandbox read-only` mode is insufficient for this boundary and MUST NOT be
+  combined with the custom profile;
+- set approval policy to `never`, require strict config parsing, and restrict
+  model-generated tool environments to non-secret runtime keys; parent `HOME`,
+  `CODEX_HOME`, proxy values and authentication material remain available only
+  where needed by the parent Codex process and MUST NOT reach tool processes;
+  tools receive a fixed synthetic home value so shells cannot reconstruct the
+  parent credential location;
+- select the configured ChatGPT-authenticated Codex GPT-5.6 Sol model
+  (`gpt-5.6-sol`) and reasoning effort; API-key authentication is outside the
+  MVP reviewer identity;
+- require `--output-schema`, `--json` event output and a dedicated final-output path;
 - start Codex in a sanitized harness Git root, with the immutable candidate checkout nested beneath it as read-only evidence, so candidate-owned `.codex` configuration, hooks, skills and execpolicy are inspectable files but not active reviewer configuration;
-- expose no author chat, plan, self-review, hidden reasoning, unrelated connector, or writable credential;
+- expose no author chat, plan, self-review, persisted/hidden reasoning,
+  connector, unrelated MCP tool, host filesystem outside the bounded read
+  roots, tool network, or tool-visible credential;
 - pass only a fixed reviewer prompt, normalized task contract, exact candidate identifiers, required gate manifest and raw evidence locations;
-- record the exact sanitized invocation configuration and prompt digest;
+- copy only explicitly allowlisted, digest-matched, bounded regular evidence
+  files into the sanitized harness; caller-selected harness roots, absolute
+  paths, symlinks, path traversal and undeclared evidence are forbidden;
+- record digest-only argv/stdin identities and the exact sanitized invocation
+  configuration in a content-addressed reviewer-execution statement that also
+  binds the Codex thread and CLI versions, workflow run/attempt, limits,
+  materials, prompt/schema/model/qualification/launcher identities,
+  termination, output, candidate pre/post identity and CLI-reported token usage;
 - classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
-The sanitized harness contains only the fixed protected reviewer prompt, output schema, permitted-input manifest, and nested candidate/evidence paths. It MUST NOT copy global or candidate Codex configuration into an active layer. Authentication may remain in the normal Codex home, but no authentication file or value enters the harness, prompt, result, or evidence manifest.
+The prompt, output schema, model, Codex CLI version and material launcher configuration form one
+qualified reviewer identity per review mode. Conformance and rapid review use
+distinct output schemas and therefore MUST have distinct protected qualification
+IDs even when their prompt, model and launcher are otherwise identical. A
+protected human-labelled defect and prompt-injection corpus records critical
+recall, false pass/block, unknown, latency and cost for each identity. A material
+identity change invalidates only that exact qualification and cannot fall back to
+the identity for another mode.
+High/critical policy may require a human specialist or genuinely diverse lane;
+disagreement is a defeater, not a majority vote. Whole-repository architecture
+and security audit is a separate scheduled/major-change workflow.
+
+The trusted launcher creates and owns the temporary harness; callers do not
+select it. The sanitized harness contains only the fixed protected reviewer
+prompt, output schema, permitted-input manifest, explicitly digest-matched
+evidence, and the nested candidate. It MUST NOT copy global or candidate Codex
+configuration into an active layer. Authentication may remain in the normal
+Codex home, but no authentication file or value enters the harness, prompt,
+result, or evidence manifest. The launcher MUST re-observe the live candidate
+before and after the reviewer process. A trusted post-run phase MUST persist the
+reviewer result, reviewer-execution statement and a context-execution receipt
+linked to the immutable prepared receipt. The execution statement binds both
+receipts and the output without creating a circular content address. Admission MUST reconstruct those links;
+a schema-valid reviewer document or ambient workflow success is insufficient.
 
 ## 9. Affected closure and repository audit
 
@@ -264,7 +332,10 @@ Non-managed project hooks require trust and can be disabled. CI remains the hard
 
 CI MUST run on the immutable pull-request candidate and use read-only repository permissions for model review. Deterministic setup and tests MUST run before any job receives a model credential.
 
-The effective gate policy MUST come from a protected source. Recommended controls:
+The effective gate policy MUST come from a protected source. The reference
+workflow in this repository is an installation template for a separately
+protected authority repository or organization ruleset; copying it into the
+evaluated repository cannot establish authority. Recommended controls:
 
 - required status checks or repository rulesets;
 - code-owner review for governance assets;
@@ -297,8 +368,202 @@ An LLM cannot create, approve, extend or infer a waiver. Expired, mismatched, mi
 - The CLI MUST use argument arrays without a shell by default. Shell commands require explicit configuration and risk classification.
 - Symlinks, path traversal, submodules, large files, invalid encodings, concurrent edits and subprocess termination MUST have explicit tests.
 
-## 14. Acceptance rule
+## 14. RST-inspired rapid review
 
-The system may emit `READY_FOR_HUMAN` only when every required artifact is schema-valid, complete, current, authorized and bound to one exact candidate; every mandatory deterministic gate is `PASS`; the fresh reviewer is valid and `PASS`; no unauthorized governance change exists; and no unresolved mandatory `UNKNOWN` remains.
+RST-inspired rapid review is a distinct investigative layer for specification/design review before approval and code/change review after cheap deterministic gates. Deterministic checks evaluate known assertions; conformance review compares the candidate with its contract; rapid review investigates important risks, failures, assumptions, stakeholders, and value that those mechanisms may have omitted. It is not official or fully automated Rapid Software Testing, and it never replaces deterministic evidence, conformance review, or human authority.
+
+For each exact candidate, the workflow MUST:
+
+1. create or update a candidate-bound risk assessment;
+2. select risk-proportionate, time-boxed charters;
+3. run cheap deterministic checks first when useful;
+4. conduct each required charter in a fresh-context read-only harness with the approved contract, risk assessment, charter, and allowlisted evidence, never the implementer's conversation;
+5. record experiments, direct observations, fallible oracles, evidence, findings, counter-hypotheses, coverage, omissions, obstacles, follow-up charters, and residual risks;
+6. debrief the product story, testing story, and quality-of-testing story separately;
+7. return actionable findings for remediation; and
+8. invalidate all affected evidence and repeat after any candidate mutation.
+
+Risk effort is configurable rather than duration-driven:
+
+- `low`: rapid review may be skipped only with a non-empty policy-valid rationale; hazardous surfaces in GOV-034 cannot select this profile;
+- `standard`: at least one completed focused charter and debrief;
+- `elevated`: multiple relevant completed charters or explicit justified coverage,
+  qualified fresh-context review, human debrief, and human ownership of material
+  residual-risk acceptance.
+
+HTSM and FEW HICCUPPS are fallible guidewords for inquiry, not rules or proof. Useful oracles include purpose and stakeholder value, claims and requirements, internal consistency, history, comparable systems, user desires, standards and law, feasibility, testability, observability, invariants, schemas, differential/metamorphic relationships, error states, privilege boundaries, concurrency, compatibility, recovery, operability, and diagnostics. Every finding must explain why an observation threatens value and cite direct evidence.
+
+The deterministic governor validates artifact presence, schema, provenance, exact candidate binding, required charter count/status, evidence references, finding disposition, and residual-risk disposition. It MUST return `UNKNOWN/BLOCK` for missing or stale artifacts, unavailable material oracles/environments, unclear coverage, missing debrief, blocked/inconclusive sessions, unsupported success claims, or unresolved high-impact risk. Completed checklists, elapsed time, session count, or no findings never establish safety.
+
+The adaptation is informed by the [Rapid Software Testing introduction](https://rapid-software-testing.com/a-ridiculously-rapid-introduction-to-rapid-software-testing/), [Heuristic Test Strategy Model](https://rapid-software-testing.com/heuristic-test-strategy-model/), [FEW HICCUPPS](https://developsense.com/blog/2012/07/few-hiccupps), [session report checklist](https://rapid-software-testing.com/session-based-test-management-report-checklist/), and [testing/checking distinction](https://rapid-software-testing.com/testing-and-checking-refined/). The repository defines an independent MIT-licensed adaptation and does not copy or vendor course worksheets.
+
+## 15. Protected admission and trusted authority
+
+The admission kernel is the only component that may emit
+`READY_FOR_HUMAN`. It is a pure, deterministic reference monitor evaluated from
+the previous LKG governance source. It validates a compact assurance case with
+fixed argument rules for authorized scope, exact/current repository and
+candidate, protected governance, complete gates, required RST and mutation,
+qualified fresh-context review, and visible residual risks, waivers and unknowns.
+Each claim contains supporting and refuting typed evidence, limitations and
+unresolved defeaters. Model prose is never an argument rule.
+
+For a fixed authenticated authority set, the policy is monotonic: adding a
+failure, unknown or defeater; removing required evidence; changing repository,
+candidate, policy, producer or environment; or making evidence stale can never
+improve disposition.
+
+Protected decisions are external verified facts, not booleans or names supplied
+by the candidate. Task approval, governance authorization, risk reduction,
+waiver issuance/consumption and LKG promotion bind repository ID, task digest,
+candidate/base where applicable, policy digest, exact scope, authenticated
+issuer, issued/expiry times and single-use consumption where applicable.
+Protected changed-surface policy computes a minimum risk profile and gate set.
+Task input may add scrutiny; reducing the floor requires an applicable decision.
+
+## 16. Sandboxed execution and provenance
+
+Candidate commands are untrusted. They run in a disposable candidate/build
+sandbox with no secrets, network disabled by default, declared process/resource/
+time/output limits, and no writable protected governance, supervisor, reviewer
+harness or authoritative evidence path. The supervisor records its capability
+report. If that boundary cannot be established, the gate is `UNKNOWN` and
+admission blocks. A separate directory or path validation alone is not a sandbox.
+Every gate receives a newly reconstructed candidate copy. A writable copy is
+never reused by a later gate, so an earlier command cannot replace the source,
+tests or configuration observed by a sibling gate. Before launch, the trusted
+supervisor independently identifies the copy and requires it to match the exact
+candidate; mismatch is `UNKNOWN/BLOCK`.
+
+Only after untrusted execution ends may a fresh trusted phase package output. It
+emits an in-toto-shaped Statement v1 whose subjects bind the protected
+`repository_id` and exact candidate/source digest. The predicate binds task,
+effective policy, gate/reviewer prompt, producer/builder implementation, workflow
+run and attempt, tools, sandbox/environment, resolved materials, start/end time,
+result, limits, limitations and artifact digests. Source identity and execution
+identity are distinct replay boundaries. The MVP statement is unsigned
+provenance; it MUST NOT be described as authenticated until a signature envelope
+is actually verified.
+
+Authoritative storage is content-addressed and write-once. Writing identical
+bytes to the same address is idempotent; any conflicting replacement blocks. A
+content-addressed document ID is SHA-256 of canonical JSON with exactly that
+top-level ID field omitted. Cross-repository substitution and unresolved typed
+artifact/excerpt locators are `UNKNOWN/BLOCK`.
+
+The same no-replacement/idempotent-identical rule applies to CLI output files;
+atomic replacement is not an authority-output mechanism. During admission, each
+gate result's stdout/stderr references are resolved beneath the repository,
+re-hashed, byte-counted and reconciled with provenance. `PASS` additionally
+requires exited-zero, complete observation, no truncation and exact candidate
+pre/post identity. Gate, mutation and reviewer producers retain distinct
+workflow/run identities; causal artifact links, not identical run IDs, relate
+them.
+
+## 17. Governed mutation and operational RST
+
+The mandatory mutation gate is a curated semantic corpus for fail-closed
+governance invariants. It runs in a disposable candidate after a green baseline
+and before final review. Only a causal expected-test failure kills a valid
+non-equivalent mutant. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
+`EQUIVALENT_CLAIMED`, unexecuted and harness failures never count as killed and
+block or remain unknown. Generated language mutation is a bounded optional
+adapter; aggregate percentage alone is not an oracle.
+
+Every admitted mutant record MUST bind the protected corpus, repository, task,
+policy and original candidate; a distinct mutated-source identity; the exact
+selected command and execution identity; a validated disposable-sandbox
+capability; the corresponding in-toto-shaped provenance statement; the bounded
+execution result; and resolvable causal evidence. Mutation commands MUST use the
+same protected container boundary as deterministic gates. A host subprocess or
+summary-only corpus run is diagnostic evidence only and cannot satisfy the
+mutation claim.
+
+Operational RST maintains separate candidate/task-bound risk-register,
+fallible-oracle/reference, charter, session observation, coverage, debrief and
+follow-up artifacts. Requirements and changes create risks; observations update
+them; surviving mutants refine charters; reviewer findings create follow-up
+risks. Completed paperwork or no findings never proves correctness.
+
+## 18. Deterministic context compilation
+
+Every model call receives a protected deterministic projection:
+
+- `COMPACT` for routine bounded low-risk work;
+- `STANDARD` for normal implementation/review; or
+- `DEEP` for governance, security, authentication/authorization, architecture,
+  release/evidence/reviewer changes, large or uncertain closure, gate failure or
+  absence, mutation survivor, oracle conflict, injection risk, incomplete
+  authority/provenance, reviewer/selector uncertainty, or unsafe budget pressure.
+
+All profiles contain a non-droppable assurance kernel: authenticated task and
+authority; applicable policy; repository/candidate/policy/evidence identities;
+complete changed-file inventory; a conservative dependency, caller, contract
+and test closure independently derived by the trusted compiler from the
+re-identified exact repository and policy; deterministic results; every
+unresolved risk, failure, conflict,
+survivor, limitation and unknown; the fixed reviewer rubric and disposition
+contract; and typed references that can retrieve exact underlying evidence.
+
+For the MVP, the conservative closure is the complete Git-visible candidate
+repository inventory plus changed paths (including deletions), excluding only
+the policy-declared evidence root. This safely includes unchanged callers,
+contracts and tests without trusting language-specific or caller-provided
+selection. A supplied closure that is missing, extra or differently ordered
+MUST block. `prepare-review` therefore requires the exact repository and
+effective policy in addition to the candidate descriptor.
+
+The candidate-bound rapid-review assessment may increase but MUST NOT reduce the
+effective protected/task risk profile, task-required review flag, or the larger
+of the profile/task minimum charter counts. A downgrade is a confirmed block,
+not a valid low-risk skip.
+
+Progressive disclosure is `manifest -> typed summary -> relevant excerpt ->
+complete artifact`. The complete repository and unabridged artifacts remain
+read-only accessible without being inlined wholesale. Every expansion is added
+to a context receipt. Stable rubric content precedes candidate-specific deltas;
+unchanged content is referenced by digest. Prompt caching is recorded only when
+reported by the active interface and never reduces logical assurance input.
+
+The receipt binds projection/profile version, source/projection digests,
+included sources, excluded sources with deterministic reasons, estimated and
+actual tokens where available, bytes, truncation, retrieval expansions, model,
+effort, latency and cost when available. Mandatory information is never silently
+truncated. The compiler escalates or returns
+`CONTEXT_BUDGET_INSUFFICIENT` with `UNKNOWN/BLOCK`.
+
+Context variants require representative seeded-defect/governance qualification.
+They are promoted only if critical recall, evidence traceability and disposition
+correctness do not materially regress; efficiency metrics are secondary. The MVP
+uses Git metadata, repository search, import/test mapping and content-addressed
+manifests, not embeddings or a vector database.
+
+## 19. Schema lifecycle and portability
+
+Schemas define supported versions and migration behavior. Syntax validation is
+followed by semantic validation including complete RFC 3339 parsing, time
+ordering, digest/reference relationships and lifecycle constraints. Unsupported
+or ambiguous versions block. The domain remains independent of JSON, Git,
+subprocess, Codex, clocks and filesystems.
+
+The package remains standalone on Python 3.11+ with standard-library production
+code plus declared Git/Codex and an optional local sandbox executable. No HiveGate
+code, service or schema is a runtime dependency. Repository files and committed
+examples MUST NOT contain a developer path, username, hostname, local endpoint,
+credential or machine-derived configuration/evidence.
+
+## 20. Acceptance rule
+
+The system may emit `READY_FOR_HUMAN` only when every required artifact is
+schema-valid, semantically valid, complete, current, provenance-bearing,
+authorized and bound to one repository and exact candidate; every mandatory
+deterministic and mutation gate is `PASS`; the qualified fresh-context reviewer
+reports `NO_BLOCKING_FINDING_OBSERVED`; its reviewer-execution statement and
+post-run context-execution receipt reconstruct; required separately qualified
+rapid-review sessions and the
+three-story debrief are complete; every finding and material residual risk has a
+valid authenticated disposition; both prepared and post-run context receipts are complete; governance
+integrity remains protected by the LKG policy; and no unresolved defeater or
+mandatory `UNKNOWN` remains.
 
 Nothing in this specification authorizes automatic merge or deployment.

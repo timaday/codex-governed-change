@@ -1,35 +1,40 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://timaday.github.io/codex-governed-change/schemas/reviewer-result.schema.json",
-  "title": "Independent reviewer result",
+  "title": "Fresh-context reviewer result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "candidate_id", "task_contract_sha256", "effective_policy_sha256", "gate_manifest_sha256", "reviewer_prompt_sha256", "model", "invocation_id", "verdict", "reviewed_surfaces", "findings", "missing_evidence", "claims", "limitations"],
+  "required": ["schema_version", "repository_id", "candidate_id", "task_contract_sha256", "effective_policy_sha256", "gate_manifest_sha256", "context_receipt_sha256", "reviewer_prompt_sha256", "qualification_id", "model", "invocation_id", "verdict", "reviewed_surfaces", "affected_closure", "retrieval_expansions", "findings", "missing_evidence", "claims", "limitations"],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "effective_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "gate_manifest_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "context_receipt_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "reviewer_prompt_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "qualification_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "model": { "type": "string", "minLength": 1 },
     "invocation_id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,160}$" },
-    "verdict": { "enum": ["PASS", "BLOCK", "UNKNOWN"] },
+    "verdict": { "type": "string", "enum": ["NO_BLOCKING_FINDING_OBSERVED", "BLOCK", "UNKNOWN"] },
     "reviewed_surfaces": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "affected_closure": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "retrieval_expansions": { "type": "array", "items": { "$ref": "#/$defs/expansion" } },
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "category", "path", "claim", "violated_oracle", "evidence", "remediation"],
+        "required": ["severity", "category", "path", "line", "claim", "violated_oracle", "evidence_refs", "remediation"],
         "properties": {
-          "severity": { "enum": ["critical", "high", "medium", "low"] },
-          "category": { "enum": ["correctness", "security", "authority", "evidence", "architecture", "test", "specification", "performance", "data", "operations", "ux", "portability"] },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "category": { "type": "string", "enum": ["correctness", "security", "authority", "evidence", "architecture", "test", "specification", "performance", "data", "operations", "ux", "portability"] },
           "path": { "type": "string", "minLength": 1 },
-          "line": { "type": "integer", "minimum": 1 },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
           "claim": { "type": "string", "minLength": 1 },
           "violated_oracle": { "type": "string", "minLength": 1 },
-          "evidence": { "type": "string", "minLength": 1 },
+          "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/reference" } },
           "remediation": { "type": "string", "minLength": 1 }
         }
       }
@@ -43,11 +48,33 @@
         "required": ["claim", "classification", "evidence_refs"],
         "properties": {
           "claim": { "type": "string", "minLength": 1 },
-          "classification": { "enum": ["PROVEN", "SUPPORTED", "UNVERIFIED", "UNKNOWN"] },
-          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          "classification": { "type": "string", "enum": ["DIRECTLY_OBSERVED", "VERIFIED_WITHIN_SCOPE", "UNVERIFIED", "UNKNOWN"] },
+          "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } }
         }
       }
     },
     "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "expansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "sha256", "level", "reason"],
+      "properties": {
+        "reference": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "level": { "type": "string", "enum": ["typed_summary", "relevant_excerpt", "complete_artifact"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator_id", "sha256"],
+      "properties": {
+        "locator_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
   }
 }

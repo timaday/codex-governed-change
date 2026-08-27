@@ -1,7 +1,3 @@
-"""Codex Governed Change.
+"""Fail-closed governance and evidence tooling for Codex repository changes."""
 
-The public API is specified by the acceptance suite. Production implementation is
-intentionally absent in the blueprint baseline.
-"""
-
-__version__ = "0.0.0"
+__version__ = "0.1.0"

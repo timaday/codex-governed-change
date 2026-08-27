@@ -1,38 +1,46 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
+  "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "gate_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "context_receipt_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
   "reviewer_prompt_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-  "model": "gpt-5.6",
+  "qualification_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "model": "gpt-5.6-sol",
   "invocation_id": "example-review-001",
-  "verdict": "PASS",
+  "verdict": "NO_BLOCKING_FINDING_OBSERVED",
   "reviewed_surfaces": [
     "Exact base-to-candidate diff",
     "Affected contracts and callers",
     "Gate evidence and candidate binding",
     "Security and governance boundaries"
   ],
+  "affected_closure": [
+    "docs/requirements.md",
+    "tests/acceptance/test_blueprint_contract.py"
+  ],
+  "retrieval_expansions": [],
   "findings": [],
   "missing_evidence": [],
   "claims": [
     {
       "claim": "The blueprint quality gate passed for the supplied candidate",
-      "classification": "PROVEN",
+      "classification": "DIRECTLY_OBSERVED",
       "evidence_refs": [
-        "gates/blueprint-quality/result.json"
+        {"locator_id": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
       ]
     },
     {
       "claim": "No blocking defect was discovered in the reviewed surfaces",
-      "classification": "SUPPORTED",
+      "classification": "VERIFIED_WITHIN_SCOPE",
       "evidence_refs": [
-        "reviewer/result.json"
+        {"locator_id": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"}
       ]
     }
   ],
   "limitations": [
-    "A reviewer PASS does not prove correctness or authorize merge"
+    "No blocking finding observed does not prove correctness or authorize merge"
   ]
 }

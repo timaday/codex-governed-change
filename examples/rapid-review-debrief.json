@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "debrief_id": "DEBRIEF-EVIDENCE-001",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "session_refs": ["examples/rapid-review-session.json"],
+  "product_story": {
+    "summary": "The candidate rejected stale rapid-review evidence and preserved human risk authority.",
+    "evidence_refs": ["examples/rapid-review-session.json"],
+    "limitations": ["This example does not establish production safety."]
+  },
+  "testing_story": {
+    "summary": "The investigation exercised candidate mismatch, mandatory charter presence, and residual-risk reporting.",
+    "evidence_refs": ["tests/acceptance/test_rapid_review.py"],
+    "limitations": ["Hosted CI and model-provider behavior were not exercised."]
+  },
+  "quality_of_testing_story": {
+    "summary": "Direct schema and policy oracles were strong; same-model semantic coverage remains fallible.",
+    "evidence_refs": ["docs/test-strategy.md"],
+    "limitations": ["No finite charter can prove absence of unknown defects."]
+  },
+  "actionable_findings": [],
+  "residual_risks": ["Same-model correlated blind spots require human consideration."],
+  "created_at": "2026-08-26T12:40:00Z",
+  "producer_version": "0.1.0-example",
+  "provenance": {
+    "produced_by": "review debrief process",
+    "method": "three-story session debrief",
+    "source_refs": ["examples/rapid-review-session.json"]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/rollback-evidence.schema.json",
+  "title": "LKG policy rollback evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rollback_evidence_id", "repository_id", "task_contract_sha256", "candidate_id", "previous_lkg_policy_sha256", "proposed_policy_sha256", "rollback_target_commit", "gate_result_sha256", "sandbox_capability_sha256", "provenance_statement_sha256", "status", "created_at", "limitations"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "rollback_evidence_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "previous_lkg_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "proposed_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "rollback_target_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "gate_result_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sandbox_capability_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "provenance_statement_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "status": { "const": "PASS" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+  }
+}

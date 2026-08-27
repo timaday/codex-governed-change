@@ -1,0 +1,85 @@
+import json
+import math
+import unittest
+from copy import deepcopy
+from pathlib import Path
+
+from codex_governance.schema import (
+    JsonRepresentationAdapter,
+    SchemaValidationError,
+    load_json,
+    validate_instance,
+    validate_semantics,
+)
+
+
+class SchemaAdapterTest(unittest.TestCase):
+    def test_every_example_round_trips_canonically(self) -> None:
+        for schema_path in sorted(Path("schemas").glob("*.schema.json")):
+            example_path = Path("examples") / schema_path.name.replace(".schema", "")
+            adapter = JsonRepresentationAdapter(schema_path)
+            original = load_json(example_path)
+            encoded = adapter.serialize(original)
+            self.assertEqual(original, adapter.parse(encoded), schema_path.name)
+            self.assertEqual(encoded, adapter.serialize(adapter.parse(encoded)))
+
+    def test_additional_properties_and_bad_version_fail_closed(self) -> None:
+        schema = load_json(Path("schemas/candidate.schema.json"))
+        example = load_json(Path("examples/candidate.json"))
+        extra = deepcopy(example)
+        extra["unexpected"] = True
+        self.assertTrue(any("additional" in item for item in validate_instance(extra, schema)))
+        old = deepcopy(example)
+        old["schema_version"] = "0.0.0"
+        self.assertTrue(validate_instance(old, schema))
+
+    def test_nonfinite_values_and_unsupported_schema_keywords_are_rejected(self) -> None:
+        adapter = JsonRepresentationAdapter(Path("schemas/candidate.schema.json"))
+        with self.assertRaises(SchemaValidationError):
+            adapter.parse(b'{"value":NaN}')
+        schema = load_json(Path("schemas/candidate.schema.json"))
+        schema["format"] = "custom"
+        self.assertTrue(any("unsupported keyword" in item for item in validate_instance({}, schema)))
+        self.assertFalse(math.isfinite(float("nan")))
+
+    def test_union_types_accept_null_and_still_enforce_each_concrete_type(self) -> None:
+        schema = load_json(Path("schemas/reviewer-result.schema.json"))
+        example = load_json(Path("examples/reviewer-result.json"))
+        finding = {
+            "severity": "high",
+            "category": "correctness",
+            "path": "src/codex_governance/schema.py",
+            "line": None,
+            "claim": "A valid finding may not have a known line number.",
+            "violated_oracle": "reviewer-result schema",
+            "evidence_refs": [{
+                "locator_id": "sha256:" + "1" * 64,
+                "sha256": "sha256:" + "2" * 64,
+            }],
+            "remediation": "Preserve JSON Schema union-type semantics.",
+        }
+        example["findings"] = [finding]
+        self.assertEqual([], validate_instance(example, schema))
+        example["findings"][0]["line"] = 0
+        self.assertTrue(any("below" in item for item in validate_instance(example, schema)))
+        example["findings"][0]["line"] = False
+        self.assertTrue(any("expected" in item for item in validate_instance(example, schema)))
+
+        invalid_definition = {"$schema": schema["$schema"], "type": ["null", "null"]}
+        self.assertTrue(
+            any("invalid type declaration" in item for item in validate_instance(None, invalid_definition))
+        )
+
+    def test_semantic_identity_and_lifecycle_validation_fails_closed(self) -> None:
+        candidate = load_json(Path("examples/candidate.json"))
+        candidate["changed_paths"] = ["schemas/hidden.schema.json"]
+        self.assertTrue(validate_semantics(candidate, "candidate"))
+        waiver = load_json(Path("examples/waiver.json"))
+        waiver["expires_at"] = waiver["created_at"]
+        errors = validate_semantics(waiver, "waiver")
+        self.assertTrue(any("must follow" in item for item in errors), errors)
+        self.assertTrue(any("content address" in item for item in errors), errors)
+
+
+if __name__ == "__main__":
+    unittest.main()

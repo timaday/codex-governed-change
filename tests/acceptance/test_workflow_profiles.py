@@ -11,7 +11,7 @@ class WorkflowProfilesAcceptanceTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.reference = json.loads(Path("examples/task-contract.json").read_text(encoding="utf-8"))
 
-    def test_reference_mixed_contract_is_accepted(self) -> None:
+    def test_reference_governance_contract_is_accepted(self) -> None:
         self.assertEqual([], validate_task_contract(self.reference))
 
     def test_specification_requires_three_amigos_and_rst(self) -> None:
@@ -31,12 +31,12 @@ class WorkflowProfilesAcceptanceTest(unittest.TestCase):
         violations = validate_task_contract(contract)
         self.assertTrue(any("executable" in item.lower() for item in violations))
 
-    def test_governance_change_requires_explicit_authorization(self) -> None:
+    def test_governance_profile_requires_an_explicit_request(self) -> None:
         contract = deepcopy(self.reference)
         contract["profile"] = "governance"
-        contract["governance_change_authorized"] = False
+        contract["governance_change_requested"] = False
         violations = validate_task_contract(contract)
-        self.assertTrue(any("authoriz" in item.lower() for item in violations))
+        self.assertTrue(any("request" in item.lower() for item in violations))
 
 
 if __name__ == "__main__":

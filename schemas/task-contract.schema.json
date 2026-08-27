@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "repository_id",
     "task_id",
     "profile",
     "base_commit",
@@ -21,10 +22,11 @@
     "affected_surfaces",
     "required_gate_ids",
     "specialist_reviews",
-    "governance_change_authorized"
+    "governance_change_requested"
   ],
   "properties": {
     "schema_version": { "const": "1.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "task_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
     "profile": { "enum": ["code", "specification", "mixed", "governance"] },
     "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
@@ -101,6 +103,17 @@
       "uniqueItems": true,
       "items": { "enum": ["business", "engineering", "qa", "architecture", "security", "performance", "data", "operations", "ux", "accessibility", "agentic_ai", "rst"] }
     },
-    "governance_change_authorized": { "type": "boolean" }
+    "risk_profile": { "enum": ["low", "standard", "elevated"] },
+    "rapid_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "minimum_charters", "skip_rationale"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "minimum_charters": { "type": "integer", "minimum": 0 },
+        "skip_rationale": { "type": "string" }
+      }
+    },
+    "governance_change_requested": { "type": "boolean" }
   }
 }

@@ -1,6 +1,6 @@
 name = "independent_reviewer"
 description = "Interactive read-only evidence-first review. Useful for early feedback, but not the strict fresh-context audit boundary."
-model = "gpt-5.6"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
 
@@ -20,7 +20,7 @@ finding must identify a path and location where possible, violated oracle, concr
 evidence, severity, and smallest safe remediation. Separate confirmed defects, risks,
 missing context, open questions, alternatives, and preferences.
 
-Classify claims as PROVEN, SUPPORTED, UNVERIFIED, or UNKNOWN. Missing, stale,
+Classify claims as DIRECTLY_OBSERVED, VERIFIED_WITHIN_SCOPE, UNVERIFIED, or UNKNOWN. Missing, stale,
 conflicting, timed-out, truncated, malformed, or unavailable critical evidence is
 UNKNOWN and requires BLOCK. A lack of findings is not proof of correctness.
 """

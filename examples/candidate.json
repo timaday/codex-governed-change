@@ -1,10 +1,14 @@
 {
   "schema_version": "1.0.0",
-  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "repository_id": "repo:example/codex-governed-change",
+  "candidate_id": "sha256:ac3a87283dbeaa9d7acb55ac1ac842a271b8f0c18a6b4147fc0d61ca956e0d18",
   "mode": "working_tree",
   "base_commit": "1111111111111111111111111111111111111111",
   "head_commit": "1111111111111111111111111111111111111111",
   "tracked_diff_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "changed_paths": [
+    "src/codex_governance/new_adapter.py"
+  ],
   "untracked_entries": [
     {
       "path": "src/codex_governance/new_adapter.py",

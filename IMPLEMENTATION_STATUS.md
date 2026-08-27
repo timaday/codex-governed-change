@@ -1,34 +1,39 @@
 # Implementation status
 
-Status date: 2026-08-26
+Status date: 2026-08-27
 
 ## Current disposition
 
-`BLOCKED_IMPLEMENTATION_NOT_STARTED`
+`IMPLEMENTED_CANDIDATE / FINAL_QUALIFICATION_UNKNOWN / RELEASE_BLOCKED`
 
-This repository is an implementation contract, not a completed enforcement product. The specification, schemas, examples, acceptance tests, task plan, and agent guidance are present. Production behavior is not yet proven.
+T01–T23 implementation surfaces are present and the complete local deterministic
+suite is green. T24 remains incomplete because no protected real-container
+evidence chain, human-labelled live reviewer qualification, exact-candidate live
+review, hosted CI reconstruction or human disposition exists. This is not a
+release or enforcement claim.
 
 | Claim | Classification | Evidence |
 |---|---|---|
-| The blueprint files are structurally complete | `SUPPORTED` | Local blueprint validator passed; immutable public-commit CI remains pending |
-| The normative JSON examples match the supported schema subset | `SUPPORTED` | Seven schema/example pairs passed the standard-library blueprint validator; independent Draft 2020-12 qualification remains pending |
-| The governed-change skill has valid frontmatter and metadata | `SUPPORTED` | The skill-creator structural validator passed locally |
-| The skill and strict-review workflow work in a fresh live GPT-5.6 run | `UNKNOWN` | No live Codex reviewer was invoked during blueprint creation; this belongs to T10 qualification |
-| The production governance CLI works | `UNKNOWN` | Implementation intentionally absent |
-| Fresh reviewer isolation is enforced | `UNKNOWN` | Reviewer launcher and isolation tests not implemented |
-| Stop-hook enforcement works | `UNKNOWN` | Hook adapter not implemented |
-| CI can make a release decision | `UNKNOWN` | Aggregator and protected deployment not implemented |
-| The system is ready for production adoption | `BLOCK` | Mandatory implementation evidence is absent |
+| The blueprint files are structurally complete | `VERIFIED_WITHIN_SCOPE` | Local blueprint validator passed; immutable public-commit CI remains pending |
+| The normative JSON examples match the protected schema subset | `VERIFIED_WITHIN_SCOPE` | Twenty-nine mapped schema/example pairs pass syntax, semantic lifecycle and content-address checks |
+| The governed-change skill has valid frontmatter and metadata | `VERIFIED_WITHIN_SCOPE` | The skill-creator structural validator passed locally |
+| The skill and strict-review workflow work in a fresh live Codex GPT-5.6 Sol run | `UNKNOWN` | Fake-process isolation is verified and an isolated ChatGPT-authenticated `gpt-5.6-sol` access probe succeeded; exact-candidate corpus qualification and strict review remain pending, so no qualifying review result exists yet |
+| The standalone governance CLI works | `VERIFIED_WITHIN_SCOPE` | Scope, identity, gates, mutation, context, manifest assembly, review, import, evaluation, status, verification and hook boundaries are implemented and locally tested |
+| Fresh-context reviewer isolation is enforced | `VERIFIED_WITHIN_SCOPE` | Fake-process tests plus native and ChatGPT-authenticated Codex canaries prove the root-denying custom read-only profile, sanitized tool environment, disabled tool network, sanitized snapshot, digest-matched evidence, schema binding and fail-closed timeout/malformed/drift behavior on the tested runtime |
+| Stop-hook enforcement works | `VERIFIED_WITHIN_SCOPE` | Pure hook lifecycle tests pass and the wrapper recomputes the live candidate or fails closed |
+| CI can make a release decision | `UNKNOWN` | The always-running prerequisite matrix and reference workflow invariants are tested; no hosted protected deployment was run |
+| A declared container produced admission evidence | `UNKNOWN` | Sandbox command/capability and no-host-fallback tests pass, but no protected Docker/Podman evidence chain was executed for this candidate |
+| The system is ready for production adoption | `BLOCK` | Mandatory T24 external and human evidence is absent |
 
 ## Status vocabulary
 
-- `PROVEN`: reproduced by deterministic evidence bound to the exact candidate.
-- `SUPPORTED`: backed by inspected artifacts but not fully executed.
+- `DIRECTLY_OBSERVED`: directly reproduced within the stated evidence boundary.
+- `VERIFIED_WITHIN_SCOPE`: a fixed deterministic rule validated the bounded claim.
 - `UNVERIFIED`: plausible or specified, but not independently demonstrated.
 - `UNKNOWN`: missing, stale, conflicting, timed-out, truncated, malformed, or unavailable evidence.
 - `BLOCK`: a disposition. Required evidence is not sufficient to proceed.
 
-`SUPPORTED` and `UNVERIFIED` do not satisfy mandatory executable gates. `UNKNOWN` always blocks.
+`UNVERIFIED` does not satisfy mandatory executable gates. `UNKNOWN` always blocks.
 
 ## Promotion conditions
 
@@ -38,17 +43,46 @@ Do not change the disposition to `READY_FOR_HUMAN` until all of the following ar
 2. `scripts/validate_blueprint.py` passes.
 3. Every acceptance test passes without skips, expected failures, retries that hide failure, or reduced assertions.
 4. Deterministic unit, integration, security and adversarial gates pass.
-5. A fresh read-only reviewer returns schema-valid `PASS` for the same candidate digest.
-6. The deterministic aggregator independently validates the evidence and returns `READY_FOR_HUMAN`.
+5. A qualified fresh-context read-only reviewer returns schema-valid
+   `NO_BLOCKING_FINDING_OBSERVED` for the same repository/candidate/context.
+6. The protected admission kernel reconstructs the assurance case and returns
+   `READY_FOR_HUMAN`.
 7. A human reviews the change and any explicit waivers.
 
 No model may edit this file to claim readiness from its own assessment alone.
 
-## Recorded red baseline
+## Recorded baselines
 
 The local design qualification on 2026-08-26 observed:
 
 - `python3 scripts/validate_blueprint.py`: `PASS` for 30 requirement mappings, seven schemas, seven examples, links, syntax, traceability and anti-skip checks.
 - `PYTHONPATH=src python3 -m unittest discover -s tests/acceptance -v`: 37 test methods discovered; three blueprint-contract tests passed and the implementation surfaces remained red with 44 error events rooted in explicit `NotImplementedError` task boundaries T01, T03, T05, T06, T07, T08 and T09.
 
-These observations are working-copy evidence, not immutable release evidence. The implementation run must reproduce them from its starting commit and then make the acceptance suite green without weakening the oracles.
+These observations are historical working-copy evidence, not immutable release evidence.
+
+The architecture-hardening checkpoint on 2026-08-26 then observed:
+
+- `python3 scripts/validate_blueprint.py`: exit zero for 66 requirement
+  mappings and 26 schema/example pairs.
+- `PYTHONPATH=src python3 -m unittest discover -s tests/acceptance -v`: 98
+  tests discovered; 44 passed, four assertions failed on the intentionally stale
+  CI reference/portability checkpoint, and 50 implementation errors identified
+  missing admission, authority, assurance, attestation, sandbox, mutation, RST,
+  qualification, schema-lifecycle and context-compiler behavior.
+
+The portability assertion was corrected to accept an explicitly empty dependency
+list while still rejecting any runtime dependency. All earlier executable results
+are invalidated by subsequent candidate changes and must be rerun.
+
+The current working-copy checkpoint on 2026-08-27 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 29
+  schema/example pairs.
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 174 tests passed;
+  no skips or expected failures were reported.
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
+  all 23 curated mutants `KILLED`. The runner labels this local proof as
+  non-admission evidence.
+
+These observations are invalidated by any later candidate mutation and remain
+working-copy evidence until protected T24 reconstruction is complete.

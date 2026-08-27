@@ -14,7 +14,7 @@ class DispositionPolicyAcceptanceTest(unittest.TestCase):
                 "security": {"status": "PASS", "candidate_id": self.CANDIDATE},
             }
         if reviewer is None:
-            reviewer = {"verdict": "PASS", "candidate_id": self.CANDIDATE}
+            reviewer = {"verdict": "NO_BLOCKING_FINDING_OBSERVED", "candidate_id": self.CANDIDATE}
         return evaluate_disposition(
             candidate_id=self.CANDIDATE,
             required_gate_ids=["unit", "security"],
@@ -58,7 +58,13 @@ class DispositionPolicyAcceptanceTest(unittest.TestCase):
     def test_stale_reviewer_is_unknown(self) -> None:
         self.assertEqual(
             DispositionState.UNKNOWN,
-            self.evaluate(reviewer={"verdict": "PASS", "candidate_id": "sha256:" + "b" * 64}),
+            self.evaluate(reviewer={"verdict": "NO_BLOCKING_FINDING_OBSERVED", "candidate_id": "sha256:" + "b" * 64}),
+        )
+
+    def test_exact_reviewer_unknown_is_not_success(self) -> None:
+        self.assertEqual(
+            DispositionState.UNKNOWN,
+            self.evaluate(reviewer={"verdict": "UNKNOWN", "candidate_id": self.CANDIDATE}),
         )
 
     def test_unauthorized_governance_change_blocks(self) -> None:

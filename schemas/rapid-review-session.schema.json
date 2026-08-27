@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/rapid-review-session.schema.json",
+  "title": "RST-inspired rapid-review session report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "task_contract_sha256", "session_id", "candidate_id", "charter_id", "charter_sha256", "reviewer_prompt_sha256", "qualification_id", "model", "status", "environment", "tools", "experiments", "retrieval_expansions", "findings", "counter_hypotheses", "coverage_achieved", "omitted_areas", "obstacles", "new_risks", "follow_up_charters", "residual_risks", "started_at", "ended_at", "producer_version", "provenance"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "session_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "charter_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "charter_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "reviewer_prompt_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "qualification_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "model": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["completed", "blocked", "inconclusive"] },
+    "environment": { "$ref": "#/$defs/nonemptyStrings" },
+    "tools": { "$ref": "#/$defs/nonemptyStrings" },
+    "experiments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/experiment" } },
+    "retrieval_expansions": { "type": "array", "items": { "$ref": "#/$defs/expansion" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "counter_hypotheses": { "$ref": "#/$defs/nonemptyStrings" },
+    "coverage_achieved": { "$ref": "#/$defs/nonemptyStrings" },
+    "omitted_areas": { "$ref": "#/$defs/nonemptyStrings" },
+    "obstacles": { "$ref": "#/$defs/nonemptyStrings" },
+    "new_risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "follow_up_charters": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "residual_risks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/residualRisk" } },
+    "started_at": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" },
+    "ended_at": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" },
+    "producer_version": { "type": "string", "minLength": 1 },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "nonemptyStrings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "activity_kind", "procedure", "observation", "oracle", "evidence_refs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+        "activity_kind": { "type": "string", "enum": ["checking", "investigation"] },
+        "procedure": { "type": "string", "minLength": 1 },
+        "observation": { "type": "string", "minLength": 1 },
+        "oracle": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "$ref": "#/$defs/nonemptyStrings" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "claim", "impact", "severity", "confidence", "oracle", "evidence_refs", "threatened_value"],
+      "properties": {
+        "finding_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+        "claim": { "type": "string", "minLength": 1 },
+        "impact": { "type": "string", "minLength": 1 },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+        "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+        "oracle": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "$ref": "#/$defs/nonemptyStrings" },
+        "threatened_value": { "type": "string", "minLength": 1 }
+      }
+    },
+    "residualRisk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_id", "description", "material", "evidence_refs"],
+      "properties": {
+        "risk_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+        "description": { "type": "string", "minLength": 1 },
+        "material": { "type": "boolean" },
+        "evidence_refs": { "$ref": "#/$defs/nonemptyStrings" }
+      }
+    },
+    "expansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "sha256", "level", "reason"],
+      "properties": {
+        "reference": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "level": { "type": "string", "enum": ["typed_summary", "relevant_excerpt", "complete_artifact"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["produced_by", "method", "source_refs"],
+      "properties": {
+        "produced_by": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "source_refs": { "$ref": "#/$defs/nonemptyStrings" }
+      }
+    }
+  }
+}

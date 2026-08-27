@@ -1,35 +1,46 @@
 # Codex Governed Change
 
-An implementation-ready blueprint for keeping agentic coding work aligned with repository authority, deterministic quality gates, fresh-context review, and human approval.
+A standalone implementation candidate for keeping agentic coding work aligned
+with protected repository authority, sandboxed deterministic quality gates,
+fresh-context review, and human approval.
 
-The project deliberately does **not** rely on HiveGate. It adapts the useful control principles—fail-closed evidence, exact candidate binding, independent assurance, traceability, and human authority—using ordinary Codex configuration, repository skills, Python, Git, and CI.
+The project deliberately does **not** rely on HiveGate. It adapts useful control
+principles—fail-closed evidence, exact repository/candidate binding, bounded
+fresh-context assurance, traceability, and human authority—using ordinary Codex
+configuration, repository skills, Python, Git, a local sandbox provider, and CI.
 
 ## Status
 
 | Area | State | Meaning |
 |---|---|---|
-| Requirements and architecture | `DESIGN_READY` | The implementation contract is complete enough for a bounded coding run. |
-| Production implementation | `NOT_STARTED` | Ports, adapters, CLI, hook and aggregator remain to be implemented. |
-| Acceptance suite | `RED_EXPECTED` | Executable acceptance tests define the target behaviour and initially fail. |
-| Release readiness | `BLOCK` | No production or enforcement claim is authorized yet. |
+| Requirements and architecture | `HARDENED_CONTRACT` | Sixty-six requirements define the protected architecture and token-aware assurance boundary. |
+| Production implementation | `T01–T23 IMPLEMENTED` | The standalone CLI, admission kernel, sandbox boundary, evidence reconstruction, mutation, RST, context and reviewer adapters are implemented. |
+| Acceptance suite | `GREEN_LOCAL` | 174 unit and acceptance tests pass locally without skips or expected failures. |
+| Final qualification | `T24 UNKNOWN` | A protected real-container run, labelled live reviewer qualification, exact-candidate fresh review and hosted CI reconstruction have not been completed. |
+| Release readiness | `BLOCK` | Local deterministic success is not release or merge authority. |
 
 See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the evidence classification and [IMPLEMENT_WITH_GPT_5_6.md](IMPLEMENT_WITH_GPT_5_6.md) for the master implementation prompt.
 
 ## The control model
 
-Rules and skills guide the author model; they are not security or quality boundaries. An independent reviewer can veto a candidate but cannot certify it. A deterministic aggregator checks exact candidate identities and evidence. Protected CI and a human own the final decision.
+Rules and skills guide the author model; they are not security or quality
+boundaries. A qualified fresh-context reviewer can veto a candidate but cannot
+certify it. One protected deterministic admission kernel checks the exact
+assurance case. Protected CI and a human own the final decision.
 
 ```mermaid
 flowchart TD
     A["Task contract and acceptance oracles"] --> B["Author: design, change, self-review"]
     B --> C["Deterministic gates bound to candidate"]
-    C -->|PASS| D["Fresh read-only GPT-5.6 review"]
+    C -->|PASS| D["Mutation, RST and deterministic context compiler"]
     C -->|FAIL or UNKNOWN| B
-    D -->|PASS| E["Protected CI and human approval"]
-    D -->|BLOCK or UNKNOWN| B
+    D --> R["Fresh-context read-only Codex GPT-5.6 Sol review"]
+    R -->|NO BLOCKING FINDING OBSERVED| E["Protected admission kernel"]
+    E --> H["Human approval"]
+    R -->|BLOCK or UNKNOWN| B
 ```
 
-Any candidate change invalidates earlier deterministic evidence and independent review.
+Any candidate change invalidates earlier deterministic evidence and fresh-context review.
 
 ## What this repository provides
 
@@ -37,9 +48,10 @@ Any candidate change invalidates earlier deterministic evidence and independent 
 - Code-change and specification-design quality profiles.
 - A read-only custom reviewer profile for convenient interactive use.
 - A strict fresh-process reviewer contract for `codex exec --ephemeral`.
-- JSON Schemas for task contracts, gate results, reviewer results, evidence manifests, and dispositions.
+- JSON Schemas for authenticated decisions, provenance, sandbox capability,
+  assurance cases, RST, mutation, context receipts, reviewer qualification and dispositions.
 - A domain-first, hexagonal implementation design with explicit ports and adapters.
-- An executable acceptance suite containing the red proofs GPT-5.6 must make green.
+- An executable acceptance suite covering deterministic and fail-closed behavior.
 - A bounded Stop-hook contract that prevents one-turn completion claims without creating infinite loops.
 - CI and branch-protection adoption guidance.
 - Threat model, RST charters, traceability, implementation tasks, and decision records.
@@ -48,31 +60,32 @@ Any candidate change invalidates earlier deterministic evidence and independent 
 
 1. A human or planning process approves a task contract.
 2. The author model implements the smallest coherent candidate.
-3. Deterministic gates run and emit candidate-bound artifacts.
-4. A new `codex exec` process reviews an immutable snapshot in a read-only sandbox.
-5. The deterministic aggregator rejects missing, stale, malformed, failed, timed-out, or conflicting evidence.
-6. CI repeats the checks against the immutable commit.
-7. A human reviews and decides whether to merge or grant an explicit waiver.
+3. Deterministic gates run in a disposable no-secret/no-network sandbox.
+4. Trusted packaging emits repository/candidate-bound provenance and write-once evidence.
+5. Curated mutation and operational RST run before model review.
+6. The deterministic context compiler creates an auditable risk-selected projection.
+7. A qualified new `codex exec` process reviews an immutable read-only snapshot.
+8. The protected admission kernel rejects any missing, stale, malformed, failed,
+   timed-out, conflicting or unresolved prerequisite.
+9. A human reviews and decides whether to merge or issue protected authority.
 
 The reviewer receives repository read access, the normalized task contract, candidate identifiers, and raw evidence. It does not receive the author chat, plan, self-review, or conclusions. It searches the full repository as needed but focuses on the exact diff and affected contract/dependency/trust-boundary closure.
 
-## Implement with GPT-5.6
+## Verify the implementation candidate
 
-Start a new GPT-5.6 Codex session at the repository root and give it the complete content of [IMPLEMENT_WITH_GPT_5_6.md](IMPLEMENT_WITH_GPT_5_6.md). The prompt requires it to reconstruct context from this repository, execute the red acceptance suite, implement in bounded slices, and obtain a fresh independent review before claiming completion.
-
-Before implementation, verify the blueprint:
+Verify blueprint and implementation behavior:
 
 ```bash
 python3 scripts/validate_blueprint.py
 ```
 
-Then confirm the expected red implementation baseline:
-
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests/acceptance -v
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-The second command is expected to fail until the implementation exists. Do not weaken, skip, delete, or relabel those failures to make the repository appear green.
+Both commands must pass. The local semantic corpus can then be run as diagnostic
+proof with `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`; its output
+explicitly does not replace sandbox provenance or admission evidence.
 
 ## Repository map
 
@@ -81,7 +94,7 @@ The second command is expected to fail until the implementation exists. Do not w
 | `docs/specification.md` | Normative system specification and scope. |
 | `docs/requirements.md` | Stable requirement identifiers and acceptance rules. |
 | `docs/architecture.md` | Domain model, ports, adapters and trust boundaries. |
-| `docs/implementation-plan.md` | Ordered bounded tasks for GPT-5.6. |
+| `docs/implementation-plan.md` | Ordered bounded tasks for Codex GPT-5.6 Sol. |
 | `docs/test-strategy.md` | Deterministic tests, RST charters, oracles and debrief. |
 | `docs/threat-model.md` | Assets, actors, threats and mitigations. |
 | `docs/traceability.md` | Requirement-to-test-to-task mapping. |
@@ -89,14 +102,14 @@ The second command is expected to fail until the implementation exists. Do not w
 | `.codex/agents/` | Interactive read-only reviewer profile. |
 | `.codex/review/` | Fresh reviewer prompt. |
 | `schemas/` | Stable machine-readable contracts. |
-| `src/codex_governance/` | Hexagonal implementation skeleton. |
+| `src/codex_governance/` | Domain, adapters and standalone orchestration implementation. |
 | `tests/acceptance/` | Executable target behaviour. |
 | `examples/` | Valid reference artifacts and deployment templates. |
 
 ## Key non-goals
 
 - Replacing tests, static analysis, security scanners, CI, code owners, or human review with an LLM.
-- Claiming statistical independence merely because the reviewer is a second GPT-5.6 instance.
+- Claiming statistical independence merely because the reviewer is a second Codex GPT-5.6 Sol instance.
 - Sending the entire repository or author transcript as one oversized prompt.
 - Giving an LLM merge, waiver, credential, deployment, or policy authority.
 - Requiring HiveGate, an MCP server, a database, or a hosted control plane.

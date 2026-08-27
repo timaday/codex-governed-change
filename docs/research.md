@@ -36,7 +36,7 @@ The NIST Generative AI Profile emphasizes measurement, red-teaming, documented l
 
 ## What the evidence does not establish
 
-- No cited study proves this implementation will prevent every GPT-5.6 drift or defect.
+- No cited study proves this implementation will prevent every Codex GPT-5.6 Sol drift or defect.
 - A reviewer `PASS` is not proof of correctness or security.
 - Same-model review retains correlated blind spots and possible self-preference.
 - Local hook behavior is not durable enforcement unless delivered through managed policy; CI and repository controls remain necessary.

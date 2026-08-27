@@ -1,7 +1,17 @@
-# Reference shape only. Activate after T01-T10 are implemented and qualified.
-# Set the protected repository variable GOVERNANCE_REF to a full, previously
-# qualified commit SHA from timaday/codex-governed-change. Protect this caller
-# workflow with a required workflow/ruleset and code-owner review.
+# AUTHORITY-OWNED REQUIRED-WORKFLOW TEMPLATE. Install this file only in a
+# separately protected authority repository and select it through an organization
+# or repository ruleset. It MUST NOT be copied into the evaluated repository;
+# candidate-local code with the same workflow, job or check name has no authority.
+# Activate only after a protected repository-specific adapter and reviewer
+# identity are qualified.
+# Set GOVERNANCE_REF to a full, previously qualified commit SHA of this project.
+# The adopter's target-branch `.governance/ci/` adapter creates candidate-bound
+# task, context, RST, qualification, and manifest inputs; it is deliberately not
+# supplied by PR code. Missing or invalid adapter output fails closed.
+#
+# Configure `disposition` as the single required check from its expected GitHub App
+# and workflow source, with no bypass where supported. Require an up-to-date pull
+# request branch or a merge queue so the checked candidate is the admitted candidate.
 
 name: Governed change
 
@@ -14,11 +24,16 @@ permissions:
 
 env:
   GOVERNANCE_REPOSITORY: timaday/codex-governed-change
+  POLICY: authority/.governance/effective-policy.json
+  ARTIFACT_ROOT: candidate/artifacts/governance
+  TASK: candidate/artifacts/governance/task-contract.json
+  CANDIDATE: candidate/artifacts/governance/candidate.json
+  REVIEWER_PROMPT: governance/.codex/review/reviewer.prompt.md
 
 jobs:
-  deterministic-evidence:
+  deterministic_evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Require a full protected governance commit
         env:
@@ -29,7 +44,137 @@ jobs:
             exit 1
           }
 
-      - name: Check out exact candidate as nested evidence
+      - name: Check out exact candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate
+
+      - name: Check out target-branch authority and deployment adapter
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: authority
+
+      - name: Check out protected governance implementation
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ env.GOVERNANCE_REPOSITORY }}
+          ref: ${{ vars.GOVERNANCE_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: governance
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Materialize protected candidate-bound inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test -f authority/.governance/ci/prepare-deterministic-inputs.py
+          python3 authority/.governance/ci/prepare-deterministic-inputs.py \
+            --authority authority \
+            --candidate candidate \
+            --output "$ARTIFACT_ROOT" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA"
+          python3 -c 'import json; assert json.load(open("authority/.governance/effective-policy.json"))["evidence_root"] == "artifacts/governance"'
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas scope \
+            --task "$TASK" \
+            --policy "$POLICY"
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas identify \
+            --repository candidate \
+            --policy "$POLICY" \
+            --mode commit \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --output "$CANDIDATE"
+
+      - name: Run candidate gates through protected policy
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          OBSERVED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas run-gates \
+            --repository candidate \
+            --policy "$POLICY" \
+            --task "$TASK" \
+            --candidate "$CANDIDATE" \
+            --reviewer-prompt "$REVIEWER_PROMPT" \
+            --run-id "$RUN_ID" \
+            --attempt "$RUN_ATTEMPT" \
+            --workflow-system github-actions \
+            --observed-at "$OBSERVED_AT" \
+            --output "$ARTIFACT_ROOT/gate-summary.json"
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas mutate \
+            --repository candidate \
+            --policy "$POLICY" \
+            --task "$TASK" \
+            --candidate "$CANDIDATE" \
+            --reviewer-prompt "$REVIEWER_PROMPT" \
+            --run-id "$RUN_ID" \
+            --attempt "$RUN_ATTEMPT" \
+            --workflow-system github-actions \
+            --observed-at "$OBSERVED_AT" \
+            --output "$ARTIFACT_ROOT/mutation-summary.json"
+
+      - name: Compile context and reviewer allowlist
+        run: |
+          test -f authority/.governance/ci/prepare-context-sources.py
+          python3 authority/.governance/ci/prepare-context-sources.py \
+            --authority authority \
+            --candidate candidate \
+            --evidence "$ARTIFACT_ROOT"
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas prepare-review \
+            --repository candidate \
+            --policy "$POLICY" \
+            --sources "$ARTIFACT_ROOT/context-sources.json" \
+            --candidate "$CANDIDATE" \
+            --profile DEEP \
+            --token-budget 64000 \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh \
+            --projection-output "$ARTIFACT_ROOT/context-projection.json" \
+            --receipt-output "$ARTIFACT_ROOT/context-receipt.json"
+          test -f authority/.governance/ci/prepare-review-inputs.py
+          python3 authority/.governance/ci/prepare-review-inputs.py \
+            --authority authority \
+            --candidate candidate \
+            --evidence "$ARTIFACT_ROOT"
+
+      - name: Upload candidate-bound deterministic evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: governed-deterministic-evidence
+          path: candidate/artifacts/governance/
+          if-no-files-found: error
+          retention-days: 7
+
+  fresh_context_review:
+    needs: deterministic_evidence
+    # This image/runner must provide the qualification-matched Codex executable.
+    # No same-session, subagent, or unqualified action fallback is permitted.
+    runs-on: [self-hosted, governed-reviewer]
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Require a full protected governance commit
+        env:
+          GOVERNANCE_REF: ${{ vars.GOVERNANCE_REF }}
+        run: |
+          [[ "$GOVERNANCE_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
+
+      - name: Check out exact candidate
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -46,116 +191,110 @@ jobs:
           persist-credentials: false
           path: governance
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
-
-      - name: Run candidate gates through protected governance policy
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          PYTHONPATH=governance/src python3 -m codex_governance run-gates \
-            --repository candidate \
-            --mode commit \
-            --base "$BASE_SHA" \
-            --head "$HEAD_SHA" \
-            --evidence-root evidence
-          PYTHONPATH=governance/src python3 -m codex_governance prepare-review \
-            --repository candidate \
-            --governance-root governance \
-            --evidence-root evidence \
-            --output review-harness/reviewer-input.md
-
-      - name: Upload candidate-bound deterministic evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: governed-deterministic-evidence
-          path: |
-            evidence/
-            review-harness/reviewer-input.md
-          if-no-files-found: error
-          retention-days: 7
-
-  independent-review:
-    needs: deterministic-evidence
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    outputs:
-      reviewer-result: ${{ steps.review.outputs.final-message }}
-    steps:
-      - name: Require a full protected governance commit
-        env:
-          GOVERNANCE_REF: ${{ vars.GOVERNANCE_REF }}
-        run: |
-          [[ "$GOVERNANCE_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
-
-      - name: Check out exact candidate beneath sanitized harness
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-          path: review-harness/candidate
-
-      - name: Check out fixed reviewer policy beneath sanitized harness
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          repository: ${{ env.GOVERNANCE_REPOSITORY }}
-          ref: ${{ vars.GOVERNANCE_REF }}
-          fetch-depth: 1
-          persist-credentials: false
-          path: review-harness/governance
-
       - name: Download deterministic evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: governed-deterministic-evidence
-          path: downloaded
+          path: candidate/artifacts/governance
 
-      - name: Construct sanitized harness root
+      # The protected self-hosted runner must be pre-authenticated through
+      # ChatGPT/Codex. No API key or authentication value enters this job's
+      # environment, candidate artifacts or reviewer harness.
+      - name: Run qualification-matched fresh read-only review
         run: |
-          mv downloaded/evidence review-harness/evidence
-          mv downloaded/review-harness/reviewer-input.md review-harness/reviewer-input.md
-          git -C review-harness init
+          test -f candidate/artifacts/governance/reviewer-permitted-inputs.json
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas review \
+            --repository candidate \
+            --policy candidate/artifacts/governance/effective-policy.json \
+            --candidate candidate/artifacts/governance/candidate.json \
+            --permitted-inputs candidate/artifacts/governance/reviewer-permitted-inputs.json \
+            --prompt governance/.codex/review/reviewer.prompt.md \
+            --output-schema governance/schemas/reviewer-result.schema.json \
+            --output candidate/artifacts/governance/reviewer-result.json \
+            --execution-output candidate/artifacts/governance/reviewer-execution.json \
+            --context-execution-output candidate/artifacts/governance/context-execution-receipt.json \
+            --workflow-system github-actions \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ github.run_attempt }}" \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh
 
-      # Keep Codex last in this credentialed job. The final JSON is passed as a
-      # job output; no candidate-controlled command runs after the action.
-      - name: Run fresh read-only GPT-5.6 review
-        id: review
-        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
+          shopt -s nullglob
+          rapid_inputs=(candidate/artifacts/governance/rapid-review-inputs/*.json)
+          ((${#rapid_inputs[@]} > 0)) || {
+            echo "required rapid-review permitted inputs are absent" >&2
+            exit 1
+          }
+          for permitted in "${rapid_inputs[@]}"; do
+            session_name="$(basename "$permitted" .json)"
+            PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas review \
+              --repository candidate \
+              --policy candidate/artifacts/governance/effective-policy.json \
+              --candidate candidate/artifacts/governance/candidate.json \
+              --permitted-inputs "$permitted" \
+              --prompt governance/.codex/review/reviewer.prompt.md \
+              --output-schema governance/schemas/rapid-review-session.schema.json \
+              --output "candidate/artifacts/governance/rapid-review-sessions/$session_name.json" \
+              --execution-output "candidate/artifacts/governance/rapid-review-executions/$session_name.json" \
+              --context-execution-output "candidate/artifacts/governance/rapid-review-context-executions/$session_name.json" \
+              --workflow-system github-actions \
+              --run-id "${{ github.run_id }}" \
+              --attempt "${{ github.run_attempt }}" \
+              --model gpt-5.6-sol \
+              --reasoning-effort xhigh
+          done
+
+      - name: Upload reviewed candidate-bound evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: review-harness/reviewer-input.md
-          model: gpt-5.6
-          effort: xhigh
-          sandbox: read-only
-          safety-strategy: drop-sudo
-          codex-args: '["--ephemeral", "--ignore-user-config", "--ignore-rules", "--cd", "review-harness", "--config", "features.hooks=false", "--config", "agents.enabled=false", "--output-schema", "governance/schemas/reviewer-result.schema.json"]'
+          name: governed-reviewed-evidence
+          path: candidate/artifacts/governance/
+          if-no-files-found: error
+          retention-days: 7
 
   disposition:
-    needs: [deterministic-evidence, independent-review]
+    if: ${{ always() }}
+    needs: [deterministic_evidence, fresh_context_review]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      - name: Fail closed unless every direct prerequisite succeeded
+        env:
+          DETERMINISTIC_RESULT: ${{ needs.deterministic_evidence.result }}
+          REVIEW_RESULT: ${{ needs.fresh_context_review.result }}
+        run: |
+          [[ "$DETERMINISTIC_RESULT" == "success" ]] || {
+            echo "deterministic_evidence result is not success" >&2
+            exit 1
+          }
+          [[ "$REVIEW_RESULT" == "success" ]] || {
+            echo "fresh_context_review result is not success" >&2
+            exit 1
+          }
+
       - name: Require a full protected governance commit
         env:
           GOVERNANCE_REF: ${{ vars.GOVERNANCE_REF }}
         run: |
           [[ "$GOVERNANCE_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
 
-      - name: Check out exact candidate for identity reconstruction
+      - name: Check out exact candidate
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
           path: candidate
+
+      - name: Check out target-branch authority and deployment adapter
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: authority
 
       - name: Check out protected aggregator and policy
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -171,21 +310,45 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Download deterministic evidence
+      - name: Download reviewed candidate-bound evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: governed-deterministic-evidence
-          path: downloaded
+          name: governed-reviewed-evidence
+          path: candidate/artifacts/governance
 
       - name: Reconstruct and require READY_FOR_HUMAN
         env:
-          REVIEWER_RESULT: ${{ needs.independent-review.outputs.reviewer-result }}
+          EVALUATED_AT: ${{ github.event.pull_request.updated_at }}
         run: |
-          PYTHONPATH=governance/src python3 -m codex_governance import-reviewer-result \
-            --from-env REVIEWER_RESULT \
-            --evidence-root downloaded/evidence
-          PYTHONPATH=governance/src python3 -m codex_governance evaluate \
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas import-reviewer-result \
             --repository candidate \
-            --governance-root governance \
-            --evidence-root downloaded/evidence \
-            --require READY_FOR_HUMAN
+            --source candidate/artifacts/governance/reviewer-result.json \
+            --evidence-root artifacts/governance \
+            --destination imported/reviewer-result.json \
+            --repository-id "$(python3 -c 'import json; print(json.load(open("candidate/artifacts/governance/candidate.json"))["repository_id"])')" \
+            --candidate-id "$(python3 -c 'import json; print(json.load(open("candidate/artifacts/governance/candidate.json"))["candidate_id"])')" \
+            --task-contract-sha256 "$(sha256sum candidate/artifacts/governance/task-contract.json | awk '{print "sha256:" $1}')" \
+            --effective-policy-sha256 "$(sha256sum candidate/artifacts/governance/effective-policy.json | awk '{print "sha256:" $1}')"
+          test -f authority/.governance/ci/prepare-manifest-input.py
+          python3 authority/.governance/ci/prepare-manifest-input.py \
+            --authority authority \
+            --candidate candidate \
+            --evidence candidate/artifacts/governance \
+            --verified-decision-ids-output verified-decision-ids.json
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas assemble-manifest \
+            --repository candidate \
+            --policy "$POLICY" \
+            --input candidate/artifacts/governance/manifest-input.json \
+            --output candidate/artifacts/governance/evidence-manifest.json
+          mapfile -t VERIFIED_DECISIONS < <(python3 -c 'import json,re; values=json.load(open("verified-decision-ids.json")); assert isinstance(values,list) and values and all(re.fullmatch(r"sha256:[0-9a-f]{64}", item) for item in values); print(*values, sep="\n")')
+          DECISION_ARGS=()
+          for decision_id in "${VERIFIED_DECISIONS[@]}"; do
+            DECISION_ARGS+=(--verified-decision-id "$decision_id")
+          done
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas evaluate \
+            --repository candidate \
+            --manifest candidate/artifacts/governance/evidence-manifest.json \
+            --candidate candidate/artifacts/governance/candidate.json \
+            --evaluated-at "$EVALUATED_AT" \
+            "${DECISION_ARGS[@]}" \
+            --output candidate/artifacts/governance/disposition.json

@@ -1,13 +1,13 @@
 {
-  "description": "Local continuation guard. Rename to hooks.json only after the implementation and tests are green.",
+  "description": "Local continuation guard. Configure the protected task, policy and ignored disposition paths before renaming to hooks.json.",
   "hooks": {
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/stop_hook.py\"",
-            "commandWindows": "py -3 scripts\\stop_hook.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/stop_hook.py\" --policy artifacts/governance/current/effective-policy.json --task artifacts/governance/current/task-contract.json --disposition artifacts/governance/current/disposition.json",
+            "commandWindows": "py -3 scripts\\stop_hook.py --policy artifacts\\governance\\current\\effective-policy.json --task artifacts\\governance\\current\\task-contract.json --disposition artifacts\\governance\\current\\disposition.json",
             "timeout": 30,
             "statusMessage": "Checking candidate-bound governance evidence"
           }

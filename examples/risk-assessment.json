@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "assessment_id": "sha256:62c4512fe2363dd9fca41bf8ee0f1a716cc17e9e905aa684a46f5cd3435dfa79",
+  "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "change_kind": "mixed",
+  "risk_profile": "elevated",
+  "hazard_classes": ["authorization", "governance_boundary"],
+  "assessed_surfaces": ["src/codex_governance/", "schemas/"],
+  "stakeholders": ["repository maintainers", "change authors", "reviewers"],
+  "value_at_risk": ["correct readiness decisions", "human control of risk acceptance"],
+  "risk_hypotheses": ["stale evidence could be accepted after a candidate change", "a checklist could be mistaken for evidence of safety"],
+  "mandatory_charter_count": 2,
+  "rapid_review_required": true,
+  "skip_rationale": "Rapid review is mandatory for this elevated governance-boundary example.",
+  "created_at": "2026-08-26T12:06:00Z",
+  "producer_version": "0.1.0-example",
+  "provenance": {
+    "produced_by": "human-approved task process",
+    "method": "risk assessment from the exact candidate and approved contract",
+    "source_refs": ["examples/task-contract.json", "examples/candidate.json"]
+  }
+}

@@ -24,6 +24,7 @@ REQUIRED_PATHS = [
     "docs/specification.md",
     "docs/requirements.md",
     "docs/architecture.md",
+    "docs/architecture-hardening-delta.md",
     "docs/implementation-plan.md",
     "docs/test-strategy.md",
     "docs/threat-model.md",
@@ -51,6 +52,28 @@ EXAMPLE_SCHEMAS = {
     "examples/evidence-manifest.json": "schemas/evidence-manifest.schema.json",
     "examples/disposition.json": "schemas/disposition.schema.json",
     "examples/waiver.json": "schemas/waiver.schema.json",
+    "examples/risk-assessment.json": "schemas/risk-assessment.schema.json",
+    "examples/review-charter.json": "schemas/review-charter.schema.json",
+    "examples/rapid-review-session.json": "schemas/rapid-review-session.schema.json",
+    "examples/rapid-review-debrief.json": "schemas/rapid-review-debrief.schema.json",
+    "examples/risk-disposition.json": "schemas/risk-disposition.schema.json",
+    "examples/effective-policy.json": "schemas/effective-policy.schema.json",
+    "examples/gate-manifest.json": "schemas/gate-manifest.schema.json",
+    "examples/authenticated-decision.json": "schemas/authenticated-decision.schema.json",
+    "examples/evidence-locator.json": "schemas/evidence-locator.schema.json",
+    "examples/assurance-case.json": "schemas/assurance-case.schema.json",
+    "examples/sandbox-capability.json": "schemas/sandbox-capability.schema.json",
+    "examples/provenance-statement.json": "schemas/provenance-statement.schema.json",
+    "examples/mutant-record.json": "schemas/mutant-record.schema.json",
+    "examples/context-receipt.json": "schemas/context-receipt.schema.json",
+    "examples/context-execution-receipt.json": "schemas/context-execution-receipt.schema.json",
+    "examples/reviewer-execution.json": "schemas/reviewer-execution.schema.json",
+    "examples/risk-register.json": "schemas/risk-register.schema.json",
+    "examples/oracle-reference.json": "schemas/oracle-reference.schema.json",
+    "examples/coverage-note.json": "schemas/coverage-note.schema.json",
+    "examples/follow-up.json": "schemas/follow-up.schema.json",
+    "examples/reviewer-qualification.json": "schemas/reviewer-qualification.schema.json",
+    "examples/rollback-evidence.json": "schemas/rollback-evidence.schema.json",
 }
 
 
@@ -250,10 +273,12 @@ def validate_skill() -> None:
 
 def validate_traceability() -> None:
     requirements_text = read_text(ROOT / "docs/requirements.md")
-    requirements = sorted(set(re.findall(r"\bGOV-[0-9]{3}\b", requirements_text)))
-    expected = [f"GOV-{number:03d}" for number in range(1, 31)]
+    requirements = sorted(set(re.findall(r"\bGOV-(?:[0-9]{3}|TOKEN-[0-9]{3})\b", requirements_text)))
+    expected_numbered = [f"GOV-{number:03d}" for number in range(1, 63)]
+    expected_named = [f"GOV-TOKEN-{number:03d}" for number in range(1, 5)]
+    expected = sorted(expected_numbered + expected_named)
     if requirements != expected:
-        fail(f"requirements must be contiguous GOV-001..GOV-030, found {requirements}")
+        fail("requirements must contain contiguous GOV-001..GOV-062 and GOV-TOKEN-001..004")
 
     traceability = read_text(ROOT / "docs/traceability.md")
     for requirement in expected:
@@ -310,15 +335,21 @@ def validate_internal_links() -> None:
 
 def validate_status_honesty() -> None:
     status = read_text(ROOT / "IMPLEMENTATION_STATUS.md")
-    for required in ["BLOCKED_IMPLEMENTATION_NOT_STARTED", "UNKNOWN", "BLOCK"]:
+    for required in [
+        "IMPLEMENTED_CANDIDATE",
+        "FINAL_QUALIFICATION_UNKNOWN",
+        "RELEASE_BLOCKED",
+        "UNKNOWN",
+        "BLOCK",
+    ]:
         if required not in status:
             fail(f"implementation status missing {required}")
     pyproject = tomllib.loads(read_text(ROOT / "pyproject.toml"))
     project_status = pyproject.get("tool", {}).get("codex-governed-change", {})
-    if project_status.get("implementation_status") != "NOT_STARTED":
-        fail("pyproject must declare implementation_status=NOT_STARTED in blueprint baseline")
+    if project_status.get("implementation_status") != "IMPLEMENTED_CANDIDATE":
+        fail("pyproject must declare implementation_status=IMPLEMENTED_CANDIDATE")
     if project_status.get("release_disposition") != "BLOCK":
-        fail("pyproject must declare release_disposition=BLOCK in blueprint baseline")
+        fail("pyproject must declare release_disposition=BLOCK until qualification")
 
 
 def blueprint_digest() -> str:
@@ -356,7 +387,7 @@ def main() -> int:
 
     print(
         "BLUEPRINT_QUALITY=PASS "
-        f"requirements=30 schemas={len(EXAMPLE_SCHEMAS)} examples={len(EXAMPLE_SCHEMAS)} "
+        f"requirements=66 schemas={len(EXAMPLE_SCHEMAS)} examples={len(EXAMPLE_SCHEMAS)} "
         f"blueprint_sha256={blueprint_digest()}"
     )
     return 0

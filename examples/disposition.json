@@ -1,12 +1,15 @@
 {
   "schema_version": "1.0.0",
+  "repository_id": "repo:example/codex-governed-change",
+  "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "manifest_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
-  "state": "READY_FOR_HUMAN",
+  "state": "UNKNOWN",
   "reasons": [
     {
-      "code": "ALL_MANDATORY_EVIDENCE_VALID",
-      "message": "All mandatory evidence is valid for the exact candidate; human approval remains required",
+      "code": "EXAMPLE_NOT_EVIDENCE",
+      "message": "This schema example is illustrative and is not reconstructable candidate evidence",
       "evidence_refs": [
         "manifest.json",
         "reviewer/result.json"

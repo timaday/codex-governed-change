@@ -26,8 +26,9 @@ class GovernanceIntegrityAcceptanceTest(unittest.TestCase):
                     ),
                 )
 
-    def test_authorized_governance_task_may_proceed_to_other_gates(self) -> None:
-        self.assertIsNone(
+    def test_boolean_governance_assertion_never_authorizes(self) -> None:
+        self.assertEqual(
+            DispositionState.BLOCK,
             classify_governance_change(
                 changed_paths=["schemas/disposition.schema.json"],
                 task_profile="governance",
