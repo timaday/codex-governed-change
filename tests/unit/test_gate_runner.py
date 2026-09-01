@@ -1,11 +1,21 @@
+import os
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from codex_governance.artifacts import FilesystemArtifactStore
 from codex_governance.evidence import content_address
-from codex_governance.gate import run_gate
+from codex_governance.gate import (
+    _BoundedCapture,
+    _close_process_streams,
+    _posix_process_group_exited,
+    run_gate,
+)
 from codex_governance.sandbox import SandboxInvocation
 
 
@@ -30,6 +40,9 @@ class GateRunnerTest(unittest.TestCase):
 
     def observe(self, code: str, **overrides) -> dict:
         self.number += 1
+        capability_verified_at = overrides.pop(
+            "capability_verified_at", "2026-08-26T10:00:00Z"
+        )
         values = {
             "gate_id": f"gate-{self.number}",
             "profile": "code",
@@ -79,7 +92,7 @@ class GateRunnerTest(unittest.TestCase):
                     "cpu_seconds": 2,
                     "timeout_seconds": 2,
                     "output_bytes": 64,
-                    "verified_at": "2026-08-26T10:00:00Z",
+                    "verified_at": capability_verified_at,
                     "limitations": ["unit fixture; not production isolation"],
                 },
                 "capability_id",
@@ -123,6 +136,16 @@ class GateRunnerTest(unittest.TestCase):
         self.assertEqual("UNKNOWN", result["status"])
         self.assertFalse(marker.exists())
 
+    def test_future_capability_never_launches_the_gate(self) -> None:
+        marker = self.repository / "future-capability-must-not-run"
+        result = self.observe(
+            f"from pathlib import Path; Path({marker.name!r}).write_text('bad')",
+            capability_verified_at="2099-01-01T00:00:00Z",
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertEqual("launch_error", result["termination"]["kind"])
+        self.assertFalse(marker.exists())
+
     def test_supervisor_machine_paths_are_redacted_before_storage(self) -> None:
         result = self.observe("import os; print(os.getcwd())")
         output = self.store.read_bytes(result["artifacts"][0]["path"].removeprefix("evidence/"))
@@ -150,6 +173,52 @@ class GateRunnerTest(unittest.TestCase):
             risk_label="legacy-command-language",
         )
         self.assertEqual("PASS", result["status"])
+
+    @unittest.skipUnless(os.name == "posix", "POSIX process-group contract")
+    def test_zombie_only_scan_cannot_establish_initial_group_exit(self) -> None:
+        with (
+            patch("codex_governance.gate.os.killpg"),
+            patch(
+                "codex_governance.gate._linux_process_group_is_zombie_only",
+                return_value=True,
+            ),
+        ):
+            self.assertFalse(_posix_process_group_exited(12345, 0))
+            self.assertTrue(
+                _posix_process_group_exited(
+                    12345, 0, allow_zombie_only=True
+                )
+            )
+
+    def test_stream_close_is_time_bounded_while_capture_is_blocked(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert process.stdout is not None and process.stderr is not None
+        stdout_capture = _BoundedCapture(1024)
+        stderr_capture = _BoundedCapture(1024)
+        readers = [
+            threading.Thread(
+                target=stdout_capture.read, args=(process.stdout,), daemon=True
+            ),
+            threading.Thread(
+                target=stderr_capture.read, args=(process.stderr,), daemon=True
+            ),
+        ]
+        for reader in readers:
+            reader.start()
+        time.sleep(0.02)
+        started = time.monotonic()
+        try:
+            self.assertFalse(_close_process_streams(process, timeout=0.05))
+            self.assertLess(time.monotonic() - started, 0.5)
+        finally:
+            process.kill()
+            process.wait(timeout=2)
+            for reader in readers:
+                reader.join(timeout=2)
 
 
 if __name__ == "__main__":

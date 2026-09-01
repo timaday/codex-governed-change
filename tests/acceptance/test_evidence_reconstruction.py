@@ -210,7 +210,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "candidate_copy_writable": True, "protected_paths_writable": False,
                 "evidence_paths_writable": False, "supervisor_paths_writable": False,
                 "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60,
-                "timeout_seconds": 60, "output_bytes": 1000, "verified_at": self.AT,
+                "timeout_seconds": 60, "output_bytes": 1000,
+                "verified_at": self.ENDED if gate_defect == "future-gate-capability" else self.AT,
                 "limitations": ["fixture capability"],
             },
             "capability_id",
@@ -234,7 +235,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "sandbox_capability_sha256": capability_ref["sha256"],
             },
             materials=[{"name": "candidate", "sha256": self.CANDIDATE_ID}],
-            started_at=self.AT, ended_at=self.ENDED, result="PASS",
+            started_at=(
+                "2026-08-26T09:59:59Z"
+                if gate_defect == "provenance-time-mismatch"
+                else self.AT
+            ),
+            ended_at=self.ENDED, result="PASS",
             limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000},
             artifacts=[
                 {"name": "stdout", "sha256": stdout_ref["sha256"]},
@@ -276,7 +282,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         gate_manifest = assemble_gate_manifest(
             repository_id=self.REPOSITORY_ID, task_contract_sha256=task_sha,
             candidate_id=self.CANDIDATE_ID, required_gate_ids=["unit"],
-            gate_references={"unit": gate_ref}, created_at=self.AT,
+            gate_references={"unit": gate_ref}, created_at=self.ENDED,
         )
         gate_manifest_ref = self.write("gate-manifest.json", gate_manifest, "gate-manifest")
 
@@ -306,7 +312,13 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "candidate_copy_writable": True, "protected_paths_writable": False,
                     "evidence_paths_writable": False, "supervisor_paths_writable": False,
                     "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60,
-                    "timeout_seconds": 60, "output_bytes": 1000, "verified_at": self.AT,
+                    "timeout_seconds": 60, "output_bytes": 1000,
+                    "verified_at": (
+                        self.ENDED
+                        if gate_defect == "future-mutation-capability"
+                        and name == "mutation-baseline"
+                        else self.AT
+                    ),
                     "limitations": ["fixture mutation capability"],
                 },
                 "capability_id",
@@ -511,6 +523,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "latency_ms": 1000,
             "return_code": 0,
             "timed_out": False,
+            "observation_complete": True,
+            "capture_threads_completed": True,
+            "process_cleanup_complete": True,
+            "execution_valid": True,
             "output_valid": True,
             "bindings_match": True,
             "output_truncated": False,
@@ -766,6 +782,25 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
 
+    def test_gate_manifest_cannot_predate_referenced_gate_completion(self) -> None:
+        manifest = self.complete_manifest()
+        path = self.repository / manifest["gate_manifest"]["path"]
+        gate_manifest = json.loads(path.read_text(encoding="utf-8"))
+        gate_manifest["created_at"] = self.AT
+        gate_manifest = content_address(gate_manifest, "gate_manifest_id")
+        data = canonical_json_bytes(gate_manifest)
+        path.write_bytes(data)
+        manifest["gate_manifest"]["sha256"] = sha256_bytes(data)
+        state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
     def test_distinct_producer_workflows_reconstruct_through_causal_links(self) -> None:
         manifest = self.complete_manifest()
         provenance = [
@@ -825,6 +860,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "incomplete-pass",
             "truncated-pass",
             "timeout-pass",
+            "future-gate-capability",
+            "future-mutation-capability",
+            "provenance-time-mismatch",
         ):
             manifest = self.complete_manifest(gate_defect=defect)
             state, _ = evaluate_manifest(

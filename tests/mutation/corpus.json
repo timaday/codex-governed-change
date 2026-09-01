@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:6cf77e3aa93bf64ccbf25291225459b8218704c5ca3150a32ea06c810dc61f6e",
+  "corpus_id": "sha256:65593a54afd00f5ab6594a0857f077ddc55d4407155b91d8a2f2e84579e12196",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -60,8 +60,8 @@
     {
       "mutant_id": "artifact-symlink",
       "path": "src/codex_governance/artifacts.py",
-      "old": "if stat.S_ISLNK(info.st_mode):",
-      "new": "if False:",
+      "old": "        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, \"O_NONBLOCK\", 0)\n        try:\n            descriptor = os.open(leaf, flags, dir_fd=parent)",
+      "new": "        flags = os.O_RDONLY | getattr(os, \"O_NONBLOCK\", 0)\n        try:\n            descriptor = os.open(leaf, flags, dir_fd=parent)",
       "operator": "allow symlink in evidence path",
       "requirement_id": "GOV-028",
       "selected_command": ["python3", "-m", "unittest", "tests.unit.test_artifact_store", "-v"]
@@ -141,8 +141,8 @@
     {
       "mutant_id": "manifest-overwrite",
       "path": "src/codex_governance/artifacts.py",
-      "old": "            raise FileExistsError(\"write-once artifact conflicts with existing content\")",
-      "new": "            return sha256_bytes(data)",
+      "old": "                if existing == data:\n                    return sha256_bytes(data)\n                raise FileExistsError(\"write-once artifact conflicts with existing content\")",
+      "new": "                if existing == data:\n                    return sha256_bytes(data)\n                return sha256_bytes(data)",
       "operator": "accept conflicting artifact replacement",
       "requirement_id": "GOV-047",
       "selected_command": ["python3", "-m", "unittest", "tests.unit.test_artifact_store", "-v"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -16,6 +17,7 @@ from codex_governance.artifacts import FilesystemArtifactStore
 from codex_governance.attestation import build_provenance_statement
 from codex_governance.canonical import canonical_json_bytes, normalize_repo_path, sha256_bytes
 from codex_governance.domain.model import GateStatus
+from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.sandbox import SandboxInvocation, validate_sandbox_capability
 
 
@@ -46,19 +48,27 @@ class _BoundedCapture:
         self.limit = limit
         self.data = bytearray()
         self.total = 0
+        self.eof = False
+        self.failed = False
 
     def read(self, stream: BinaryIO) -> None:
         try:
             while True:
                 chunk = stream.read(64 * 1024)
                 if not chunk:
+                    self.eof = True
                     return
                 self.total += len(chunk)
                 remaining = self.limit - len(self.data)
                 if remaining > 0:
                     self.data.extend(chunk[:remaining])
+        except (OSError, ValueError):
+            self.failed = True
         finally:
-            stream.close()
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                self.failed = True
 
     @property
     def truncated(self) -> bool:
@@ -108,25 +118,127 @@ def _redact_runtime_paths(
     return result, redactions
 
 
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+def _posix_process_group_exited(
+    process_group: int, timeout: float, *, allow_zombie_only: bool = False
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        if allow_zombie_only and _linux_process_group_is_zombie_only(process_group):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+
+
+def _linux_process_group_is_zombie_only(process_group: int) -> bool:
+    """Prove through procfs that a lingering Linux group has no live members."""
+    proc = Path("/proc")
+    if not sys.platform.startswith("linux") or not proc.is_dir():
+        return False
+    matched = False
     try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGTERM)
-        else:
-            process.terminate()
-        process.wait(timeout=2)
-    except (OSError, subprocess.TimeoutExpired):
+        entries = list(proc.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.name.isascii() or not entry.name.isdecimal():
+            continue
         try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGKILL)
-            else:
-                process.kill()
-        except OSError:
+            raw = (entry / "stat").read_text(encoding="ascii")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError):
+            return False
+        _, separator, suffix = raw.rpartition(")")
+        fields = suffix.split()
+        if not separator or len(fields) < 3:
+            return False
+        try:
+            member_group = int(fields[2])
+        except ValueError:
+            return False
+        if member_group != process_group:
+            continue
+        matched = True
+        if fields[0] != "Z":
+            return False
+    return matched
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> bool:
+    """Terminate an isolated process tree and report whether cleanup was proven."""
+    if os.name == "posix":
+        process_group = process.pid
+        try:
+            os.killpg(process_group, signal.SIGTERM)
+        except ProcessLookupError:
             pass
+        except OSError:
+            return False
         try:
-            process.wait(timeout=2)
+            process.wait(timeout=0.2)
         except subprocess.TimeoutExpired:
             pass
+        if _posix_process_group_exited(
+            process_group, 1.0, allow_zombie_only=True
+        ):
+            return process.poll() is not None
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return False
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            return False
+        return _posix_process_group_exited(
+            process_group, 1.0, allow_zombie_only=True
+        )
+
+    try:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=1.0)
+        return process.poll() is not None
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            process.kill()
+            process.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return process.poll() is not None
+
+
+def _close_process_streams(
+    process: subprocess.Popen[bytes], *, timeout: float = 0.2
+) -> bool:
+    """Close captured streams without letting a buffered close stall control flow."""
+    close_threads: list[threading.Thread] = []
+
+    def close(stream: BinaryIO) -> None:
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+    for stream in (process.stdout, process.stderr):
+        if stream is None or stream.closed:
+            continue
+        thread = threading.Thread(target=close, args=(stream,), daemon=True)
+        close_threads.append(thread)
+        thread.start()
+    deadline = time.monotonic() + max(0.0, timeout)
+    for thread in close_threads:
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    return not any(thread.is_alive() for thread in close_threads)
 
 
 def run_gate(
@@ -180,7 +292,18 @@ def run_gate(
         if isinstance(sandbox_invocation, SandboxInvocation)
         else None
     )
-    if capability_report is None or validate_sandbox_capability(capability_report):
+    capability_valid = bool(
+        capability_report is not None
+        and not validate_sandbox_capability(capability_report)
+    )
+    if capability_valid:
+        try:
+            capability_valid = parse_rfc3339(
+                str(capability_report["verified_at"])
+            ) <= parse_rfc3339(started_at)
+        except (KeyError, TypeError, ValueError):
+            capability_valid = False
+    if not capability_valid:
         termination = {"kind": "launch_error", "detail": "sandbox_capability_unavailable"}
         observation_complete = False
     else:
@@ -233,8 +356,16 @@ def run_gate(
                     observation_complete = False
             if any(thread.is_alive() for thread in threads) and "process" in locals():
                 _terminate_process_tree(process)
+                if not _close_process_streams(process):
+                    observation_complete = False
                 for thread in threads:
                     thread.join(timeout=1)
+            if threads and (
+                any(thread.is_alive() for thread in threads)
+                or not stdout_capture.eof
+                or not stderr_capture.eof
+            ):
+                observation_complete = False
     ended = time.monotonic_ns()
     ended_at = _utc_now()
     try:
@@ -272,7 +403,7 @@ def run_gate(
         limitations.append("candidate identity changed during gate observation")
     if not observation_complete:
         limitations.append("process observation was incomplete")
-    if capability_report is None or validate_sandbox_capability(capability_report):
+    if not capability_valid:
         limitations.append("required disposable sandbox capability was unavailable")
     provenance = build_provenance_statement(
         repository_id=repository_id,

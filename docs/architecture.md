@@ -157,7 +157,10 @@ candidate = SHA256(canonical_json({
 }))
 ```
 
-The adapter verifies that the checkout tree matches `head_commit` and that no uncommitted or untracked non-ignored candidate files exist.
+The adapter independently resolves both the requested `head_commit` and actual
+checkout `HEAD`, requires exact equality before constructing the candidate, and
+then verifies that no uncommitted or untracked non-ignored candidate files
+exist. Repository cleanliness is not a substitute for actual-HEAD equality.
 
 ### Working-tree mode
 
@@ -220,6 +223,31 @@ identity, digest-only argv/stdin identities, Codex thread/CLI versions, workflow
 run/attempt, bounds, materials, event-stream digests and Codex CLI-reported token
 usage. No host path or environment value is persisted.
 
+The reviewer parent exit and result file are insufficient until both bounded
+capture threads observe EOF and a trusted descendant boundary proves no live
+reviewer descendant remains. The preferred Linux adapter uses a fresh user, PID
+and mount namespace: trusted PID 1 supervises the reviewer, while the namespace
+manager and outer child-subreaper remain outside the reviewer-visible PID
+namespace. A bounded handshake proves namespace and `/proc` isolation before
+review admission. Reviewer exit, manager exit or supervisor death tears down
+the namespace, including children that call `setsid()` or `setpgid()` and close
+all standard streams. When a host/container kernel blocks nested user
+namespaces, a supported-architecture fallback installs `no_new_privs` and a
+seccomp filter before reviewer exec. The inherited filter rejects `kill`,
+thread/group/queued/pidfd signal, ptrace and cross-process-write syscalls, so the
+same-UID reviewer cannot terminate or modify its outer child-subreaper; that
+filter rejects the entire x32-tagged syscall space on x86_64 before native
+dispatch so alternate-ABI syscall numbers cannot bypass the deny list. The
+subreaper then proves and performs bounded descendant cleanup. A bounded
+handshake identifies either exact boundary. Other platforms or architectures
+require an equivalent kernel job/containment primitive or fail closed.
+Process-group checks and the outer child-subreaper
+remain defence in depth, but a zombie-only procfs snapshot cannot establish
+initial success because enumeration races with fork/exit. Stream closure occurs
+only through a bounded helper; a blocked close cannot exceed the reviewer
+deadline. Cleanup completion is evidence and never promotes an already
+incomplete run.
+
 ## Evidence storage
 
 Default root:
@@ -246,17 +274,40 @@ artifacts/governance/<candidate-id>/
 ```
 
 Writes use temporary files in the same directory followed by a no-replacement
-atomic publication step. Repeating the same path and identical bytes is
-idempotent; any different content at an existing path blocks. The store rejects
-symlinks and path escape. Artifacts are read back and rehashed before aggregation.
+atomic publication step. Where directory-relative no-follow primitives are
+available, directory descriptors bind traversal, temporary creation,
+publication and readback to the verified parent so a concurrent symlink swap
+cannot redirect output. A detected parent replacement blocks and the new leaf
+is removed through the bound descriptor. Repeating the same path and identical
+bytes is idempotent; any different content at an existing path blocks. The
+store rejects symlinks and path escape. Artifacts are read back and rehashed before aggregation.
+If those directory-relative no-follow primitives are unavailable, authoritative
+artifact read/write operations block explicitly; there is no weaker pathname
+fallback.
+Existing leaves are opened nonblocking and accepted only after descriptor-bound
+inspection proves a bounded regular file, preventing FIFO/device/socket paths
+from stalling preflight or readback.
 The same no-replacement rule applies to every CLI output path, including
 intermediate manifests and context receipts; a command may never replace an
 existing output with different bytes.
 
+The command-line adapter traverses the evidence root with no-follow directory
+descriptors, acquires the OS lock on the retained root directory descriptor
+itself, and supplies that same root identity to locked preflight and every publication.
+A pathname lock leaf is deliberately absent because a same-UID process can
+hardlink, unlink or replace it while an older descriptor remains locked.
+A different repository/root, replaced root inode, unavailable safe primitive or
+contended lock blocks before the handler. It rejects
+absolute paths, traversal or containment escapes, and every symlinked component
+from the repository root through the output leaf. Valid output paths therefore
+remain portable repository-relative artifact locations.
+
 Gate and mutation reconstruction resolves the bounded stdout and stderr
 references, re-hashes their bytes, reconciles declared sizes and provenance
 subjects, and requires complete, non-truncated, exited termination semantics.
-The reconstructed status must agree with the exit code. Missing or altered raw
+Capability verification must precede result start, result start must not follow
+result end, provenance start/end must equal the result, and the manifest must
+not predate any result completion. The reconstructed status must agree with the exit code. Missing or altered raw
 streams, timeouts, signals, incomplete observations and truncation are
 `UNKNOWN`, even when a schema-valid result document claims `PASS`.
 

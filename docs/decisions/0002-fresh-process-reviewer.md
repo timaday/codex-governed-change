@@ -21,6 +21,23 @@ evidence, or committed configuration.
 
 Keep `.codex/agents/independent-reviewer.toml` only as an interactive convenience.
 
+Reviewer completion requires EOF on both bounded stdout and stderr capture
+streams plus a trusted descendant boundary, not only termination of the parent
+or disappearance of its original process group. A descendant that changes
+session/process group, closes every standard stream, or signals a same-UID
+supervisor remains in scope. The preferred Linux adapter places a trusted PID 1
+and reviewer in a fresh user/PID/mount namespace, keeps the namespace manager
+and child-subreaper outside the reviewer-visible PID namespace, and requires a
+bounded handshake before admission. Namespace/PID-1 teardown supplies the
+non-escapable cleanup unit. Where nested namespaces are blocked, a
+supported-architecture `no_new_privs` seccomp guard denies all reviewer-tree
+signal and cross-process-write syscalls before exec, making the outer subreaper
+non-signalable while it performs bounded cleanup. On x86_64 it rejects every
+x32-tagged syscall before native dispatch rather than assuming the host kernel
+has disabled that alternate ABI. An unavailable equivalent
+kernel capability forces `UNKNOWN`. A racy zombie-only scan cannot establish
+initial success, and cleanup completion remains separate from execution validity.
+
 ## Alternatives
 
 - **Built-in `/review`**: useful for fast feedback but not the strict no-author-context boundary.

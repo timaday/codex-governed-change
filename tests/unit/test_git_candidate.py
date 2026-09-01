@@ -115,6 +115,23 @@ class GitCandidateAdapterTest(unittest.TestCase):
                 evidence_root="evidence",
             )
 
+    def test_commit_mode_rejects_clean_checkout_at_another_resolvable_head(self) -> None:
+        (self.repository / "tracked.txt").write_bytes(b"successor\n")
+        self.git("add", "tracked.txt")
+        self.git("commit", "-qm", "successor")
+        requested_head = self.git("rev-parse", "HEAD").stdout.decode().strip()
+        self.git("checkout", "-q", "--detach", self.base)
+
+        with self.assertRaisesRegex(ValueError, "checkout HEAD"):
+            self.adapter.identify(
+                repository_id=self.REPOSITORY_ID,
+                mode="commit",
+                base_commit=self.base,
+                head_commit=requested_head,
+                effective_policy_sha256=self.POLICY,
+                evidence_root="evidence",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

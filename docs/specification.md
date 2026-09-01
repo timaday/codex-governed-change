@@ -124,7 +124,14 @@ affected surfaces remain an additional assertion used for closure checks.
 
 `.git/` and the configured evidence output root are excluded. No other tracked candidate path may be excluded. Ignored files are outside the candidate contract and MUST NOT be needed for correctness; required generated inputs must be represented by a declared gate artifact digest.
 
-Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run, independently re-identify every copied snapshot before execution, and reject dirty or unavailable submodule working trees. A mismatch makes the result `UNKNOWN`. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold the non-blocking OS-backed working-tree lock beneath the evidence root for its complete lifetime; contention is `UNKNOWN/BLOCK`.
+Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run, independently re-identify every copied snapshot before execution, and reject dirty or unavailable submodule working trees. A mismatch makes the result `UNKNOWN`. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
+
+In commit mode, resolving the caller-requested head is not proof of the checked
+out repository state. The repository adapter MUST independently resolve actual
+checkout `HEAD`, require it to equal the resolved requested head, and perform
+that comparison before candidate construction, snapshot copying, or execution.
+A clean checkout at another locally resolvable commit is a candidate mismatch,
+not valid evidence for the requested head.
 
 ### 5.3 Gate result
 
@@ -139,6 +146,10 @@ Each gate result records:
 - limitations and producer version.
 
 `PASS` requires exit zero, complete required observations, no timeout, matching pre/post candidate identity, and schema-valid artifacts. Non-zero is `FAIL` unless the command could not be observed reliably, in which case it is `UNKNOWN`. Timeout, launch error, signal ambiguity, missing output, invalid encoding where required, truncation of required causal evidence, or identity drift is `UNKNOWN`.
+
+A gate manifest is constructed only after every referenced gate result exists.
+Its `created_at` MUST be at or after the maximum referenced result `ended_at`;
+a caller-supplied observation time cannot serve as manifest creation time.
 
 ### 5.4 Reviewer result
 
@@ -270,6 +281,29 @@ The launcher MUST:
   materials, prompt/schema/model/qualification/launcher identities,
   termination, output, candidate pre/post identity and CLI-reported token usage;
 - classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
+
+A zero-exit reviewer parent is not complete process observation. Both bounded
+stdout and stderr capture threads MUST reach EOF and a trusted descendant
+boundary MUST prove that no live descendant remains before reviewer output can
+be valid. Changing process group or session, closing every standard stream, or
+signalling a same-UID supervisor MUST NOT escape that boundary. On Linux the
+reference adapter prefers placing the reviewer behind trusted PID 1 in a fresh
+user, PID and mount namespace whose trusted parent remains outside the
+reviewer-visible PID namespace; PID-1 exit or parent death tears down the
+complete namespace. Where nested namespaces are kernel-blocked, a
+`no_new_privs` seccomp guard MUST instead deny every process-signal and
+cross-process-write syscall for the reviewer and all descendants before exec,
+making the same-UID outer child-subreaper non-signalable. The subreaper proves
+and performs bounded descendant cleanup on that fallback. If neither exact
+kernel boundary is available, the result is `UNKNOWN` before the reviewer is
+admitted. On x86_64 the guard MUST reject the complete x32-tagged syscall
+number space before native syscall dispatch; checking only native x86_64
+numbers is not containment because an x32-enabled kernel could otherwise admit
+alternate-ABI signal or cross-process-write calls. Initial success MUST NOT be
+inferred from a racy zombie-only process-group scan. Cleanup, stream closure and
+capture joins MUST remain time-bounded. Any live descendant, missing containment
+handshake or incomplete capture permanently forces `UNKNOWN`; later cleanup
+completion cannot promote it.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
@@ -435,6 +469,14 @@ tests or configuration observed by a sibling gate. Before launch, the trusted
 supervisor independently identifies the copy and requires it to match the exact
 candidate; mismatch is `UNKNOWN/BLOCK`.
 
+The sandbox capability observation MUST be produced before the execution it
+authorizes. Production rejects a capability whose `verified_at` is later than
+the gate start, and reconstruction independently requires
+`capability.verified_at <= result.started_at <= result.ended_at <=
+gate-manifest.created_at`. The provenance predicate start/end times MUST equal
+the gate result. A caller-supplied, future-dated or conflicting clock value is
+`UNKNOWN`; digest integrity cannot repair invalid chronology.
+
 Only after untrusted execution ends may a fresh trusted phase package output. It
 emits an in-toto-shaped Statement v1 whose subjects bind the protected
 `repository_id` and exact candidate/source digest. The predicate binds task,
@@ -459,6 +501,18 @@ requires exited-zero, complete observation, no truncation and exact candidate
 pre/post identity. Gate, mutation and reviewer producers retain distinct
 workflow/run identities; causal artifact links, not identical run IDs, relate
 them.
+
+Every output-producing CLI command MUST publish through the configured
+repository evidence root. A caller-selected output is accepted only as a
+repository-relative path that resolves beneath that root. Absolute paths,
+traversal, evidence-root escapes, and symlinks in the evidence root, parent
+chain, or leaf MUST be rejected before directory creation or publication.
+If the runtime cannot provide directory-bound no-follow traversal, creation,
+publication and readback, authoritative artifact I/O is unavailable and MUST
+return `UNKNOWN/BLOCK`; it MUST NOT fall back to race-prone pathname I/O.
+Existing leaves MUST be opened nonblocking where the platform supports special
+files and rejected after descriptor-bound type inspection unless they are
+regular files.
 
 ## 17. Governed mutation and operational RST
 

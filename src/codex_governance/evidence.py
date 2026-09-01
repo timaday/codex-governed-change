@@ -450,6 +450,16 @@ def evaluate_manifest(
         predicate = statement.get("predicate", {}) if isinstance(statement, Mapping) else {}
         environment = predicate.get("environment", {}) if isinstance(predicate, Mapping) else {}
         producer = predicate.get("producer", {}) if isinstance(predicate, Mapping) else {}
+        try:
+            chronology_valid = (
+                parse_rfc3339(str(capability.get("verified_at")))
+                <= parse_rfc3339(str(result.get("started_at")))
+                <= parse_rfc3339(str(result.get("ended_at")))
+                and predicate.get("started_at") == result.get("started_at")
+                and predicate.get("ended_at") == result.get("ended_at")
+            )
+        except (AttributeError, TypeError, ValueError):
+            chronology_valid = False
         artifacts = result.get("artifacts")
         if (
             not isinstance(artifacts, Sequence)
@@ -511,6 +521,7 @@ def evaluate_manifest(
         ]
         return bool(
             status_matches_termination
+            and chronology_valid
             and predicate.get("artifacts") == provenance_artifacts
             and isinstance(capability, Mapping)
             and not validate_sandbox_capability(capability)
@@ -579,8 +590,10 @@ def evaluate_manifest(
         ):
             raise ValueError("gate set mismatch")
         gate_states: list[str] = []
+        gate_documents: list[dict[str, Any]] = []
         for item in gate_items:
             result = load(item["reference"], "gate-result")
+            gate_documents.append(result)
             definition = gate_policy.get(item["gate_id"])
             if (
                 not isinstance(definition, Mapping)
@@ -609,6 +622,8 @@ def evaluate_manifest(
             and gate_manifest.get("candidate_id") == current_candidate_id
             and gate_manifest.get("required_gate_ids") == list(required_gate_ids)
             and gate_manifest.get("gate_results") == gate_items
+            and parse_rfc3339(gate_manifest["created_at"])
+            >= max(parse_rfc3339(result["ended_at"]) for result in gate_documents)
         )
     except (KeyError, OSError, TypeError, ValueError):
         gate_states = ["UNKNOWN"]
@@ -845,6 +860,10 @@ def evaluate_manifest(
             and reviewer_execution.get("candidate_after") == current_candidate_id
             and reviewer_execution.get("return_code") == 0
             and reviewer_execution.get("timed_out") is False
+            and reviewer_execution.get("observation_complete") is True
+            and reviewer_execution.get("capture_threads_completed") is True
+            and reviewer_execution.get("process_cleanup_complete") is True
+            and reviewer_execution.get("execution_valid") is True
             and reviewer_execution.get("output_valid") is True
             and reviewer_execution.get("bindings_match") is True
             and reviewer_execution.get("output_truncated") is False
@@ -1019,6 +1038,10 @@ def evaluate_manifest(
                     and execution.get("candidate_after") == current_candidate_id
                     and execution.get("return_code") == 0
                     and execution.get("timed_out") is False
+                    and execution.get("observation_complete") is True
+                    and execution.get("capture_threads_completed") is True
+                    and execution.get("process_cleanup_complete") is True
+                    and execution.get("execution_valid") is True
                     and execution.get("output_valid") is True
                     and execution.get("bindings_match") is True
                     and execution.get("output_truncated") is False

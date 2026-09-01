@@ -293,11 +293,21 @@ class GitCliRepositoryAdapter:
         evidence = (
             normalize_repo_path(evidence_root) if evidence_root is not None else None
         )
+        if mode == "commit":
+            head = self.resolve_commit(head_commit or "HEAD")
+            actual_head = self.resolve_commit("HEAD")
+            if actual_head != head:
+                raise ValueError(
+                    "actual checkout HEAD does not match requested head_commit"
+                )
+        elif mode == "working_tree":
+            head = self.resolve_commit(head_commit or "HEAD")
+        else:
+            raise ValueError("candidate mode must be commit or working_tree")
         submodules = self._submodules()
         if self._submodules_dirty(submodules):
             raise ValueError("dirty submodule working trees cannot be identified")
         if mode == "commit":
-            head = self.resolve_commit(head_commit or "HEAD")
             tracked_status = self._git(
                 "status", "--porcelain=v1", "-z", "--untracked-files=no"
             )
@@ -310,7 +320,6 @@ class GitCliRepositoryAdapter:
             changed_paths = self._tracked_changed_paths(base, head)
             dirty = False
         elif mode == "working_tree":
-            head = self.resolve_commit(head_commit or "HEAD")
             diff = self._git(
                 "diff", "--binary", "--no-ext-diff", "--full-index", base, "--"
             )
@@ -322,8 +331,6 @@ class GitCliRepositoryAdapter:
                 ]
             )
             dirty = bool(diff or untracked)
-        else:
-            raise ValueError("candidate mode must be commit or working_tree")
         tracked_digest = sha256_bytes(diff)
         candidate_id = candidate_id_from_components(
             repository_id=repository_id,

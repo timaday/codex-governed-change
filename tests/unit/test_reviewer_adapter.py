@@ -1,13 +1,19 @@
+import errno
 import json
 import os
+import platform
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import sha256_bytes
 from codex_governance.domain.model import ReviewerVerdict
+from codex_governance import reviewer_signal_guard
 from codex_governance.reviewer import (
     build_reviewer_command,
     build_reviewer_environment,
@@ -172,6 +178,261 @@ class ReviewerAdapterTest(unittest.TestCase):
             fixed_prompt=self.harness["prompt"].read_text(encoding="utf-8"),
             permitted_inputs=self.inputs,
         )
+
+    @staticmethod
+    def host_processes_with_command_token(token: str) -> list[int]:
+        matches: list[int] = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isascii() or not entry.name.isdecimal():
+                continue
+            try:
+                command = (entry / "cmdline").read_bytes()
+            except (FileNotFoundError, PermissionError, ProcessLookupError):
+                continue
+            if token.encode("ascii") in command:
+                matches.append(int(entry.name))
+        return matches
+
+    def assert_reviewer_descendant_is_cleaned(
+        self, retained: str, *, escape_session: bool = False
+    ) -> None:
+        inherited = retained
+        stdout = "None" if retained == "stdout" else "subprocess.DEVNULL"
+        stderr = "None" if retained == "stderr" else "subprocess.DEVNULL"
+        suffix = "-escaped" if escape_session else ""
+        marker = self.harness["root"] / f"retained-{retained}{suffix}.json"
+        process_token = f"reviewer-descendant-{retained}{suffix}"
+        child_program = f"""import json, signal, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path({str(marker)!r}).write_text(json.dumps({{'started': True, 'stream': {inherited!r}}}))
+time.sleep(30)
+"""
+        fake = self.fake_codex(
+            f"""import json, os, signal, subprocess, sys
+import time
+from pathlib import Path
+args = sys.argv[1:]
+inputs = json.loads(sys.stdin.read().split('PERMITTED_INPUTS ', 1)[1])
+child = subprocess.Popen(
+    [sys.executable, '-c', {child_program!r}, {process_token!r}],
+    stdin=subprocess.DEVNULL, stdout={stdout}, stderr={stderr},
+    start_new_session={escape_session!r},
+)
+deadline = time.monotonic() + 2
+while not Path({str(marker)!r}).is_file() and time.monotonic() < deadline:
+    time.sleep(0.01)
+payload = {{
+  'schema_version': '2.0.0', 'repository_id': inputs['repository_id'],
+  'candidate_id': inputs['candidate_id'],
+  'task_contract_sha256': inputs['task_contract_sha256'],
+  'effective_policy_sha256': inputs['effective_policy_sha256'],
+  'gate_manifest_sha256': inputs['gate_manifest_sha256'],
+  'context_receipt_sha256': inputs['context_receipt_sha256'],
+  'reviewer_prompt_sha256': inputs['reviewer_prompt_sha256'],
+  'qualification_id': inputs['reviewer_qualification_id'],
+  'model': 'fake-gpt', 'invocation_id': 'fake:retained-{retained}',
+  'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
+  'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
+  'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
+  'claims': [], 'limitations': []
+}}
+Path(args[args.index('--output-last-message') + 1]).write_text(json.dumps(payload))
+print(json.dumps({{'type': 'thread.started', 'thread_id': 'retained-stream'}}))
+print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}}}))
+"""
+        )
+        try:
+            result = launch_reviewer(
+                command=self.command(fake),
+                stdin_text=self.stdin(),
+                schema_path=self.harness["schema"],
+                output_path=self.harness["output"],
+                expected_candidate_id=self.CANDIDATE,
+                candidate_supplier=lambda: self.CANDIDATE,
+                expected_bindings={
+                    "repository_id": self.inputs["repository_id"],
+                    "task_contract_sha256": self.inputs["task_contract_sha256"],
+                },
+                timeout_seconds=2,
+            )
+            marker_data = json.loads(marker.read_text(encoding="utf-8"))
+            self.assertTrue(marker_data["started"])
+            self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+            self.assertFalse(result["execution_valid"])
+            self.assertFalse(result["observation_complete"])
+            self.assertTrue(result["capture_threads_completed"])
+            self.assertTrue(result["process_cleanup_complete"])
+            live = self.host_processes_with_command_token(process_token)
+            if live:
+                self.fail("retained reviewer descendant remained live")
+        finally:
+            for child_pid in self.host_processes_with_command_token(process_token):
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper contract")
+    def test_zero_exit_parent_with_retained_stdout_is_unknown_and_cleaned(self) -> None:
+        self.assert_reviewer_descendant_is_cleaned("stdout")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper contract")
+    def test_zero_exit_parent_with_retained_stderr_is_unknown_and_cleaned(self) -> None:
+        self.assert_reviewer_descendant_is_cleaned("stderr")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper contract")
+    def test_zero_exit_parent_with_closed_stream_descendant_is_unknown_and_cleaned(self) -> None:
+        self.assert_reviewer_descendant_is_cleaned("closed")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper contract")
+    def test_session_escaped_closed_stream_descendant_is_unknown_and_cleaned(self) -> None:
+        self.assert_reviewer_descendant_is_cleaned(
+            "closed", escape_session=True
+        )
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper contract")
+    def test_timeout_lets_subreaper_clean_session_escaped_descendant(self) -> None:
+        marker = self.harness["root"] / "timeout-escaped-pid"
+        process_token = "reviewer-timeout-escaped-descendant"
+        child_program = f"""import signal, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path({str(marker)!r}).write_text('started')
+time.sleep(30)
+"""
+        fake = self.fake_codex(
+            f"""import subprocess, sys, time
+from pathlib import Path
+child = subprocess.Popen(
+    [sys.executable, '-c', {child_program!r}, {process_token!r}],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    start_new_session=True,
+)
+deadline = time.monotonic() + 2
+while not Path({str(marker)!r}).is_file() and time.monotonic() < deadline:
+    time.sleep(0.01)
+time.sleep(30)
+"""
+        )
+        result = launch_reviewer(
+            command=self.command(fake),
+            stdin_text=self.stdin(),
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            timeout_seconds=1.0,
+        )
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertTrue(result["process_cleanup_complete"])
+        self.assertEqual("started", marker.read_text(encoding="utf-8"))
+        live = self.host_processes_with_command_token(process_token)
+        if live:
+            for child_pid in live:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            self.fail("timed-out escaped reviewer descendant remained live")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux namespace contract")
+    def test_reviewer_cannot_kill_namespace_init_or_leak_setsid_child(self) -> None:
+        marker = self.harness["root"] / "assassination-child-host-pid"
+        attack = self.harness["root"] / "assassination-attempt"
+        process_token = "reviewer-assassination-setsid-descendant"
+        child_program = f"""import signal, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path({str(marker)!r}).write_text('started')
+time.sleep(30)
+"""
+        fake = self.fake_codex(
+            f"""import os, signal, subprocess, sys, time
+from pathlib import Path
+sys.stdin.read()
+subprocess.Popen(
+    [sys.executable, '-c', {child_program!r}, {process_token!r}],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL, start_new_session=True,
+)
+deadline = time.monotonic() + 2
+while not Path({str(marker)!r}).is_file() and time.monotonic() < deadline:
+    time.sleep(0.01)
+try:
+    os.kill(os.getppid(), signal.SIGKILL)
+except PermissionError:
+    outcome = 'blocked'
+else:
+    outcome = 'caller-survived'
+Path({str(attack)!r}).write_text(outcome)
+"""
+        )
+        result = launch_reviewer(
+            command=self.command(fake),
+            stdin_text=self.stdin(),
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            timeout_seconds=2,
+        )
+        self.assertIn(
+            attack.read_text(encoding="utf-8"), {"blocked", "caller-survived"}
+        )
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertFalse(result["observation_complete"])
+        self.assertTrue(result["process_cleanup_complete"])
+        self.assertEqual("started", marker.read_text(encoding="utf-8"))
+        live = self.host_processes_with_command_token(process_token)
+        if live:
+            for child_pid in live:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            self.fail("supervisor-assassination descendant remained live")
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux") and platform.machine().lower() == "x86_64",
+        "x86_64 Linux seccomp contract",
+    )
+    def test_signal_guard_denies_x32_syscall_space_before_dispatch(self) -> None:
+        marker = self.harness["root"] / "x32-kill-result"
+        handshake_read, handshake_write = os.pipe()
+        os.set_inheritable(handshake_write, True)
+        x32_kill = reviewer_signal_guard.X32_SYSCALL_BIT | 62
+        probe = f"""import ctypes, os
+from pathlib import Path
+libc = ctypes.CDLL(None, use_errno=True)
+ctypes.set_errno(0)
+result = libc.syscall({x32_kill}, os.getppid(), 0)
+Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                os.fspath(Path(reviewer_signal_guard.__file__)),
+                str(handshake_write),
+                "--",
+                sys.executable,
+                "-c",
+                probe,
+            ],
+            close_fds=True,
+            pass_fds=(handshake_write,),
+        )
+        os.close(handshake_write)
+        try:
+            handshake = os.read(handshake_read, 4096)
+        finally:
+            os.close(handshake_read)
+        self.assertEqual(0, process.wait(timeout=5))
+        self.assertEqual(
+            "seccomp_signal_guard", json.loads(handshake.decode("ascii"))["boundary"]
+        )
+        self.assertEqual(f"-1:{errno.EPERM}", marker.read_text(encoding="utf-8"))
 
     def test_snapshot_is_exact_bounded_data_under_an_outer_git_root(self) -> None:
         candidate = self.harness["candidate"]
@@ -394,6 +655,25 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertEqual(ReviewerVerdict.UNKNOWN, timeout["verdict"])
         self.assertTrue(timeout["timed_out"])
 
+    def test_broken_reviewer_stdin_retains_process_handle_for_cleanup(self) -> None:
+        closes_stdin = self.fake_codex(
+            "import os, time\nos.close(0)\ntime.sleep(30)\n"
+        )
+        result = launch_reviewer(
+            command=self.command(closes_stdin),
+            stdin_text="x" * 2_000_000,
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            timeout_seconds=0.1,
+        )
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertFalse(result["execution_valid"])
+        self.assertFalse(result["observation_complete"])
+        self.assertTrue(result["capture_threads_completed"])
+        self.assertTrue(result["process_cleanup_complete"])
+
     def test_codex_cli_version_observation_is_bounded_and_portable(self) -> None:
         valid = self.fake_codex("print('codex-cli 1.2.3')\n")
         self.assertEqual("codex-cli 1.2.3", observe_codex_cli_version(str(valid)))
@@ -449,6 +729,10 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "latency_ms": 60000,
             "return_code": 0,
             "timed_out": False,
+            "observation_complete": True,
+            "capture_threads_completed": True,
+            "process_cleanup_complete": True,
+            "execution_valid": True,
             "output_valid": True,
             "bindings_match": True,
             "output_truncated": False,
@@ -489,6 +773,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         for field, value in (
             ("output_sha256", "sha256:" + "9" * 64),
             ("return_code", 7),
+            ("observation_complete", False),
             ("usage_observed", False),
             ("input_tokens", 11),
         ):

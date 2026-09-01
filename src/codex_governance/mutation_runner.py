@@ -63,6 +63,7 @@ def run_governed_mutation_corpus(
     workflow_system: str,
     observed_at: str,
     implementation_sha256: str,
+    artifact_store: FilesystemArtifactStore | None = None,
 ) -> dict[str, Any]:
     """Run baseline and each mutant only through the declared container boundary."""
     repository = repository.resolve(strict=True)
@@ -79,7 +80,7 @@ def run_governed_mutation_corpus(
         "timeout_seconds": max(int(gate["timeout_seconds"]) for gate in policy["gates"]),
         "output_bytes": max(int(gate["max_output_bytes"]) for gate in policy["gates"]),
     }
-    store = FilesystemArtifactStore(
+    store = artifact_store or FilesystemArtifactStore(
         repository=repository,
         root=Path(evidence_root),
         max_bytes=max(limits["output_bytes"] * 2, 8_000_000),

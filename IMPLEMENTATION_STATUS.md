@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-08-27
+Status date: 2026-09-01
 
 ## Current disposition
 
@@ -19,7 +19,7 @@ release or enforcement claim.
 | The governed-change skill has valid frontmatter and metadata | `VERIFIED_WITHIN_SCOPE` | The skill-creator structural validator passed locally |
 | The skill and strict-review workflow work in a fresh live Codex GPT-5.6 Sol run | `UNKNOWN` | Fake-process isolation is verified and an isolated ChatGPT-authenticated `gpt-5.6-sol` access probe succeeded; exact-candidate corpus qualification and strict review remain pending, so no qualifying review result exists yet |
 | The standalone governance CLI works | `VERIFIED_WITHIN_SCOPE` | Scope, identity, gates, mutation, context, manifest assembly, review, import, evaluation, status, verification and hook boundaries are implemented and locally tested |
-| Fresh-context reviewer isolation is enforced | `VERIFIED_WITHIN_SCOPE` | Fake-process tests plus native and ChatGPT-authenticated Codex canaries prove the root-denying custom read-only profile, sanitized tool environment, disabled tool network, sanitized snapshot, digest-matched evidence, schema binding and fail-closed timeout/malformed/drift behavior on the tested runtime |
+| Fresh-context reviewer isolation is enforced | `VERIFIED_WITHIN_SCOPE` | Fake-process tests plus native and ChatGPT-authenticated Codex canaries prove the root-denying custom read-only profile, sanitized tool environment, disabled tool network, sanitized snapshot, digest-matched evidence, schema binding and fail-closed timeout/malformed/drift behavior; on the tested Linux runtime a fresh user/PID/mount namespace keeps trusted parents outside reviewer visibility, retained-stream/session-escaped descendants and supervisor-assassination attempts force `UNKNOWN`, and PID-1 plus outer-subreaper cleanup is bounded |
 | Stop-hook enforcement works | `VERIFIED_WITHIN_SCOPE` | Pure hook lifecycle tests pass and the wrapper recomputes the live candidate or fails closed |
 | CI can make a release decision | `UNKNOWN` | The always-running prerequisite matrix and reference workflow invariants are tested; no hosted protected deployment was run |
 | A declared container produced admission evidence | `UNKNOWN` | Sandbox command/capability and no-host-fallback tests pass, but no protected Docker/Podman evidence chain was executed for this candidate |
@@ -74,14 +74,17 @@ The portability assertion was corrected to accept an explicitly empty dependency
 list while still rejecting any runtime dependency. All earlier executable results
 are invalidated by subsequent candidate changes and must be rerun.
 
-The current working-copy checkpoint on 2026-08-27 observed:
+The successor working-copy checkpoint on 2026-09-01 observed:
 
 - `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 29
   schema/example pairs.
-- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 174 tests passed;
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 198 tests passed
+  (149 acceptance and 49 unit tests);
   no skips or expected failures were reported.
 - `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
-  all 23 curated mutants `KILLED`. The runner labels this local proof as
+  all 23 curated mutants `KILLED` for corpus
+  `sha256:65593a54afd00f5ab6594a0857f077ddc55d4407155b91d8a2f2e84579e12196`.
+  The runner labels this local proof as
   non-admission evidence.
 
 These observations are invalidated by any later candidate mutation and remain

@@ -6,8 +6,6 @@ import argparse
 import json
 import os
 import re
-import secrets
-import stat
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -24,6 +22,7 @@ from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import (
     canonical_json_bytes,
     normalize_repo_path,
+    require_sha256,
     sha256_bytes,
     sha256_canonical,
     verify_content_address,
@@ -42,6 +41,7 @@ from codex_governance.evidence import (
 )
 from codex_governance.gate import run_gate
 from codex_governance.hook import decide_stop
+from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.locking import PipelineLock
 from codex_governance.mutation_runner import run_governed_mutation_corpus
 from codex_governance.profiles import validate_task_contract
@@ -72,54 +72,116 @@ EXIT_READY = 0
 EXIT_BLOCK = 1
 EXIT_UNKNOWN = 2
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+CLI_OUTPUT_ARGUMENTS = {
+    "scope": ("output",),
+    "identify": ("output",),
+    "run-gates": ("output",),
+    "prepare-review": ("projection_output", "receipt_output"),
+    "assemble-manifest": ("output",),
+    "mutate": ("output",),
+    "review": ("output", "execution_output", "context_execution_output"),
+    "import-reviewer-result": ("destination",),
+    "evaluate": ("output",),
+}
 
 
 def _emit(value: Any) -> None:
     sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
 
 
-def _write(path: Path, value: Any) -> None:
-    data = canonical_json_bytes(value)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() or path.is_symlink():
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode):
-            raise ValueError("CLI output is not a regular file")
-        if path.read_bytes() == data:
-            return
-        raise FileExistsError("write-once CLI output conflicts with existing content")
-    temporary = path.parent / f".{path.name}.tmp-{secrets.token_hex(12)}"
+def _cli_output_authority(args: argparse.Namespace) -> tuple[Path, str]:
+    repository = args.repository
+    if args.command == "scope":
+        task = _validated(args.task, args.schema_root, "task-contract")
+        policy = load_effective_policy(
+            policy_path=args.policy,
+            schema_path=args.schema_root / "effective-policy.schema.json",
+        )
+        resolved, _ = resolve_effective_configuration(
+            policy=policy,
+            task_contract=task,
+            evidence_root_override=args.evidence_root,
+        )
+        evidence_root = resolved["evidence_root"]
+    elif args.command == "import-reviewer-result":
+        evidence_root = normalize_repo_path(os.fspath(args.evidence_root))
+    elif args.command == "evaluate":
+        manifest = _validated(args.manifest, args.schema_root, "evidence-manifest")
+        policy = load_referenced_json(
+            repository=repository,
+            reference=manifest["effective_policy"],
+            schema_path=args.schema_root / "effective-policy.schema.json",
+        )
+        evidence_root = normalize_repo_path(policy["evidence_root"])
+    else:
+        policy = _validated(args.policy, args.schema_root, "effective-policy")
+        evidence_root = normalize_repo_path(policy["evidence_root"])
+    return repository, evidence_root
+
+
+def _relative_cli_output(path: str, evidence_root: str) -> str:
+    normalized = normalize_repo_path(path)
+    prefix = evidence_root + "/"
+    if not normalized.startswith(prefix):
+        raise ValueError("CLI output must be beneath the configured evidence root")
+    return normalize_repo_path(normalized.removeprefix(prefix))
+
+
+def _preflight_cli_outputs(
+    args: argparse.Namespace,
+    *,
+    expected_authority: tuple[Path, str, tuple[int, int] | None] | None = None,
+) -> None:
+    fields = CLI_OUTPUT_ARGUMENTS.get(args.command, ())
+    if not fields:
+        return
+    repository, evidence_root = _cli_output_authority(args)
+    if expected_authority is not None:
+        expected_repository, expected_evidence_root, expected_root_identity = (
+            expected_authority
+        )
+        if (
+            repository.resolve() != expected_repository.resolve()
+            or normalize_repo_path(evidence_root)
+            != normalize_repo_path(expected_evidence_root)
+        ):
+            raise ValueError("CLI output authority changed after lock selection")
+    store = FilesystemArtifactStore(
+        repository=repository,
+        root=Path(evidence_root),
+        max_bytes=64_000_000,
+        expected_root_identity=(
+            expected_authority[2] if expected_authority is not None else None
+        ),
+    )
+    store.validate_root_binding()
+    relative_paths: dict[str, str] = {}
+    for field in fields:
+        value = getattr(args, field)
+        if value is None:
+            continue
+        relative = _relative_cli_output(os.fspath(value), evidence_root)
+        store.validate_target(relative)
+        if relative in relative_paths.values():
+            raise ValueError("CLI output paths must be unique")
+        relative_paths[field] = relative
+    args._cli_output_store = store
+    args._cli_output_paths = relative_paths
+
+
+def _write_cli_output(
+    args: argparse.Namespace, field: str, value: Any
+) -> str:
+    store = args._cli_output_store
+    relative = args._cli_output_paths[field]
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        try:
-            os.link(temporary, path)
-        except FileExistsError as exc:
-            try:
-                info = path.lstat()
-                existing = path.read_bytes() if stat.S_ISREG(info.st_mode) else None
-            except OSError:
-                existing = None
-            if existing != data:
-                raise FileExistsError(
-                    "write-once CLI output won a conflicting race"
-                ) from exc
-            return
-        temporary.unlink()
-        if os.name == "posix":
-            directory_fd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-    finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+        return store.write_bytes(relative, canonical_json_bytes(value))
+    except FileExistsError:
+        raise FileExistsError("write-once CLI output conflicts with existing content")
+
+
+def _read_cli_output(args: argparse.Namespace, field: str) -> bytes:
+    return args._cli_output_store.read_bytes(args._cli_output_paths[field])
 
 
 def _document(path: Path) -> dict[str, Any]:
@@ -139,6 +201,12 @@ def _validated(path: Path, schema_root: Path, name: str) -> dict[str, Any]:
 def _state_exit(state: DispositionState | str) -> int:
     value = state.value if isinstance(state, DispositionState) else state
     return {"READY_FOR_HUMAN": 0, "BLOCK": 1, "UNKNOWN": 2}.get(value, 2)
+
+
+def _gate_manifest_created_at(results: Sequence[Mapping[str, Any]]) -> str:
+    if not results:
+        raise ValueError("gate manifest requires at least one completed result")
+    return max((str(item["ended_at"]) for item in results), key=parse_rfc3339)
 
 
 def _scope(args: argparse.Namespace) -> int:
@@ -162,7 +230,7 @@ def _scope(args: argparse.Namespace) -> int:
         "configuration": resolved,
     }
     if args.output:
-        _write(args.output, result)
+        _write_cli_output(args, "output", result)
     _emit(result)
     return EXIT_READY
 
@@ -179,7 +247,7 @@ def _identify(args: argparse.Namespace) -> int:
         evidence_root=policy["evidence_root"],
     )
     if args.output:
-        _write(args.output, candidate)
+        _write_cli_output(args, "output", candidate)
     _emit(candidate)
     return EXIT_READY
 
@@ -202,11 +270,7 @@ def _run_gates(args: argparse.Namespace) -> int:
     gate_ids = list(task["required_gate_ids"])
     if any(item not in available for item in gate_ids):
         raise ValueError("task requests an unavailable protected gate")
-    store = FilesystemArtifactStore(
-        repository=args.repository,
-        root=Path(policy["evidence_root"]),
-        max_bytes=max(gate["max_output_bytes"] for gate in policy["gates"]) * 2,
-    )
+    store = args._cli_output_store
     prefix = f"{candidate_prefix(candidate['candidate_id'])}/runs/{args.run_id}-{args.attempt}"
     adapter = GitCliRepositoryAdapter(args.repository)
 
@@ -322,7 +386,7 @@ def _run_gates(args: argparse.Namespace) -> int:
         candidate_id=candidate["candidate_id"],
         required_gate_ids=gate_ids,
         gate_references=gate_references,
-        created_at=args.observed_at,
+        created_at=_gate_manifest_created_at(results),
     )
     manifest_relative = f"{prefix}/gate-manifest.json"
     manifest_sha = store.write_bytes(manifest_relative, canonical_json_bytes(manifest))
@@ -340,7 +404,7 @@ def _run_gates(args: argparse.Namespace) -> int:
         ],
     }
     if args.output:
-        _write(args.output, summary)
+        _write_cli_output(args, "output", summary)
     _emit(summary)
     if any(item["status"] == "FAIL" for item in results):
         return EXIT_BLOCK
@@ -390,8 +454,8 @@ def _prepare_review(args: argparse.Namespace) -> int:
         reviewer_uncertain=args.reviewer_uncertain,
         selector_uncertain=args.selector_uncertain,
     )
-    _write(args.projection_output, compiled["projection"])
-    _write(args.receipt_output, compiled["receipt"])
+    _write_cli_output(args, "projection_output", compiled["projection"])
+    _write_cli_output(args, "receipt_output", compiled["receipt"])
     result = {
         "state": compiled["state"].value,
         "profile": compiled["receipt"]["profile"],
@@ -412,7 +476,7 @@ def _assemble_manifest(args: argparse.Namespace) -> int:
     errors.extend(validate_semantics(manifest, "evidence-manifest"))
     if errors:
         raise ValueError("assembled evidence manifest is invalid")
-    _write(args.output, manifest)
+    _write_cli_output(args, "output", manifest)
     _emit({"state": "VALID", "manifest_id": manifest["manifest_id"]})
     return EXIT_READY
 
@@ -445,9 +509,10 @@ def _mutate(args: argparse.Namespace) -> int:
         workflow_system=args.workflow_system,
         observed_at=args.observed_at,
         implementation_sha256=mutation_implementation_sha256(),
+        artifact_store=args._cli_output_store,
     )
     if args.output:
-        _write(args.output, summary)
+        _write_cli_output(args, "output", summary)
     _emit(summary)
     return EXIT_READY if summary["state"] == "PASS" else (
         EXIT_BLOCK if summary["state"] == "BLOCK" else EXIT_UNKNOWN
@@ -620,8 +685,10 @@ def _review(args: argparse.Namespace) -> int:
             max_output_bytes=args.max_output_bytes,
         )
         if result.get("execution_valid") and isinstance(result.get("result"), Mapping):
-            _write(args.output, result["result"])
-            result["output_sha256"] = sha256_bytes(args.output.read_bytes())
+            _write_cli_output(args, "output", result["result"])
+            result["output_sha256"] = sha256_bytes(
+                _read_cli_output(args, "output")
+            )
         execution_receipt = finalize_context_receipt(
             receipt,
             review_mode=review_mode,
@@ -641,7 +708,9 @@ def _review(args: argparse.Namespace) -> int:
             created_at=result["ended_at"],
             limitations=result["limitations"],
         )
-        _write(args.context_execution_output, execution_receipt)
+        _write_cli_output(
+            args, "context_execution_output", execution_receipt
+        )
         result["reviewer_prompt_sha256"] = prompt_sha
         execution_statement = build_reviewer_execution_statement(
             repository_id=policy["repository_id"],
@@ -664,7 +733,7 @@ def _review(args: argparse.Namespace) -> int:
             codex_cli_version=codex_cli_version,
             execution=result,
         )
-        _write(args.execution_output, execution_statement)
+        _write_cli_output(args, "execution_output", execution_statement)
     execution_complete = bool(
         result.get("execution_valid")
         and result.get("usage_observed")
@@ -715,8 +784,7 @@ def _import_reviewer(args: argparse.Namespace) -> int:
     ):
         _emit({"state": "UNKNOWN", "reason": "reviewer binding mismatch"})
         return EXIT_UNKNOWN
-    store = FilesystemArtifactStore(repository=args.repository, root=args.evidence_root)
-    digest = store.write_bytes(args.destination, canonical_json_bytes(result))
+    digest = _write_cli_output(args, "destination", result)
     _emit({"state": result["verdict"], "sha256": digest})
     return EXIT_BLOCK if result["verdict"] == "BLOCK" else (
         EXIT_READY if result["verdict"] == "NO_BLOCKING_FINDING_OBSERVED" else EXIT_UNKNOWN
@@ -773,7 +841,7 @@ def _evaluate(args: argparse.Namespace) -> int:
         "evaluated_at": args.evaluated_at,
         "producer_version": PRODUCER_VERSION,
     }
-    _write(args.output, disposition)
+    _write_cli_output(args, "output", disposition)
     _emit(disposition)
     return _state_exit(state)
 
@@ -845,10 +913,11 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     scope = subparsers.add_parser("scope")
+    scope.add_argument("--repository", type=Path, default=Path.cwd())
     scope.add_argument("--task", type=Path, required=True)
     scope.add_argument("--policy", type=Path, required=True)
     scope.add_argument("--evidence-root")
-    scope.add_argument("--output", type=Path)
+    scope.add_argument("--output")
     scope.set_defaults(handler=_scope)
 
     identify = subparsers.add_parser("identify")
@@ -857,7 +926,7 @@ def _parser() -> argparse.ArgumentParser:
     identify.add_argument("--mode", choices=("commit", "working_tree"), required=True)
     identify.add_argument("--base", required=True)
     identify.add_argument("--head")
-    identify.add_argument("--output", type=Path)
+    identify.add_argument("--output")
     identify.set_defaults(handler=_identify)
 
     gates = subparsers.add_parser("run-gates")
@@ -870,7 +939,7 @@ def _parser() -> argparse.ArgumentParser:
     gates.add_argument("--attempt", type=int, default=1)
     gates.add_argument("--workflow-system", default="local")
     gates.add_argument("--observed-at", required=True)
-    gates.add_argument("--output", type=Path)
+    gates.add_argument("--output")
     gates.set_defaults(handler=_run_gates)
 
     prepare = subparsers.add_parser("prepare-review")
@@ -882,8 +951,8 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--token-budget", type=int, required=True)
     prepare.add_argument("--model", required=True)
     prepare.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh"), required=True)
-    prepare.add_argument("--projection-output", type=Path, required=True)
-    prepare.add_argument("--receipt-output", type=Path, required=True)
+    prepare.add_argument("--projection-output", required=True)
+    prepare.add_argument("--receipt-output", required=True)
     for signal in (
         "gate_failed", "gate_missing", "surviving_mutant", "conflicting_oracle",
         "prompt_injection_risk", "authority_incomplete", "provenance_incomplete",
@@ -896,7 +965,7 @@ def _parser() -> argparse.ArgumentParser:
     assemble.add_argument("--repository", type=Path, default=Path.cwd())
     assemble.add_argument("--policy", type=Path, required=True)
     assemble.add_argument("--input", type=Path, required=True)
-    assemble.add_argument("--output", type=Path, required=True)
+    assemble.add_argument("--output", required=True)
     assemble.set_defaults(handler=_assemble_manifest)
 
     mutate = subparsers.add_parser("mutate")
@@ -909,7 +978,7 @@ def _parser() -> argparse.ArgumentParser:
     mutate.add_argument("--attempt", type=int, default=1)
     mutate.add_argument("--workflow-system", default="local")
     mutate.add_argument("--observed-at", required=True)
-    mutate.add_argument("--output", type=Path)
+    mutate.add_argument("--output")
     mutate.set_defaults(handler=_mutate)
 
     review = subparsers.add_parser("review")
@@ -919,9 +988,9 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--permitted-inputs", type=Path, required=True)
     review.add_argument("--prompt", type=Path, required=True)
     review.add_argument("--output-schema", type=Path, required=True)
-    review.add_argument("--output", type=Path, required=True)
-    review.add_argument("--execution-output", type=Path, required=True)
-    review.add_argument("--context-execution-output", type=Path, required=True)
+    review.add_argument("--output", required=True)
+    review.add_argument("--execution-output", required=True)
+    review.add_argument("--context-execution-output", required=True)
     review.add_argument("--codex", default="codex")
     review.add_argument("--workflow-system", default="local")
     review.add_argument("--run-id", required=True)
@@ -949,7 +1018,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--candidate", type=Path, required=True)
     evaluate.add_argument("--evaluated-at", required=True)
     evaluate.add_argument("--verified-decision-id", action="append", default=[])
-    evaluate.add_argument("--output", type=Path, required=True)
+    evaluate.add_argument("--output", required=True)
     evaluate.set_defaults(handler=_evaluate)
 
     status = subparsers.add_parser("status")
@@ -980,6 +1049,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         lock = _pipeline_lock_for(args)
         with lock:
+            expected_authority = None
+            assert_binding = getattr(lock, "assert_binding", None)
+            if callable(assert_binding):
+                assert_binding()
+            if isinstance(getattr(lock, "repository", None), Path) and isinstance(
+                getattr(lock, "root", None), Path
+            ):
+                root_identity = getattr(lock, "root_identity", None)
+                expected_authority = (
+                    lock.repository,
+                    lock.root.relative_to(lock.repository).as_posix(),
+                    root_identity if isinstance(root_identity, tuple) else None,
+                )
+            _preflight_cli_outputs(
+                args, expected_authority=expected_authority
+            )
             return int(args.handler(args))
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         _emit(
@@ -993,6 +1078,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _pipeline_lock_for(args: argparse.Namespace):
+    if args.command == "scope":
+        repository, evidence_root = _cli_output_authority(args)
+        return PipelineLock(
+            repository=repository,
+            evidence_root=evidence_root,
+        )
     policy_commands = {
         "identify",
         "run-gates",

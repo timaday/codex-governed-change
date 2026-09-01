@@ -26,6 +26,7 @@ env:
   GOVERNANCE_REPOSITORY: timaday/codex-governed-change
   POLICY: authority/.governance/effective-policy.json
   ARTIFACT_ROOT: candidate/artifacts/governance
+  ARTIFACT_REPOSITORY_ROOT: artifacts/governance
   TASK: candidate/artifacts/governance/task-contract.json
   CANDIDATE: candidate/artifacts/governance/candidate.json
   REVIEWER_PROMPT: governance/.codex/review/reviewer.prompt.md
@@ -88,6 +89,7 @@ jobs:
             --head "$HEAD_SHA"
           python3 -c 'import json; assert json.load(open("authority/.governance/effective-policy.json"))["evidence_root"] == "artifacts/governance"'
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas scope \
+            --repository candidate \
             --task "$TASK" \
             --policy "$POLICY"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas identify \
@@ -96,7 +98,7 @@ jobs:
             --mode commit \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
-            --output "$CANDIDATE"
+            --output "$ARTIFACT_REPOSITORY_ROOT/candidate.json"
 
       - name: Run candidate gates through protected policy
         env:
@@ -114,7 +116,7 @@ jobs:
             --attempt "$RUN_ATTEMPT" \
             --workflow-system github-actions \
             --observed-at "$OBSERVED_AT" \
-            --output "$ARTIFACT_ROOT/gate-summary.json"
+            --output "$ARTIFACT_REPOSITORY_ROOT/gate-summary.json"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas mutate \
             --repository candidate \
             --policy "$POLICY" \
@@ -125,7 +127,7 @@ jobs:
             --attempt "$RUN_ATTEMPT" \
             --workflow-system github-actions \
             --observed-at "$OBSERVED_AT" \
-            --output "$ARTIFACT_ROOT/mutation-summary.json"
+            --output "$ARTIFACT_REPOSITORY_ROOT/mutation-summary.json"
 
       - name: Compile context and reviewer allowlist
         run: |
@@ -143,8 +145,8 @@ jobs:
             --token-budget 64000 \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
-            --projection-output "$ARTIFACT_ROOT/context-projection.json" \
-            --receipt-output "$ARTIFACT_ROOT/context-receipt.json"
+            --projection-output "$ARTIFACT_REPOSITORY_ROOT/context-projection.json" \
+            --receipt-output "$ARTIFACT_REPOSITORY_ROOT/context-receipt.json"
           test -f authority/.governance/ci/prepare-review-inputs.py
           python3 authority/.governance/ci/prepare-review-inputs.py \
             --authority authority \
@@ -210,9 +212,9 @@ jobs:
             --permitted-inputs candidate/artifacts/governance/reviewer-permitted-inputs.json \
             --prompt governance/.codex/review/reviewer.prompt.md \
             --output-schema governance/schemas/reviewer-result.schema.json \
-            --output candidate/artifacts/governance/reviewer-result.json \
-            --execution-output candidate/artifacts/governance/reviewer-execution.json \
-            --context-execution-output candidate/artifacts/governance/context-execution-receipt.json \
+            --output artifacts/governance/reviewer-result.json \
+            --execution-output artifacts/governance/reviewer-execution.json \
+            --context-execution-output artifacts/governance/context-execution-receipt.json \
             --workflow-system github-actions \
             --run-id "${{ github.run_id }}" \
             --attempt "${{ github.run_attempt }}" \
@@ -234,9 +236,9 @@ jobs:
               --permitted-inputs "$permitted" \
               --prompt governance/.codex/review/reviewer.prompt.md \
               --output-schema governance/schemas/rapid-review-session.schema.json \
-              --output "candidate/artifacts/governance/rapid-review-sessions/$session_name.json" \
-              --execution-output "candidate/artifacts/governance/rapid-review-executions/$session_name.json" \
-              --context-execution-output "candidate/artifacts/governance/rapid-review-context-executions/$session_name.json" \
+              --output "artifacts/governance/rapid-review-sessions/$session_name.json" \
+              --execution-output "artifacts/governance/rapid-review-executions/$session_name.json" \
+              --context-execution-output "artifacts/governance/rapid-review-context-executions/$session_name.json" \
               --workflow-system github-actions \
               --run-id "${{ github.run_id }}" \
               --attempt "${{ github.run_attempt }}" \
@@ -324,7 +326,7 @@ jobs:
             --repository candidate \
             --source candidate/artifacts/governance/reviewer-result.json \
             --evidence-root artifacts/governance \
-            --destination imported/reviewer-result.json \
+            --destination artifacts/governance/imported/reviewer-result.json \
             --repository-id "$(python3 -c 'import json; print(json.load(open("candidate/artifacts/governance/candidate.json"))["repository_id"])')" \
             --candidate-id "$(python3 -c 'import json; print(json.load(open("candidate/artifacts/governance/candidate.json"))["candidate_id"])')" \
             --task-contract-sha256 "$(sha256sum candidate/artifacts/governance/task-contract.json | awk '{print "sha256:" $1}')" \
@@ -339,7 +341,7 @@ jobs:
             --repository candidate \
             --policy "$POLICY" \
             --input candidate/artifacts/governance/manifest-input.json \
-            --output candidate/artifacts/governance/evidence-manifest.json
+            --output artifacts/governance/evidence-manifest.json
           mapfile -t VERIFIED_DECISIONS < <(python3 -c 'import json,re; values=json.load(open("verified-decision-ids.json")); assert isinstance(values,list) and values and all(re.fullmatch(r"sha256:[0-9a-f]{64}", item) for item in values); print(*values, sep="\n")')
           DECISION_ARGS=()
           for decision_id in "${VERIFIED_DECISIONS[@]}"; do
@@ -351,4 +353,4 @@ jobs:
             --candidate candidate/artifacts/governance/candidate.json \
             --evaluated-at "$EVALUATED_AT" \
             "${DECISION_ARGS[@]}" \
-            --output candidate/artifacts/governance/disposition.json
+            --output artifacts/governance/disposition.json

@@ -28,10 +28,10 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-022 | T01-T10 | Blueprint clean-environment gate |
 | GOV-023 | T02, T04, T07, T24 | `test_evidence_reconstruction.py`, distinct-producer-workflow tests, schema/example checks |
 | GOV-024 | T09, T10 | Governance mutation corpus |
-| GOV-025 | T06, T08 | `test_reviewer_isolation.py`, `test_stop_hook.py` |
+| GOV-025 | T06, T08 | `test_reviewer_isolation.py`, unit namespace/supervisor-assassination and x32-ABI-denial process tests, `test_stop_hook.py` |
 | GOV-026 | T01, T05, T24 | `test_gate_evidence.py`, raw-stream reconstruction tests |
 | GOV-027 | T05, T06 | `test_gate_evidence.py`, `test_reviewer_isolation.py` |
-| GOV-028 | T03, T04 | `test_candidate_identity.py`, artifact-store security tests |
+| GOV-028 | T03, T04, T24 | `test_candidate_identity.py`, `test_cli_orchestration.py`, artifact-store security tests |
 | GOV-029 | T03, T07 | `test_candidate_identity.py`, configuration tests |
 | GOV-030 | T01, T07, T09 | `test_disposition_policy.py`, capability-boundary tests |
 | GOV-031 | T11, T12 | `test_rapid_review.py`, `test_workflow_profiles.py` |
@@ -50,20 +50,20 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-044 | T17 | `test_gate_sandbox.py` |
 | GOV-045 | T16 | `test_attestation.py`, `test_candidate_identity.py` |
 | GOV-046 | T16, T17, T20 | `test_attestation.py`, `test_gate_sandbox.py`, `test_reviewer_isolation.py`, `test_evidence_reconstruction.py` |
-| GOV-047 | T16, T24 | `test_attestation.py`, `test_gate_evidence.py`, `test_pipeline_lock.py`, CLI no-replacement tests |
+| GOV-047 | T16, T24 | `test_attestation.py`, `test_gate_evidence.py`, `test_pipeline_lock.py`, directory-lock hardlink/leaf-replacement and CLI no-replacement tests |
 | GOV-048 | T14 | `test_trusted_authority.py`, `test_disposition_policy.py` |
 | GOV-049 | T14, T24 | `test_trusted_authority.py`, `test_workflow_profiles.py`, protected risk-floor reconstruction tests |
 | GOV-050 | T14, T23 | `test_trusted_authority.py`, `test_ci_admission.py` |
 | GOV-051 | T14, T22 | `test_assurance_case.py`, `test_reference_monitor.py` |
 | GOV-052 | T15, T20 | `test_assurance_case.py`, `test_reviewer_isolation.py` |
 | GOV-053 | T14 | `test_assurance_case.py`, `test_disposition_policy.py` |
-| GOV-054 | T20 | `test_reviewer_isolation.py`, permission-profile canary, `test_context_compiler.py` |
+| GOV-054 | T20 | `test_reviewer_isolation.py`, permission-profile canary, unit x32-ABI-denial process test, `test_context_compiler.py` |
 | GOV-055 | T20 | `test_reviewer_qualification.py` |
 | GOV-056 | T20 | `test_reviewer_qualification.py`, `test_workflow_profiles.py` |
 | GOV-057 | T18 | `test_rapid_review.py`, `test_rst_operations.py` |
 | GOV-058 | T19 | `test_mutation_governance.py` |
 | GOV-059 | T19 | `test_mutation_governance.py`, schema/example checks |
-| GOV-060 | T15 | `test_schema_lifecycle.py`, schema/example checks |
+| GOV-060 | T15 | `test_schema_lifecycle.py`, `test_evidence_reconstruction.py`, capability/provenance chronology and schema/example checks |
 | GOV-061 | T15, T16, T17 | `test_attestation.py`, `test_gate_sandbox.py` |
 | GOV-062 | T13, T16, T23 | `test_public_portability.py`, clean-environment gate |
 | GOV-TOKEN-001 | T21, T24 | `test_context_compiler.py`, `test_cli_orchestration.py` |

@@ -18,6 +18,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         from codex_governance.lifecycle import migration_policy
 
         self.assertEqual("explicit_required", migration_policy("reviewer-result", "1.0.0", "2.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
         self.assertEqual("unsupported", migration_policy("reviewer-result", "0.1.0", "2.0.0"))
 
     def test_complete_rfc3339_and_real_calendar_values_are_required(self) -> None:

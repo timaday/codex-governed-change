@@ -4,10 +4,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import canonical_json_bytes, sha256_canonical
+from codex_governance.domain.model import DispositionState
 
 
 class CliOrchestrationAcceptanceTest(unittest.TestCase):
@@ -49,12 +52,16 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         }
 
     def test_scope_and_verify_have_stable_fail_closed_exits(self) -> None:
-        scoped = self.run_cli(
-            "scope", "--task", "examples/task-contract.json",
-            "--policy", "examples/effective-policy.json",
-        )
-        self.assertEqual(0, scoped.returncode, scoped.stderr.decode())
-        self.assertEqual("VALID", json.loads(scoped.stdout)["state"])
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            repository.mkdir()
+            scoped = self.run_cli(
+                "scope", "--repository", str(repository),
+                "--task", "examples/task-contract.json",
+                "--policy", "examples/effective-policy.json",
+            )
+            self.assertEqual(0, scoped.returncode, scoped.stderr.decode())
+            self.assertEqual("VALID", json.loads(scoped.stdout)["state"])
         with tempfile.TemporaryDirectory() as directory:
             tampered = json.loads((self.ROOT / "examples/context-receipt.json").read_text(encoding="utf-8"))
             tampered["profile"] = "COMPACT"
@@ -70,10 +77,14 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
     def test_cli_outputs_are_write_once_and_identical_replays_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            output = root / "scope.json"
+            repository = root / "repository"
+            repository.mkdir()
+            output = repository / "artifacts/governance/scope.json"
             arguments = (
-                "scope", "--task", "examples/task-contract.json",
-                "--policy", "examples/effective-policy.json", "--output", str(output),
+                "scope", "--repository", str(repository),
+                "--task", "examples/task-contract.json",
+                "--policy", "examples/effective-policy.json",
+                "--output", "artifacts/governance/scope.json",
             )
             first = self.run_cli(*arguments)
             self.assertEqual(0, first.returncode, first.stderr.decode())
@@ -82,28 +93,207 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             self.assertEqual(0, replay.returncode, replay.stderr.decode())
             self.assertEqual(original, output.read_bytes())
 
+            conflicting_task = json.loads(
+                (self.ROOT / "examples/task-contract.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            conflicting_task["required_gate_ids"].reverse()
+            conflicting_task_path = root / "conflicting-task.json"
+            conflicting_task_path.write_bytes(canonical_json_bytes(conflicting_task))
             conflicting = self.run_cli(
-                *arguments, "--evidence-root", "different-evidence-root"
+                "scope", "--repository", str(repository),
+                "--task", str(conflicting_task_path),
+                "--policy", "examples/effective-policy.json",
+                "--output", "artifacts/governance/scope.json",
             )
             self.assertEqual(2, conflicting.returncode)
             self.assertEqual("UNKNOWN", json.loads(conflicting.stdout)["state"])
             self.assertEqual(original, output.read_bytes())
 
-            victim = root / "victim.json"
+            victim = output.parent / "victim.json"
             victim.write_bytes(b"unchanged")
-            linked_output = root / "linked.json"
+            linked_output = output.parent / "linked.json"
             try:
                 linked_output.symlink_to(victim)
             except OSError:
                 self.assertFalse(linked_output.exists())
             else:
                 linked = self.run_cli(
-                    "scope", "--task", "examples/task-contract.json",
+                    "scope", "--repository", str(repository),
+                    "--task", "examples/task-contract.json",
                     "--policy", "examples/effective-policy.json",
-                    "--output", str(linked_output),
+                    "--output", linked_output.relative_to(repository).as_posix(),
                 )
                 self.assertEqual(2, linked.returncode)
                 self.assertEqual(b"unchanged", victim.read_bytes())
+
+    def test_cli_outputs_reject_absolute_and_symlink_parent_escapes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            evidence_directory = repository / "artifacts/governance"
+            evidence_directory.mkdir(parents=True)
+            absolute = root / "absolute.json"
+            rejected_absolute = self.run_cli(
+                "scope", "--repository", str(repository),
+                "--task", "examples/task-contract.json",
+                "--policy", "examples/effective-policy.json",
+                "--output", str(absolute),
+            )
+            self.assertEqual(2, rejected_absolute.returncode)
+            self.assertFalse(absolute.exists())
+
+            outside_parent = root / "outside-parent"
+            outside_parent.mkdir()
+            linked_parent = evidence_directory / "linked-parent"
+            try:
+                linked_parent.symlink_to(outside_parent, target_is_directory=True)
+            except OSError:
+                self.assertFalse(linked_parent.exists())
+            else:
+                escaped = linked_parent / "escaped.json"
+                rejected_symlink = self.run_cli(
+                    "scope", "--repository", str(repository),
+                    "--task", "examples/task-contract.json",
+                    "--policy", "examples/effective-policy.json",
+                    "--output", escaped.relative_to(repository).as_posix(),
+                )
+                self.assertEqual(2, rejected_symlink.returncode)
+                self.assertFalse((outside_parent / "escaped.json").exists())
+
+    def test_every_output_producing_command_is_in_the_containment_inventory(self) -> None:
+        from codex_governance import cli
+
+        expected = {
+            "scope": ("output",),
+            "identify": ("output",),
+            "run-gates": ("output",),
+            "prepare-review": ("projection_output", "receipt_output"),
+            "assemble-manifest": ("output",),
+            "mutate": ("output",),
+            "review": ("output", "execution_output", "context_execution_output"),
+            "import-reviewer-result": ("destination",),
+            "evaluate": ("output",),
+        }
+        self.assertEqual(expected, cli.CLI_OUTPUT_ARGUMENTS)
+        commands = next(
+            action for action in cli._parser()._actions
+            if action.dest == "command"
+        ).choices
+        discovered = {
+            command: tuple(
+                action.dest for action in subparser._actions
+                if (
+                    action.dest == "destination"
+                    or action.dest == "output"
+                    or action.dest.endswith("_output")
+                )
+                and action.dest != "output_schema"
+            )
+            for command, subparser in commands.items()
+        }
+        self.assertEqual(
+            expected,
+            {command: paths for command, paths in discovered.items() if paths},
+        )
+
+    def test_output_authority_is_rechecked_after_lock_selection(self) -> None:
+        from codex_governance import cli
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            policy = json.loads(
+                (self.ROOT / "examples/effective-policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            policy_path = root / "policy.json"
+            policy_path.write_bytes(canonical_json_bytes(policy))
+
+            class AuthorityChangingLock:
+                def __init__(self) -> None:
+                    self.repository = repository.resolve()
+                    self.root = repository / policy["evidence_root"]
+
+                def __enter__(self):
+                    changed = dict(policy)
+                    changed["evidence_root"] = "different-evidence-root"
+                    policy_path.write_bytes(canonical_json_bytes(changed))
+                    return self
+
+                def __exit__(self, exc_type, exc_value, traceback) -> None:
+                    return None
+
+            emitted = []
+            with (
+                patch.object(
+                    cli, "_pipeline_lock_for", return_value=AuthorityChangingLock()
+                ),
+                patch.object(cli, "_scope") as handler,
+                patch.object(cli, "_emit", side_effect=emitted.append),
+            ):
+                exit_code = cli.main(
+                    [
+                        "scope", "--repository", str(repository),
+                        "--task", "examples/task-contract.json",
+                        "--policy", str(policy_path),
+                        "--output", "artifacts/governance/scope.json",
+                    ]
+                )
+            self.assertEqual(2, exit_code)
+            handler.assert_not_called()
+            self.assertEqual("UNKNOWN", emitted[-1]["state"])
+            self.assertFalse((repository / "artifacts/governance/scope.json").exists())
+
+    def test_replaced_evidence_root_blocks_before_cli_handler(self) -> None:
+        from codex_governance import cli
+        from codex_governance.locking import PipelineLock
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            policy = json.loads(
+                (self.ROOT / "examples/effective-policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            policy_path = root / "policy.json"
+            policy_path.write_bytes(canonical_json_bytes(policy))
+
+            class RootReplacingLock(PipelineLock):
+                def __enter__(self):
+                    super().__enter__()
+                    self.root.rename(self.root.with_name(self.root.name + "-original"))
+                    self.root.mkdir()
+                    return self
+
+            lock = RootReplacingLock(
+                repository=repository,
+                evidence_root=policy["evidence_root"],
+            )
+            emitted = []
+            with (
+                patch.object(cli, "_pipeline_lock_for", return_value=lock),
+                patch.object(cli, "_scope") as handler,
+                patch.object(cli, "_emit", side_effect=emitted.append),
+            ):
+                exit_code = cli.main(
+                    [
+                        "scope", "--repository", str(repository),
+                        "--task", "examples/task-contract.json",
+                        "--policy", str(policy_path),
+                        "--output", "artifacts/governance/scope.json",
+                    ]
+                )
+            self.assertEqual(2, exit_code)
+            handler.assert_not_called()
+            self.assertEqual("UNKNOWN", emitted[-1]["state"])
+            self.assertFalse((repository / "artifacts/governance/scope.json").exists())
 
     def test_prepare_review_emits_schema_valid_receipt_and_budget_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -162,8 +352,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             sources.write_bytes(
                 canonical_json_bytes(self.sources(candidate, closure))
             )
-            projection = root / "projection.json"
-            receipt = root / "receipt.json"
+            projection = repository / "artifacts/governance/projection.json"
+            receipt = repository / "artifacts/governance/receipt.json"
             prepared = self.run_cli(
                 "prepare-review", "--repository", str(repository),
                 "--policy", str(policy_path),
@@ -171,7 +361,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "STANDARD",
                 "--token-budget", "24000",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
-                "--projection-output", str(projection), "--receipt-output", str(receipt),
+                "--projection-output", "artifacts/governance/projection.json",
+                "--receipt-output", "artifacts/governance/receipt.json",
             )
             self.assertEqual(0, prepared.returncode, prepared.stderr.decode())
             verified = self.run_cli(
@@ -185,8 +376,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "COMPACT",
                 "--token-budget", "1",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
-                "--projection-output", str(root / "small-projection.json"),
-                "--receipt-output", str(root / "small-receipt.json"),
+                "--projection-output", "artifacts/governance/small-projection.json",
+                "--receipt-output", "artifacts/governance/small-receipt.json",
             )
             self.assertEqual(2, blocked.returncode)
             self.assertEqual("UNKNOWN", json.loads(blocked.stdout)["state"])
@@ -200,8 +391,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "STANDARD",
                 "--token-budget", "24000", "--model", "gpt-5.6-sol",
                 "--reasoning-effort", "xhigh",
-                "--projection-output", str(root / "tampered-projection.json"),
-                "--receipt-output", str(root / "tampered-receipt.json"),
+                "--projection-output", "artifacts/governance/tampered-projection.json",
+                "--receipt-output", "artifacts/governance/tampered-receipt.json",
             )
             self.assertEqual(2, mismatch.returncode)
             self.assertEqual("UNKNOWN", json.loads(mismatch.stdout)["state"])
@@ -210,6 +401,66 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         status = self.run_cli("status", "--disposition", "examples/disposition.json")
         self.assertEqual(2, status.returncode)
         self.assertEqual("UNKNOWN", json.loads(status.stdout)["state"])
+
+    def test_evaluate_accepts_nonempty_verified_decision_ids(self) -> None:
+        from codex_governance import cli
+
+        manifest = json.loads(
+            (self.ROOT / "examples/evidence-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        candidate = json.loads(
+            (self.ROOT / "examples/candidate.json").read_text(encoding="utf-8")
+        )
+        policy = json.loads(
+            (self.ROOT / "examples/effective-policy.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        decision_id = "sha256:" + "9" * 64
+        adapter = Mock()
+        adapter.identify.return_value = candidate
+        args = Namespace(
+            manifest=Path("manifest.json"),
+            candidate=Path("candidate.json"),
+            schema_root=self.ROOT / "schemas",
+            repository=self.ROOT,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_id=[decision_id],
+            output="artifacts/governance/disposition.json",
+        )
+        with (
+            patch.object(cli, "_validated", side_effect=[manifest, candidate]),
+            patch.object(cli, "load_referenced_json", return_value=policy),
+            patch.object(cli, "GitCliRepositoryAdapter", return_value=adapter),
+            patch.object(
+                cli,
+                "evaluate_manifest",
+                return_value=(DispositionState.UNKNOWN, ["fixture unknown"]),
+            ) as evaluate,
+            patch.object(cli, "_write_cli_output"),
+            patch.object(cli, "_emit"),
+        ):
+            self.assertEqual(2, cli._evaluate(args))
+        self.assertEqual(
+            frozenset({decision_id}),
+            evaluate.call_args.kwargs["verified_decision_ids"],
+        )
+
+    def test_gate_manifest_time_follows_all_referenced_results(self) -> None:
+        from codex_governance.cli import _gate_manifest_created_at
+
+        self.assertEqual(
+            "2026-08-26T10:00:03Z",
+            _gate_manifest_created_at(
+                [
+                    {"ended_at": "2026-08-26T10:00:03Z"},
+                    {"ended_at": "2026-08-26T10:00:01Z"},
+                    {"ended_at": "2026-08-26T10:00:02Z"},
+                ]
+            ),
+        )
 
     def test_manifest_assembly_is_content_addressed_and_schema_valid(self) -> None:
         example = json.loads(
@@ -238,13 +489,16 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
             inputs = root / "assembly.json"
-            output = root / "manifest.json"
+            output = repository / "artifacts/governance/manifest.json"
             inputs.write_bytes(canonical_json_bytes(required))
             assembled = self.run_cli(
-                "assemble-manifest", "--repository", str(self.ROOT),
+                "assemble-manifest", "--repository", str(repository),
                 "--policy", "examples/effective-policy.json",
-                "--input", str(inputs), "--output", str(output)
+                "--input", str(inputs),
+                "--output", "artifacts/governance/manifest.json",
             )
             self.assertEqual(0, assembled.returncode, assembled.stderr.decode())
             verified = self.run_cli(

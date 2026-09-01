@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
@@ -24,7 +25,12 @@ from codex_governance.canonical import (
     sha256_canonical,
 )
 from codex_governance.domain.model import ReviewerVerdict
-from codex_governance.gate import _BoundedCapture, _terminate_process_tree
+from codex_governance.gate import (
+    _BoundedCapture,
+    _close_process_streams,
+    _posix_process_group_exited,
+    _terminate_process_tree,
+)
 from codex_governance.schema import SchemaValidationError, load_and_validate
 
 
@@ -230,6 +236,7 @@ def classify_reviewer_execution(
     *,
     return_code: int | None,
     timed_out: bool,
+    observation_complete: bool,
     output_present: bool,
     output_valid: bool,
     candidate_matches: bool,
@@ -240,6 +247,7 @@ def classify_reviewer_execution(
     if (
         return_code != 0
         or timed_out
+        or not observation_complete
         or not output_present
         or not output_valid
         or not candidate_matches
@@ -418,7 +426,7 @@ def build_reviewer_execution_statement(
         prompt_sha256=execution.get("reviewer_prompt_sha256"),
     )
     document = {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "repository_id": repository_id,
         "task_contract_sha256": require_sha256(task_contract_sha256),
         "effective_policy_sha256": require_sha256(effective_policy_sha256),
@@ -476,6 +484,10 @@ def build_reviewer_execution_statement(
             else -1
         ),
         "timed_out": execution.get("timed_out") is True,
+        "observation_complete": execution.get("observation_complete") is True,
+        "capture_threads_completed": execution.get("capture_threads_completed") is True,
+        "process_cleanup_complete": execution.get("process_cleanup_complete") is True,
+        "execution_valid": execution.get("execution_valid") is True,
         "output_valid": execution.get("output_valid") is True,
         "bindings_match": execution.get("bindings_match") is True,
         "output_truncated": execution.get("output_truncated") is True,
@@ -602,10 +614,33 @@ REVIEWER_LAUNCHER_FILES = (
     "qualification.py",
     "rapid_review.py",
     "reviewer.py",
+    "reviewer_namespace.py",
+    "reviewer_signal_guard.py",
+    "reviewer_supervisor.py",
     "rst_operations.py",
     "sandbox.py",
     "schema.py",
 )
+
+
+def _stop_reviewer_supervisor(
+    process: subprocess.Popen[bytes], *, timeout: float = 3.0
+) -> bool:
+    """Ask the dedicated subreaper to drain descendants before forced exit."""
+    try:
+        if process.poll() is None:
+            process.terminate()
+        process.wait(timeout=timeout)
+        return True
+    except OSError:
+        return False
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+            process.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return False
 
 
 def reviewer_launcher_sha256(package_root: Path | None = None) -> str:
@@ -895,19 +930,42 @@ def launch_reviewer(
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
     timed_out = False
+    observation_complete = True
+    capture_threads_completed = True
+    process_cleanup_complete = True
+    parent_exit_observed = False
     return_code: int | None = None
     threads = []
+    process: subprocess.Popen[bytes] | None = None
+    status_read: int | None = None
+    status_write: int | None = None
+    supervisor_status: Mapping[str, Any] | None = None
+    actual_command = list(command)
     sanitized_environment = build_reviewer_environment(environment or os.environ)
     try:
+        if os.name != "posix":
+            raise OSError("trusted reviewer descendant supervision is unavailable")
+        status_read, status_write = os.pipe()
+        os.set_blocking(status_read, False)
+        os.set_inheritable(status_write, True)
+        actual_command = [
+            sys.executable,
+            os.fspath(Path(__file__).with_name("reviewer_supervisor.py")),
+            str(status_write),
+            "--",
+            *command,
+        ]
         process = subprocess.Popen(
-            list(command),
+            actual_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=sanitized_environment,
-            start_new_session=os.name == "posix",
-            creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+            start_new_session=True,
+            pass_fds=(status_write,),
         )
+        os.close(status_write)
+        status_write = None
         assert process.stdin is not None and process.stdout is not None and process.stderr is not None
         import threading
 
@@ -921,14 +979,76 @@ def launch_reviewer(
         process.stdin.close()
         try:
             return_code = process.wait(timeout=timeout_seconds)
+            parent_exit_observed = True
         except subprocess.TimeoutExpired:
             timed_out = True
-            _terminate_process_tree(process)
+            observation_complete = False
+            process_cleanup_complete = _stop_reviewer_supervisor(process)
     except OSError:
-        process = None
+        observation_complete = False
+        process_cleanup_complete = False
+        if process is not None:
+            process_cleanup_complete = _stop_reviewer_supervisor(process)
     finally:
+        if status_write is not None:
+            try:
+                os.close(status_write)
+            except OSError:
+                pass
+        if process is not None and process.stdin is not None:
+            try:
+                process.stdin.close()
+            except (OSError, ValueError):
+                pass
+        if parent_exit_observed and process is not None:
+            if os.name == "posix":
+                if not _posix_process_group_exited(process.pid, 0.2):
+                    observation_complete = False
+                    cleaned = _terminate_process_tree(process)
+                    process_cleanup_complete = process_cleanup_complete and cleaned
+            else:
+                observation_complete = False
+                process_cleanup_complete = False
+        if status_read is not None:
+            try:
+                raw_status = os.read(status_read, 4097)
+                if len(raw_status) <= 4096:
+                    parsed_status = json.loads(raw_status.decode("utf-8"))
+                    if isinstance(parsed_status, Mapping):
+                        supervisor_status = parsed_status
+            except (OSError, UnicodeError, ValueError):
+                supervisor_status = None
+            finally:
+                os.close(status_read)
+        if (
+            supervisor_status is None
+            or supervisor_status.get("boundary_available") is not True
+            or supervisor_status.get("cleanup_complete") is not True
+        ):
+            observation_complete = False
+            process_cleanup_complete = False
+        elif supervisor_status.get("descendants_observed") is True:
+            observation_complete = False
         for thread in threads:
             thread.join(timeout=3)
+        if any(thread.is_alive() for thread in threads):
+            observation_complete = False
+            if process is not None:
+                cleaned = _terminate_process_tree(process)
+                process_cleanup_complete = process_cleanup_complete and cleaned
+                if os.name != "posix":
+                    process_cleanup_complete = False
+                streams_closed = _close_process_streams(process)
+                process_cleanup_complete = (
+                    process_cleanup_complete and streams_closed
+                )
+            for thread in threads:
+                thread.join(timeout=1)
+        capture_threads_completed = not any(thread.is_alive() for thread in threads)
+        if threads and (not stdout_capture.eof or not stderr_capture.eof):
+            observation_complete = False
+        if not capture_threads_completed:
+            process_cleanup_complete = False
     try:
         after = candidate_supplier()
     except Exception:
@@ -962,6 +1082,9 @@ def launch_reviewer(
     execution_valid = bool(
         return_code == 0
         and not timed_out
+        and observation_complete
+        and capture_threads_completed
+        and process_cleanup_complete
         and output_present
         and output_valid
         and candidate_matches
@@ -973,6 +1096,7 @@ def launch_reviewer(
     verdict = classify_reviewer_execution(
         return_code=return_code,
         timed_out=timed_out,
+        observation_complete=observation_complete,
         output_present=output_present,
         output_valid=output_valid,
         candidate_matches=(
@@ -1005,6 +1129,17 @@ def launch_reviewer(
             "output_tokens": 0,
             "reasoning_output_tokens": 0,
         }
+    limitations = (
+        []
+        if usage["usage_observed"]
+        else ["Codex JSONL usage was unavailable or malformed"]
+    )
+    if not observation_complete:
+        limitations.append("reviewer process observation was incomplete")
+    if not capture_threads_completed:
+        limitations.append("reviewer capture threads did not complete")
+    if not process_cleanup_complete:
+        limitations.append("reviewer process cleanup could not be proven complete")
     return {
         "verdict": verdict,
         "result": dict(payload) if payload else None,
@@ -1015,10 +1150,13 @@ def launch_reviewer(
         "candidate_before": before,
         "candidate_after": after,
         "environment_keys": sorted(sanitized_environment),
-        "argv_sha256": sha256_canonical(list(command)),
+        "argv_sha256": sha256_canonical(actual_command),
         "stdin_sha256": sha256_bytes(stdin_text.encode("utf-8")),
         "output_sha256": output_sha256,
         "timed_out": timed_out,
+        "observation_complete": observation_complete,
+        "capture_threads_completed": capture_threads_completed,
+        "process_cleanup_complete": process_cleanup_complete,
         "stdout_sha256": sha256_bytes(bytes(stdout_capture.data)),
         "stderr_sha256": sha256_bytes(bytes(stderr_capture.data)),
         "output_valid": output_valid,
@@ -1027,6 +1165,6 @@ def launch_reviewer(
         "execution_valid": execution_valid,
         "review_status": payload.get("status") if payload and review_mode == "rapid_review" else None,
         "output_truncated": truncated,
-        "limitations": ([] if usage["usage_observed"] else ["Codex JSONL usage was unavailable or malformed"]),
+        "limitations": limitations,
         **usage,
     }

@@ -153,6 +153,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         cases = [
             {"return_code": 1},
             {"timed_out": True},
+            {"observation_complete": False},
             {"output_present": False},
             {"output_valid": False},
             {"candidate_matches": False},
@@ -161,6 +162,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         baseline = {
             "return_code": 0,
             "timed_out": False,
+            "observation_complete": True,
             "output_present": True,
             "output_valid": True,
             "candidate_matches": True,
@@ -178,6 +180,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
             classify_reviewer_execution(
                 return_code=0,
                 timed_out=False,
+                observation_complete=True,
                 output_present=True,
                 output_valid=True,
                 candidate_matches=True,
@@ -192,6 +195,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
             classify_reviewer_execution(
                 return_code=0,
                 timed_out=False,
+                observation_complete=True,
                 output_present=True,
                 output_valid=True,
                 candidate_matches=True,

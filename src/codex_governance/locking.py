@@ -22,8 +22,19 @@ class PipelineLock:
         raw_root = evidence_root.as_posix() if isinstance(evidence_root, Path) else evidence_root
         normalized = normalize_repo_path(raw_root)
         self.root = self.repository.joinpath(*normalized.split("/"))
-        self.path = self.root / ".pipeline.lock"
+        self.path = self.root
         self._descriptor: int | None = None
+        self._root_descriptor: int | None = None
+
+    @staticmethod
+    def _secure_dir_fd_available() -> bool:
+        return bool(
+            os.name == "posix"
+            and hasattr(os, "O_DIRECTORY")
+            and hasattr(os, "O_NOFOLLOW")
+            and os.open in os.supports_dir_fd
+            and os.mkdir in os.supports_dir_fd
+        )
 
     def _reject_symlinks(self) -> None:
         current = self.repository
@@ -38,30 +49,93 @@ class PipelineLock:
             if not stat.S_ISDIR(info.st_mode):
                 raise PipelineLockError("pipeline lock parent is not a directory")
 
-    def acquire(self) -> None:
-        if self._descriptor is not None:
-            raise PipelineLockError("pipeline lock is already held by this object")
-        self._reject_symlinks()
-        self.root.mkdir(parents=True, exist_ok=True)
-        self._reject_symlinks()
-        flags = os.O_RDWR | os.O_CREAT
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
+    def _open_bound_root(self) -> int:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
-            descriptor = os.open(self.path, flags, 0o600)
+            descriptor = os.open(self.repository, flags)
         except OSError as exc:
-            raise PipelineLockError("pipeline lock file is unavailable") from exc
+            raise PipelineLockError("repository lock root is unavailable") from exc
         try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode):
-                raise PipelineLockError("pipeline lock is not a regular file")
-            if info.st_size == 0:
-                os.write(descriptor, b"\0")
-                os.fsync(descriptor)
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            self._lock_descriptor(descriptor)
+            for part in self.root.relative_to(self.repository).parts:
+                try:
+                    child = os.open(part, flags, dir_fd=descriptor)
+                except FileNotFoundError:
+                    try:
+                        os.mkdir(part, 0o700, dir_fd=descriptor)
+                    except FileExistsError:
+                        pass
+                    child = os.open(part, flags, dir_fd=descriptor)
+                except OSError as exc:
+                    try:
+                        parent_entry = os.stat(
+                            part, dir_fd=descriptor, follow_symlinks=False
+                        )
+                    except OSError:
+                        parent_entry = None
+                    if parent_entry is not None and stat.S_ISLNK(parent_entry.st_mode):
+                        raise PipelineLockError(
+                            "pipeline lock path contains a symlink"
+                        ) from exc
+                    raise PipelineLockError(
+                        "pipeline lock path contains an unsafe parent"
+                    ) from exc
+                info = os.fstat(child)
+                if not stat.S_ISDIR(info.st_mode):
+                    os.close(child)
+                    raise PipelineLockError("pipeline lock parent is not a directory")
+                os.close(descriptor)
+                descriptor = child
+            return descriptor
         except BaseException:
             os.close(descriptor)
+            raise
+
+    @property
+    def root_identity(self) -> tuple[int, int]:
+        if self._root_descriptor is None:
+            raise PipelineLockError("pipeline lock root is not bound")
+        info = os.fstat(self._root_descriptor)
+        return info.st_dev, info.st_ino
+
+    def assert_binding(self) -> None:
+        if self._root_descriptor is None:
+            raise PipelineLockError("pipeline lock root is not bound")
+        try:
+            self._reject_symlinks()
+            current = self.root.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise PipelineLockError("pipeline lock root binding changed") from exc
+        if (
+            not stat.S_ISDIR(current.st_mode)
+            or (current.st_dev, current.st_ino) != self.root_identity
+        ):
+            raise PipelineLockError("pipeline lock root binding changed")
+
+    def acquire(self) -> None:
+        if self._descriptor is not None or self._root_descriptor is not None:
+            raise PipelineLockError("pipeline lock is already held by this object")
+        if not self._secure_dir_fd_available():
+            raise PipelineLockError(
+                "directory-bound no-follow pipeline locking is unavailable"
+            )
+        root_descriptor = self._open_bound_root()
+        self._root_descriptor = root_descriptor
+        try:
+            self.assert_binding()
+        except BaseException:
+            self._root_descriptor = None
+            os.close(root_descriptor)
+            raise
+        descriptor: int | None = None
+        try:
+            descriptor = os.dup(root_descriptor)
+            self._lock_descriptor(descriptor)
+            self.assert_binding()
+        except BaseException:
+            if descriptor is not None:
+                os.close(descriptor)
+            self._root_descriptor = None
+            os.close(root_descriptor)
             raise
         self._descriptor = descriptor
 
@@ -97,13 +171,19 @@ class PipelineLock:
 
     def release(self) -> None:
         descriptor = self._descriptor
+        root_descriptor = self._root_descriptor
         self._descriptor = None
-        if descriptor is None:
+        self._root_descriptor = None
+        if descriptor is None and root_descriptor is None:
             return
         try:
-            self._unlock_descriptor(descriptor)
+            if descriptor is not None:
+                self._unlock_descriptor(descriptor)
         finally:
-            os.close(descriptor)
+            if descriptor is not None:
+                os.close(descriptor)
+            if root_descriptor is not None:
+                os.close(root_descriptor)
 
     def __enter__(self) -> "PipelineLock":
         self.acquire()

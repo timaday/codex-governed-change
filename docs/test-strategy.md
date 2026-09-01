@@ -32,7 +32,31 @@ No model confidence statement is an oracle.
 ### Adapter contract
 
 - Temporary Git repositories for every candidate-state variant.
+- A clean wrong-`HEAD` commit checkout where the requested commit is still
+  locally resolvable and MUST be rejected before candidate construction.
 - Fake executables for exit, signal, timeout, partial output and injection cases.
+- Separate real POSIX descendants retaining stdout and stderr after a zero-exit
+  parent; each MUST force `UNKNOWN`, terminate the descendant boundary, close
+  both streams, and complete both capture threads.
+- A real zero-exit parent whose live descendant closes stdin, stdout and stderr;
+  it MUST still force `UNKNOWN`, terminate descendants and record cleanup truthfully.
+- A descendant that calls `setsid()`, closes every standard stream and outlives
+  its parent; the trusted boundary MUST detect and terminate it.
+- A descendant that attempts to kill its same-UID supervisor while a `setsid()`
+  child is live; the supervisor MUST be unaddressable from the reviewer PID
+  namespace and namespace teardown MUST leave no live child.
+- Missing/failed namespace handshake MUST block before reviewer admission.
+- A default container that blocks nested user namespaces MUST use the exact
+  inherited seccomp signal/ptrace guard without relaxing the container sandbox;
+  unsupported architectures or a missing guard handshake MUST fail closed.
+- On x86_64, an x32-tagged `kill(..., 0)` probe MUST receive the guard's `EPERM`
+  even when the host kernel would otherwise report that the x32 ABI is absent;
+  reaching native or x32 kernel dispatch is a containment failure.
+- Reviewer timeout MUST stop the namespace manager and dedicated subreaper;
+  PID-1 teardown MUST drain a session-escaped descendant.
+- A deterministic procfs fork/exit interleaving proving zombie-only enumeration
+  cannot establish initial success, plus a forced stream-close stall that MUST
+  return bounded `UNKNOWN` rather than hang.
 - Fake Codex executable that records argv/stdin/environment and emits controlled results.
 - Native Codex sandbox canary proving that the sanitized workspace is readable,
   an external host canary is unreadable, network is disabled, and tool
@@ -53,6 +77,29 @@ No model confidence statement is an oracle.
 - Distinct workflow/run identities for gate, mutation and reviewer producers.
 - CLI output replay with identical bytes, conflicting overwrite and symlink
   targets.
+- Every output-producing CLI command rejects absolute, escaping, and
+  symlink-parent destinations outside its effective evidence root before
+  creating directories. CLI orchestration fixtures MUST create self-contained
+  temporary repositories and MUST NOT depend on ignored directories or other
+  state already present in a developer checkout.
+- A deterministic lock/preflight interleaving changes the policy evidence root
+  after lock selection; locked preflight MUST block before invoking the handler.
+- A deterministic parent-directory replacement between validation and
+  publication MUST NOT write through the replacement symlink and MUST block.
+- Forced absence of directory-relative no-follow primitives MUST block
+  authoritative artifact reads and writes without using a pathname fallback.
+- FIFO and other non-regular leaves MUST be rejected without blocking read or
+  write-once preflight.
+- Evidence-root replacement after lock acquisition MUST fail the shared
+  root-device/inode binding before the handler or publication can proceed.
+- Gate-manifest creation time MUST be at or after every referenced gate result's
+  completion time.
+- Sandbox capability `verified_at` MUST be no later than the linked gate or
+  mutation result start, result start MUST be no later than result end, and
+  provenance start/end MUST equal the result; future/conflicting values are
+  `UNKNOWN` both during execution and reconstruction.
+- The evaluate CLI MUST accept a non-empty verified-decision ID list without a
+  missing-symbol failure and still emit a schema-valid fail-closed disposition.
 - Fresh reviewer result binding.
 - Stop-hook stdin/stdout contract.
 - Governance-file change workflow.

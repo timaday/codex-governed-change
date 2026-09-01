@@ -15,7 +15,7 @@ configuration, repository skills, Python, Git, a local sandbox provider, and CI.
 |---|---|---|
 | Requirements and architecture | `HARDENED_CONTRACT` | Sixty-six requirements define the protected architecture and token-aware assurance boundary. |
 | Production implementation | `T01–T23 IMPLEMENTED` | The standalone CLI, admission kernel, sandbox boundary, evidence reconstruction, mutation, RST, context and reviewer adapters are implemented. |
-| Acceptance suite | `GREEN_LOCAL` | 174 unit and acceptance tests pass locally without skips or expected failures. |
+| Acceptance suite | `GREEN_LOCAL` | 198 unit and acceptance tests pass locally without skips or expected failures. |
 | Final qualification | `T24 UNKNOWN` | A protected real-container run, labelled live reviewer qualification, exact-candidate fresh review and hosted CI reconstruction have not been completed. |
 | Release readiness | `BLOCK` | Local deterministic success is not release or merge authority. |
 
