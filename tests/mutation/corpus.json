@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:71f5e50cdd3dce341969c69a256f317a1c31ff8523ab070cec4ccba6e743752e",
+  "corpus_id": "sha256:135f386af061062fcb6ec2eb3c6c5b553361326302b741ecc75df663a92a4b95",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -10,7 +10,7 @@
       "new": "if verdict not in {\"NO_BLOCKING_FINDING_OBSERVED\", \"UNKNOWN\"}:",
       "operator": "treat reviewer unknown as success",
       "requirement_id": "GOV-008",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_disposition_policy", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_disposition_policy"]
     },
     {
       "mutant_id": "timeout-soft-success",
@@ -19,7 +19,7 @@
       "new": "if False:",
       "operator": "ignore incomplete termination evidence",
       "requirement_id": "GOV-026",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_evidence"]
     },
     {
       "mutant_id": "omit-untracked",
@@ -28,7 +28,7 @@
       "new": "            untracked = []",
       "operator": "omit untracked files from candidate identity",
       "requirement_id": "GOV-003",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_git_candidate", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_git_candidate"]
     },
     {
       "mutant_id": "omit-post-identity",
@@ -37,7 +37,7 @@
       "new": "if False:",
       "operator": "ignore candidate drift",
       "requirement_id": "GOV-019",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_evidence"]
     },
     {
       "mutant_id": "reviewer-pass-authorizes",
@@ -46,7 +46,7 @@
       "new": "if False:",
       "operator": "ignore governance integrity when reviewer passes",
       "requirement_id": "GOV-030",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_disposition_policy", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_disposition_policy"]
     },
     {
       "mutant_id": "expired-waiver",
@@ -55,7 +55,7 @@
       "new": "    return issued <= now and issued < expires",
       "operator": "accept expired waiver",
       "requirement_id": "GOV-018",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_waiver_policy", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_waiver_policy"]
     },
     {
       "mutant_id": "artifact-symlink",
@@ -64,7 +64,7 @@
       "new": "        flags = os.O_RDONLY | getattr(os, \"O_NONBLOCK\", 0)\n        try:\n            descriptor = os.open(leaf, flags, dir_fd=parent)",
       "operator": "allow symlink in evidence path",
       "requirement_id": "GOV-028",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_artifact_store", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store"]
     },
     {
       "mutant_id": "reviewer-shell",
@@ -73,7 +73,7 @@
       "new": "        # reviewer rule isolation removed",
       "operator": "reactivate candidate reviewer rules",
       "requirement_id": "GOV-006",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_reviewer_isolation", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation"]
     },
     {
       "mutant_id": "stop-loop",
@@ -82,7 +82,7 @@
       "new": "if False:",
       "operator": "continue blocking after the second stop",
       "requirement_id": "GOV-010",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_stop_hook", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_stop_hook"]
     },
     {
       "mutant_id": "candidate-gates",
@@ -91,7 +91,7 @@
       "new": "if len(required) != len(set(required)):",
       "operator": "permit candidate-selected gate identifiers",
       "requirement_id": "GOV-011",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_configuration.ConfigurationTest.test_unknown_gate_and_shell_without_risk_fail_closed", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_configuration.ConfigurationTest.test_unknown_gate_and_shell_without_risk_fail_closed"]
     },
     {
       "mutant_id": "redaction-hides-failure",
@@ -100,7 +100,7 @@
       "new": "        or False",
       "operator": "ignore truncated causal output",
       "requirement_id": "GOV-027",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_evidence"]
     },
     {
       "mutant_id": "skipped-final",
@@ -109,7 +109,7 @@
       "new": "    if: ${{ success() }}",
       "operator": "skip final admission after upstream failure",
       "requirement_id": "GOV-042",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_ci_admission", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_ci_admission"]
     },
     {
       "mutant_id": "cross-repository-replay",
@@ -118,7 +118,7 @@
       "new": "    payload: dict[str, Any] = {\n        \"schema_version\": \"1.0.0\",\n        \"repository_id\": \"repo:unbound/source\",\n        \"mode\": mode,",
       "operator": "remove protected repository identity from candidate digest",
       "requirement_id": "GOV-045",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_candidate_identity", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_candidate_identity"]
     },
     {
       "mutant_id": "forged-task-authorization",
@@ -127,7 +127,7 @@
       "new": "if False:",
       "operator": "accept a decision whose identity does not reconstruct",
       "requirement_id": "GOV-048",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_trusted_authority", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_trusted_authority"]
     },
     {
       "mutant_id": "writable-protected-paths",
@@ -136,7 +136,7 @@
       "new": "    expected = {\n        \"disposable\": True,\n        \"secrets_present\": False,\n        \"network_mode\": \"none\",\n        \"candidate_copy_writable\": True,\n        \"protected_paths_writable\": True,",
       "operator": "declare writable authority paths safe",
       "requirement_id": "GOV-044",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_only_complete_safe_capability_report_is_usable", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_only_complete_safe_capability_report_is_usable"]
     },
     {
       "mutant_id": "manifest-overwrite",
@@ -145,7 +145,7 @@
       "new": "                if existing == data:\n                    return sha256_bytes(data)\n                return sha256_bytes(data)",
       "operator": "accept conflicting artifact replacement",
       "requirement_id": "GOV-047",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_artifact_store", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store"]
     },
     {
       "mutant_id": "cli-output-overwrite",
@@ -154,7 +154,7 @@
       "new": "    return",
       "operator": "accept conflicting CLI output replacement",
       "requirement_id": "GOV-047",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration"]
     },
     {
       "mutant_id": "raw-stream-success",
@@ -163,7 +163,7 @@
       "new": "        except (OSError, TypeError, ValueError):\n            return True",
       "operator": "accept missing or tampered raw execution streams",
       "requirement_id": "GOV-026",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_evidence_reconstruction", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction"]
     },
     {
       "mutant_id": "unverified-reviewer-reference",
@@ -172,7 +172,7 @@
       "new": "        # reviewer output schema removed",
       "operator": "remove schema binding from reviewer",
       "requirement_id": "GOV-052",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_reviewer_isolation", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation"]
     },
     {
       "mutant_id": "risk-downgrade",
@@ -181,7 +181,7 @@
       "new": "effective = requested_profile",
       "operator": "ignore hazardous risk escalation",
       "requirement_id": "GOV-034",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_rapid_review", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rapid_review"]
     },
     {
       "mutant_id": "protected-risk-floor-downgrade",
@@ -190,7 +190,7 @@
       "new": "            if False:",
       "operator": "allow a candidate assessment to reduce the protected risk floor",
       "requirement_id": "GOV-049",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_evidence_reconstruction", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction"]
     },
     {
       "mutant_id": "old-policy-self-replacement",
@@ -199,7 +199,7 @@
       "new": "if False:",
       "operator": "allow proposed policy to evaluate itself",
       "requirement_id": "GOV-050",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_trusted_authority", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_trusted_authority"]
     },
     {
       "mutant_id": "missing-provenance",
@@ -208,7 +208,7 @@
       "new": "if False:",
       "operator": "accept provenance whose identity does not reconstruct",
       "requirement_id": "GOV-061",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_attestation", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_attestation"]
     },
     {
       "mutant_id": "nested-source-credential",
@@ -217,7 +217,7 @@
       "new": "                for pattern in ()",
       "operator": "allow a nested credential through the source-literal exception",
       "requirement_id": "GOV-055",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl"]
     },
     {
       "mutant_id": "rollback-output-unbound",
@@ -226,7 +226,7 @@
       "new": "            and True",
       "operator": "accept rollback output naming a different target",
       "requirement_id": "GOV-050",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_governance_candidate_requires_admission_path_lkg_promotion", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_governance_candidate_requires_admission_path_lkg_promotion"]
     },
     {
       "mutant_id": "legacy-context-schema",
@@ -235,7 +235,7 @@
       "new": "    \"schema_version\": { \"const\": \"1.0.0\" },",
       "operator": "silently accept the breaking legacy context representation",
       "requirement_id": "GOV-060",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_schema_lifecycle", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_schema_lifecycle"]
     },
     {
       "mutant_id": "gate-copy-source-identity",
@@ -244,7 +244,7 @@
       "new": "            def copied_candidate_id(\n                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                    args.repository\n                ),\n            ) -> str:",
       "operator": "observe the original repository instead of the executed gate copy",
       "requirement_id": "GOV-003",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence"]
     },
     {
       "mutant_id": "mutation-copy-source-identity",
@@ -253,7 +253,7 @@
       "new": "            \"tree_sha256\": \"sha256:\" + \"0\" * 64,",
       "operator": "remove the concrete mutated tree from source identity",
       "requirement_id": "GOV-009",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutant_identity_binds_the_complete_concrete_tree_and_copy_drift", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutant_identity_binds_the_complete_concrete_tree_and_copy_drift"]
     },
     {
       "mutant_id": "candidate-owned-corpus",
@@ -262,7 +262,7 @@
       "new": "    if False:",
       "operator": "accept a candidate-substituted mutation corpus",
       "requirement_id": "GOV-024",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_policy_digest_rejects_readdressed_candidate_corpus_substitution", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_policy_digest_rejects_readdressed_candidate_corpus_substitution"]
     },
     {
       "mutant_id": "candidate-owned-rollback",
@@ -271,7 +271,7 @@
       "new": "        rollback_command = [\"python3\", \"scripts/rehearse_rollback.py\", candidate[\"base_commit\"]]",
       "operator": "execute the candidate-local rollback script as authority",
       "requirement_id": "GOV-050",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence"]
     },
     {
       "mutant_id": "incomplete-migration-registry",
@@ -280,7 +280,7 @@
       "new": "    if kind == \"reviewer-qualification\" or (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:",
       "operator": "advertise schema migration transitions without executable implementations",
       "requirement_id": "GOV-060",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_schema_lifecycle.SchemaLifecycleAcceptanceTest.test_reviewer_v1_to_v2_is_explicit_not_silent", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_schema_lifecycle.SchemaLifecycleAcceptanceTest.test_reviewer_v1_to_v2_is_explicit_not_silent"]
     },
     {
       "mutant_id": "ignored-submodule-copy",
@@ -289,7 +289,7 @@
       "new": "        _copy_candidate_entry(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n        )",
       "operator": "copy ignored machine-local files from a submodule working tree",
       "requirement_id": "GOV-062",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_submodule_copy_is_reconstructed_without_ignored_worktree_files", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_submodule_copy_is_reconstructed_without_ignored_worktree_files"]
     },
     {
       "mutant_id": "unframed-rollback-package",
@@ -298,7 +298,7 @@
       "new": "                package_root=Path(__file__).resolve().parents[1],",
       "operator": "mount ignored and untracked package files outside the producer digest",
       "requirement_id": "GOV-050",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence"]
     },
     {
       "mutant_id": "rollback-sibling-sitecustomize",
@@ -307,7 +307,7 @@
       "new": "        \"-I\",\n        \"-c\",",
       "operator": "enable Python site initialization in the protected rollback process",
       "requirement_id": "GOV-050",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_protected_rollback_command_disables_python_site_loading", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_protected_rollback_command_disables_python_site_loading"]
     },
     {
       "mutant_id": "noncausal-mutation-kill",
@@ -316,7 +316,7 @@
       "new": "    if status == \"FAIL\":\n        return \"KILLED\"",
       "operator": "count arbitrary failed mutation executions as causal kills",
       "requirement_id": "GOV-058",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutation_probe_rejects_non_unittest_commands_and_forged_markers", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutation_probe_rejects_non_unittest_commands_and_forged_markers"]
     },
     {
       "mutant_id": "submodule-head-only",
@@ -325,7 +325,7 @@
       "new": "                    \"submodule_tree_sha256\": sha256_canonical({\"commit\": commit}),",
       "operator": "bind only the submodule HEAD instead of its concrete Git-visible bytes",
       "requirement_id": "GOV-003",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_concrete_tree_recursively_binds_dirty_submodule_bytes", "-v"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_concrete_tree_recursively_binds_dirty_submodule_bytes"]
     }
   ]
 }

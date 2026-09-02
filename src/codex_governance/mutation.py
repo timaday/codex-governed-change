@@ -69,6 +69,8 @@ MUTATION_KILLED_EXIT = 100
 MUTATION_UNKNOWN_EXIT = 119
 MUTATION_INVALID_EXIT = 120
 MUTATION_PROBE_PREFIX = b"CODEX_MUTATION_PROBE="
+MUTATION_PROBE_SENTINEL = "<PROTECTED_MUTATION_PROBE>"
+MUTATION_PATH_SENTINEL = "<MUTATED_PATH>"
 UNITTEST_SELECTION_RE = re.compile(r"^tests(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 MUTATION_PROBE_FIELDS = frozenset(
     {
@@ -122,14 +124,19 @@ raise SystemExit(119)
 """
 
 
-def _selected_unittest_names(selected_command: Sequence[str]) -> list[str]:
+def selected_mutation_tests(selected_command: Sequence[str]) -> list[str]:
     if (
-        len(selected_command) < 5
-        or list(selected_command[:3]) != ["python3", "-m", "unittest"]
-        or selected_command[-1] != "-v"
+        len(selected_command) < 7
+        or list(selected_command[:6])
+        != [
+            "python3", "-I", "-S", "-c",
+            MUTATION_PROBE_SENTINEL, MUTATION_PATH_SENTINEL,
+        ]
     ):
-        raise ValueError("selected mutation command must be an explicit unittest selection")
-    names = list(selected_command[3:-1])
+        raise ValueError(
+            "selected mutation command must be the protected unittest probe template"
+        )
+    names = list(selected_command[6:])
     if not names or any(
         not isinstance(name, str) or UNITTEST_SELECTION_RE.fullmatch(name) is None
         for name in names
@@ -142,7 +149,7 @@ def build_mutation_probe_command(
     path: str, selected_command: Sequence[str]
 ) -> list[str]:
     relative = normalize_repo_path(path)
-    names = _selected_unittest_names(selected_command)
+    names = selected_mutation_tests(selected_command)
     return [
         "python3", "-I", "-S", "-c", MUTATION_PROBE_SOURCE, relative, *names,
     ]
@@ -462,7 +469,7 @@ def parse_curated_corpus(data: bytes) -> dict[str, Any]:
             isinstance(item, str) and item for item in command
         ):
             raise ValueError("curated mutant command is malformed")
-        _selected_unittest_names(command)
+        selected_mutation_tests(command)
     if ids != REQUIRED_CURATED_MUTANTS:
         raise ValueError("curated mutation corpus does not exactly match protected IDs")
     return document

@@ -49,7 +49,7 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
             "governance/schemas run-gates",
             "governance/schemas mutate",
             "governance/schemas prepare-review",
-            "governance/schemas review",
+            "--schema-root schemas review",
             "governance/schemas import-reviewer-result",
             "governance/schemas assemble-manifest",
             "governance/schemas evaluate",
@@ -74,6 +74,22 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
         self.assertGreaterEqual(
             self.workflow.count("date -u '+%Y-%m-%dT%H:%M:%SZ'"), 2
         )
+
+    def test_split_checkout_review_commands_use_exact_roots_and_policy_limits(self) -> None:
+        review_step = self.workflow.split(
+            "      - name: Run qualification-matched fresh read-only review", 1
+        )[1].split("      - name: Upload reviewed candidate-bound evidence", 1)[0]
+        self.assertEqual(2, review_step.count("--authority-root governance"))
+        self.assertEqual(2, review_step.count("--schema-root schemas review"))
+        self.assertEqual(2, review_step.count("--policy artifacts/governance/effective-policy.json"))
+        self.assertEqual(2, review_step.count("--candidate artifacts/governance/candidate.json"))
+        self.assertEqual(2, review_step.count("--prompt .codex/review/reviewer.prompt.md"))
+        self.assertEqual(2, review_step.count("--timeout-seconds \"$REVIEW_TIMEOUT_SECONDS\""))
+        self.assertEqual(2, review_step.count("--max-output-bytes \"$REVIEW_MAX_OUTPUT_BYTES\""))
+        self.assertNotIn("--policy candidate/", review_step)
+        self.assertNotIn("--candidate candidate/", review_step)
+        self.assertNotIn("--prompt governance/", review_step)
+        self.assertIn('json.load(open("candidate/artifacts/governance/effective-policy.json"', review_step)
 
     def test_reference_passes_the_executable_static_policy(self) -> None:
         from codex_governance.governance import validate_ci_policy

@@ -992,8 +992,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "tool": "curated-governance-corpus", "tool_version": "1.0.0",
                     "location": {"path": definition["path"], "line": 1},
                     "requirement_id": definition["requirement_id"],
-                    "selected_command": selected_command,
-                    "selected_tests": sorted(set(item for item in selected_command if item.startswith("tests"))) or ["selected mutation oracle"],
+                    "selected_command": command,
+                    "selected_tests": [
+                        item for item in selected_command if item.startswith("tests")
+                    ],
                     "outcome": "KILLED",
                     "causal_evidence": [{"locator_id": execution_locator["locator_id"], "sha256": execution_ref["sha256"]}],
                     "triage": {"identity": "", "rationale": "causal fixture", "human_reviewed": False},

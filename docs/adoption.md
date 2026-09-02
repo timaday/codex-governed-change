@@ -127,6 +127,11 @@ it cannot replace the inventory, closure or adverse evidence. Each `review` call
 requires all three context references plus the protected context-qualification
 reference, a portable workflow run ID, and writes the schema-bound model result,
 reviewer-execution statement, and post-run context-execution receipt.
+In a split checkout, pass `--authority-root` for the protected governance
+checkout, make `--schema-root`, `--prompt`, and `--output-schema` relative to
+that root, and make policy, candidate, permitted-input and output paths relative
+to `--repository`. Derive `--timeout-seconds` and `--max-output-bytes` from the
+protected effective policy; CLI defaults are not deployment policy.
 The reference CI runs conformance and every protected rapid-review input, then
 passes all three artifact families to the final reconstruction job.
 For a candidate touching a path in the previous LKG policy's

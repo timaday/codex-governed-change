@@ -215,7 +215,7 @@ codex exec
   -
 ```
 
-The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The fixed protected prompt and normalized permitted inputs are sent on stdin. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
+The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. The fixed protected prompt and normalized permitted inputs are sent on stdin. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
@@ -464,12 +464,15 @@ write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.
 
 The curated mutation probe is protected producer code, not candidate harness
-logic. It accepts only the bounded unittest command grammar, compiles the mutated
-Python target, invokes the selection with site initialization isolated, and emits
-one terminal structured observation. `KILLED` requires a distinct protected exit
-code plus proof that at least one selected test ran and the final unittest result
-contained assertion failures but no import, discovery, harness or execution
-errors. All other non-success results are `INVALID` or `UNKNOWN`.
+logic. It accepts only a fixed command-template grammar, resolves the protected
+probe-source and mutated-path sentinels, compiles the mutated Python target,
+invokes the selected tests with site initialization isolated, and emits one
+terminal structured observation. The expanded command is the selected command:
+the mutant record, gate result, sandbox capability and executed argv must be
+identical. `KILLED` requires a distinct protected exit code plus proof that at
+least one selected test ran and the final unittest result contained assertion
+failures but no import, discovery, harness or execution errors. All other
+non-success results are `INVALID` or `UNKNOWN`.
 
 ## Context compiler
 

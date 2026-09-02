@@ -50,6 +50,7 @@ from codex_governance.mutation import (
     mutation_probe_outcome,
     mutated_source_identity,
     parse_curated_corpus,
+    selected_mutation_tests,
 )
 from codex_governance.qualification import (
     qualification_evidence_valid,
@@ -114,6 +115,11 @@ def load_referenced_json(
     schema_path: Path,
 ) -> dict[str, Any]:
     data = read_reference(repository=repository, reference=reference)
+    return parse_referenced_json(data=data, schema_path=schema_path)
+
+
+def parse_referenced_json(*, data: bytes, schema_path: Path) -> dict[str, Any]:
+    """Validate already descriptor-read referenced JSON without reopening it."""
     try:
         document = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1039,7 +1045,9 @@ def evaluate_manifest(
                 and record.get("corpus_id") == corpus["corpus_id"]
                 and record.get("patch_sha256") == expected_patch
                 and record.get("mutated_source_identity") == expected_source
-                and record.get("selected_command") == definition["selected_command"]
+                and record.get("selected_command") == expected_command
+                and record.get("selected_tests")
+                == selected_mutation_tests(definition["selected_command"])
                 and record.get("operator") == definition["operator"]
                 and record.get("requirement_id") == definition["requirement_id"]
                 and record.get("execution_identity") == execution.get("execution_identity")
@@ -1207,9 +1215,13 @@ def evaluate_manifest(
             manifest["reviewer_qualification_cases"],
             "reviewer-qualification-cases",
         )
-        qualification_corpus = load(
-            manifest["reviewer_qualification_corpus"],
-            "reviewer-qualification-corpus",
+        qualification_corpus_bytes = read_reference(
+            repository=repository,
+            reference=manifest["reviewer_qualification_corpus"],
+        )
+        qualification_corpus = parse_referenced_json(
+            data=qualification_corpus_bytes,
+            schema_path=schema_root / "reviewer-qualification-corpus.schema.json",
         )
         qualification_label_decision = load(
             manifest["reviewer_qualification_label_decision"],
@@ -1224,6 +1236,10 @@ def evaluate_manifest(
             record=qualification,
             case_evidence=qualification_cases,
             corpus=qualification_corpus,
+            corpus_bytes=qualification_corpus_bytes,
+            protected_corpus_sha256=policy["reviewer"][
+                "qualification_corpus_sha256"
+            ],
             label_decision=qualification_label_decision,
             artifact_reader=lambda reference: read_reference(
                 repository=repository, reference=reference
@@ -1434,6 +1450,10 @@ def evaluate_manifest(
                 record=rapid_qualification,
                 case_evidence=rapid_qualification_cases,
                 corpus=qualification_corpus,
+                corpus_bytes=qualification_corpus_bytes,
+                protected_corpus_sha256=policy["reviewer"][
+                    "qualification_corpus_sha256"
+                ],
                 label_decision=qualification_label_decision,
                 artifact_reader=lambda reference: read_reference(
                     repository=repository, reference=reference

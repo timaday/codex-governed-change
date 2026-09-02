@@ -403,6 +403,8 @@ def qualification_evidence_valid(
     record: Mapping[str, Any],
     case_evidence: Mapping[str, Any],
     corpus: Mapping[str, Any],
+    corpus_bytes: bytes,
+    protected_corpus_sha256: str,
     label_decision: Mapping[str, Any],
     artifact_reader: Callable[[Mapping[str, Any]], bytes],
     schema_root: Path,
@@ -413,7 +415,32 @@ def qualification_evidence_valid(
     """Recompute a protected qualification from its corpus and every case."""
     if mode not in {"conformance", "rapid_review"}:
         return False
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        document: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in document:
+                raise ValueError("qualification corpus contains duplicate object keys")
+            document[key] = value
+        return document
+
     try:
+        if not isinstance(corpus_bytes, bytes):
+            return False
+        retained_corpus = json.loads(
+            corpus_bytes.decode("utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=lambda item: (_ for _ in ()).throw(ValueError(item)),
+        )
+        corpus_sha256 = sha256_bytes(corpus_bytes)
+        if (
+            retained_corpus != dict(corpus)
+            or corpus_sha256 != require_sha256(
+                protected_corpus_sha256,
+                name="protected qualification corpus",
+            )
+        ):
+            return False
         for document, schema_name in (
             (record, "reviewer-qualification"),
             (case_evidence, "reviewer-qualification-cases"),
@@ -426,7 +453,7 @@ def qualification_evidence_valid(
         now = parse_rfc3339(evaluated_at)
         issued = parse_rfc3339(label_decision["issued_at"])
         expires = parse_rfc3339(label_decision["expires_at"])
-    except (KeyError, OSError, TypeError, ValueError):
+    except (KeyError, OSError, TypeError, UnicodeDecodeError, ValueError):
         return False
     if not issued <= now < expires:
         return False
@@ -459,7 +486,6 @@ def qualification_evidence_valid(
         or len(observations) != len(cases)
     ):
         return False
-    corpus_sha256 = sha256_bytes(canonical_json_bytes(dict(corpus)))
     case_evidence_sha256 = sha256_bytes(
         canonical_json_bytes(dict(case_evidence))
     )

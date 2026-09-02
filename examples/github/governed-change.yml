@@ -210,13 +210,19 @@ jobs:
       - name: Run qualification-matched fresh read-only review
         run: |
           test -f candidate/artifacts/governance/reviewer-permitted-inputs.json
-          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas review \
+          read -r REVIEW_TIMEOUT_SECONDS REVIEW_MAX_OUTPUT_BYTES < <(
+            python3 -c 'import json; policy=json.load(open("candidate/artifacts/governance/effective-policy.json", encoding="utf-8")); print(policy["reviewer"]["timeout_seconds"], policy["reviewer"]["max_output_bytes"])'
+          )
+          [[ "$REVIEW_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$REVIEW_MAX_OUTPUT_BYTES" =~ ^[0-9]+$ ]] || exit 1
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root schemas review \
+            --authority-root governance \
             --repository candidate \
-            --policy candidate/artifacts/governance/effective-policy.json \
-            --candidate candidate/artifacts/governance/candidate.json \
-            --permitted-inputs candidate/artifacts/governance/reviewer-permitted-inputs.json \
-            --prompt governance/.codex/review/reviewer.prompt.md \
-            --output-schema governance/schemas/reviewer-result.schema.json \
+            --policy artifacts/governance/effective-policy.json \
+            --candidate artifacts/governance/candidate.json \
+            --permitted-inputs artifacts/governance/reviewer-permitted-inputs.json \
+            --prompt .codex/review/reviewer.prompt.md \
+            --output-schema schemas/reviewer-result.schema.json \
             --output artifacts/governance/reviewer-result.json \
             --execution-output artifacts/governance/reviewer-execution.json \
             --context-execution-output artifacts/governance/context-execution-receipt.json \
@@ -226,7 +232,9 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --attempt "${{ github.run_attempt }}" \
             --model gpt-5.6-sol \
-            --reasoning-effort xhigh
+            --reasoning-effort xhigh \
+            --timeout-seconds "$REVIEW_TIMEOUT_SECONDS" \
+            --max-output-bytes "$REVIEW_MAX_OUTPUT_BYTES"
 
           shopt -s nullglob
           rapid_inputs=(candidate/artifacts/governance/rapid-review-inputs/*.json)
@@ -236,13 +244,14 @@ jobs:
           }
           for permitted in "${rapid_inputs[@]}"; do
             session_name="$(basename "$permitted" .json)"
-            PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas review \
+            PYTHONPATH=governance/src python3 -m codex_governance --schema-root schemas review \
+              --authority-root governance \
               --repository candidate \
-              --policy candidate/artifacts/governance/effective-policy.json \
-              --candidate candidate/artifacts/governance/candidate.json \
-              --permitted-inputs "$permitted" \
-              --prompt governance/.codex/review/reviewer.prompt.md \
-              --output-schema governance/schemas/rapid-review-session.schema.json \
+              --policy artifacts/governance/effective-policy.json \
+              --candidate artifacts/governance/candidate.json \
+              --permitted-inputs "${permitted#candidate/}" \
+              --prompt .codex/review/reviewer.prompt.md \
+              --output-schema schemas/rapid-review-session.schema.json \
               --output "artifacts/governance/rapid-review-sessions/$session_name.json" \
               --execution-output "artifacts/governance/rapid-review-executions/$session_name.json" \
               --context-execution-output "artifacts/governance/rapid-review-context-executions/$session_name.json" \
@@ -252,7 +261,9 @@ jobs:
               --run-id "${{ github.run_id }}" \
               --attempt "${{ github.run_attempt }}" \
               --model gpt-5.6-sol \
-              --reasoning-effort xhigh
+              --reasoning-effort xhigh \
+              --timeout-seconds "$REVIEW_TIMEOUT_SECONDS" \
+              --max-output-bytes "$REVIEW_MAX_OUTPUT_BYTES"
           done
 
       - name: Upload reviewed candidate-bound evidence

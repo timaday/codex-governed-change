@@ -135,6 +135,9 @@ def _cli_output_authority(args: argparse.Namespace) -> tuple[Path, str]:
             schema_path=args.schema_root / "effective-policy.schema.json",
         )
         evidence_root = normalize_repo_path(policy["evidence_root"])
+    elif args.command == "review":
+        policy = _review_policy(args)
+        evidence_root = normalize_repo_path(policy["evidence_root"])
     else:
         policy = _validated(args.policy, args.schema_root, "effective-policy")
         evidence_root = normalize_repo_path(policy["evidence_root"])
@@ -244,6 +247,17 @@ def _repository_argument_path(repository: Path, path: Path) -> str:
     return normalize_repo_path(relative)
 
 
+def _authority_argument_path(authority_root: Path, path: Path) -> str:
+    """Map a protected reviewer input beneath its distinct authority root."""
+    root = authority_root.absolute()
+    absolute = path.absolute() if path.is_absolute() else (root / path).absolute()
+    try:
+        relative = absolute.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("protected reviewer input must be authority-relative") from exc
+    return normalize_repo_path(relative)
+
+
 def _read_repository_argument(
     repository: Path, path: Path, *, max_bytes: int = 8_000_000
 ) -> bytes:
@@ -252,6 +266,43 @@ def _read_repository_argument(
         _repository_argument_path(repository, path),
         max_bytes=max_bytes,
     )
+
+
+def _read_authority_argument(
+    authority_root: Path, path: Path, *, max_bytes: int = 8_000_000
+) -> bytes:
+    return read_bounded_repository_file(
+        authority_root,
+        _authority_argument_path(authority_root, path),
+        max_bytes=max_bytes,
+    )
+
+
+def _review_policy(args: argparse.Namespace) -> dict[str, Any]:
+    """Read and validate the review policy once through its two declared roots."""
+    cached = getattr(args, "_review_policy_document", None)
+    if isinstance(cached, dict):
+        return cached
+    policy_bytes = _read_repository_argument(args.repository, args.policy)
+    schema_bytes = _read_authority_argument(
+        args.authority_root,
+        args.schema_root / "effective-policy.schema.json",
+    )
+    try:
+        policy = json.loads(policy_bytes.decode("utf-8"))
+        schema = json.loads(schema_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("protected review policy or schema is not valid JSON") from exc
+    if not isinstance(policy, dict) or not isinstance(schema, Mapping):
+        raise ValueError("protected review policy or schema must be an object")
+    errors = validate_instance(policy, schema)
+    errors.extend(validate_semantics(policy, "effective-policy"))
+    if errors:
+        raise ValueError("protected review policy fails its authority schema")
+    args._review_policy_bytes = policy_bytes
+    args._review_policy_document = policy
+    args._review_schema_cache = {"effective-policy": schema}
+    return policy
 
 
 def _state_exit(state: DispositionState | str) -> int:
@@ -806,7 +857,9 @@ def _mutate(args: argparse.Namespace) -> int:
 
 def _review(args: argparse.Namespace) -> int:
     review_deadline = time.monotonic() + args.timeout_seconds
-    schema_cache: dict[str, Mapping[str, Any]] = {}
+    schema_cache: dict[str, Mapping[str, Any]] = dict(
+        getattr(args, "_review_schema_cache", {})
+    )
 
     def validated_bytes(data: bytes, name: str) -> dict[str, Any]:
         try:
@@ -815,8 +868,8 @@ def _review(args: argparse.Namespace) -> int:
             raise ValueError("authoritative reviewer input is not valid JSON") from exc
         schema = schema_cache.get(name)
         if schema is None:
-            schema_bytes = _read_repository_argument(
-                args.repository,
+            schema_bytes = _read_authority_argument(
+                args.authority_root,
                 args.schema_root / f"{name}.schema.json",
             )
             try:
@@ -836,9 +889,7 @@ def _review(args: argparse.Namespace) -> int:
     candidate = validated_bytes(
         _read_repository_argument(args.repository, args.candidate), "candidate"
     )
-    policy = validated_bytes(
-        _read_repository_argument(args.repository, args.policy), "effective-policy"
-    )
+    policy = _review_policy(args)
     permitted_bytes = _read_repository_argument(
         args.repository, args.permitted_inputs
     )
@@ -852,9 +903,9 @@ def _review(args: argparse.Namespace) -> int:
     if review_mode not in {"conformance", "rapid_review"}:
         raise ValueError("review mode is unavailable")
     policy_sha = sha256_canonical(policy)
-    prompt_bytes = _read_repository_argument(args.repository, args.prompt)
-    output_schema_bytes = _read_repository_argument(
-        args.repository, args.output_schema
+    prompt_bytes = _read_authority_argument(args.authority_root, args.prompt)
+    output_schema_bytes = _read_authority_argument(
+        args.authority_root, args.output_schema
     )
     prompt_sha = sha256_bytes(prompt_bytes)
     schema_sha = sha256_bytes(output_schema_bytes)
@@ -873,8 +924,13 @@ def _review(args: argparse.Namespace) -> int:
     def evidence_document(path_key: str, schema_name: str) -> dict[str, Any]:
         relative = normalize_repo_path(permitted[path_key])
         digest_key = path_key.removesuffix("_path") + "_sha256"
-        data = read_bounded_repository_file(
-            args.repository, relative, max_bytes=8_000_000
+        policy_relative = _repository_argument_path(args.repository, args.policy)
+        data = (
+            args._review_policy_bytes
+            if schema_name == "effective-policy" and relative == policy_relative
+            else read_bounded_repository_file(
+                args.repository, relative, max_bytes=8_000_000
+            )
         )
         if sha256_bytes(data) != permitted.get(digest_key):
             raise ValueError("reviewer evidence digest mismatch")
@@ -1397,6 +1453,7 @@ def _parser() -> argparse.ArgumentParser:
 
     review = subparsers.add_parser("review")
     review.add_argument("--repository", type=Path, default=Path.cwd())
+    review.add_argument("--authority-root", type=Path, required=True)
     review.add_argument("--policy", type=Path, required=True)
     review.add_argument("--candidate", type=Path, required=True)
     review.add_argument("--permitted-inputs", type=Path, required=True)
@@ -1500,13 +1557,18 @@ def _pipeline_lock_for(args: argparse.Namespace):
             repository=repository,
             evidence_root=evidence_root,
         )
+    if args.command == "review":
+        policy = _review_policy(args)
+        return PipelineLock(
+            repository=args.repository,
+            evidence_root=policy["evidence_root"],
+        )
     policy_commands = {
         "identify",
         "run-gates",
         "prepare-review",
         "assemble-manifest",
         "mutate",
-        "review",
         "hook",
     }
     if args.command in policy_commands:

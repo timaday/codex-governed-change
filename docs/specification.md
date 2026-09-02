@@ -345,7 +345,12 @@ identity change invalidates only that exact qualification and cannot fall back t
 the identity for another mode. Qualification acceptance MUST bind the exact
 approved corpus and the authenticated label-decision ID, and that decision ID
 MUST be present in the protected decision-source result. Corpus, label-decision
-and case-evidence representations are typed and content-addressed. Each case
+and case-evidence representations are typed and content-addressed. Admission
+MUST descriptor-read the retained corpus once, reject duplicate object keys,
+require the raw byte digest to match its reference, protected policy, case
+evidence and qualification record, then validate and reconstruct from those same
+bytes; canonical reserialization is not a substitute for the retained artifact.
+Each case
 MUST deterministically reconstruct its full candidate identity from the exact
 corpus paths, modes and UTF-8 file bytes; resolve and re-hash its stored
 normalized stdout/stderr capture streams; parse the final Codex JSONL agent
@@ -379,6 +384,16 @@ output without creating a circular content address. Admission MUST resolve the
 raw streams, reconstruct their JSONL result/usage and primitive observation
 facts, and then reconstruct those links;
 a schema-valid reviewer document or ambient workflow success is insufficient.
+
+The reviewer CLI has two non-overlapping input authorities. Candidate,
+effective-policy, permitted-input and referenced evidence paths are relative to
+the declared candidate repository. Prompt, output-schema and validation-schema
+paths are relative to a separately declared protected authority root. Both roots
+use the same bounded descriptor-relative, no-follow reader. A split-checkout
+workflow MUST pass paths relative to the appropriate root, derive timeout and
+output bounds from the already protected policy, and rely on the CLI's exact
+policy comparison; checkout-directory-prefixed or caller-default bounds are not
+authority.
 
 ## 9. Affected closure and repository audit
 
@@ -619,10 +634,15 @@ governance invariants. The previous-LKG policy binds the complete corpus byte
 digest, and the producer reads those exact bytes from the protected governance
 checkout, copies them into write-once evidence, and rejects a candidate-local or
 digest-mismatched substitute. It runs in a disposable candidate after a green
-baseline and before final review. Only a protected structured probe showing that
-the exact selected unittest command ran at least one test and terminated solely
-with an assertion failure kills a valid non-equivalent mutant. The trusted probe
-emits an exact machine-readable terminal marker and distinct exit code; admission
+baseline and before final review. Each corpus entry binds selected tests through
+one fixed non-executable command template. Protected producer code validates the
+template and replaces only its fixed probe-source and mutated-path sentinels,
+producing an isolated structured-probe argv. The expanded argv recorded in the
+mutant record MUST exactly equal the gate result, sandbox capability and actual
+execution argv. Only that exact protected probe showing that at least one
+selected test ran and terminated solely with an assertion failure kills a valid
+non-equivalent mutant. The trusted probe emits an exact machine-readable terminal
+marker and distinct exit code; admission
 re-reads the bounded raw stream and reconstructs both rather than trusting the
 mutant-record label. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
 `EQUIVALENT_CLAIMED`, launch/import/discovery/harness/crash/signal, malformed

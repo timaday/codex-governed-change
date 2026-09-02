@@ -191,6 +191,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             completed = self.run_cli(
                 "review",
                 "--repository", str(repository),
+                "--authority-root", str(self.ROOT),
                 "--policy", str(policy_path),
                 "--candidate", str(candidate_path),
                 "--permitted-inputs", str(repository / "permitted.json"),
@@ -207,6 +208,33 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             )
             self.assertEqual(2, completed.returncode, completed.stderr.decode())
             self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_reviewer_candidate_and_protected_authority_roots_are_distinct(self) -> None:
+        from codex_governance.cli import (
+            _read_authority_argument,
+            _read_repository_argument,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / "candidate"
+            authority = root / "authority"
+            candidate.mkdir()
+            authority.mkdir()
+            (candidate / "evidence.json").write_bytes(b"candidate")
+            (authority / "prompt.md").write_bytes(b"authority")
+            self.assertEqual(
+                b"candidate",
+                _read_repository_argument(candidate, Path("evidence.json")),
+            )
+            self.assertEqual(
+                b"authority",
+                _read_authority_argument(authority, Path("prompt.md")),
+            )
+            with self.assertRaisesRegex(ValueError, "authority-relative"):
+                _read_authority_argument(authority, candidate / "evidence.json")
+            with self.assertRaisesRegex(ValueError, "repository-relative"):
+                _read_repository_argument(candidate, authority / "prompt.md")
 
     def test_every_output_producing_command_is_in_the_containment_inventory(self) -> None:
         from codex_governance import cli

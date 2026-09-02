@@ -189,7 +189,8 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             {"schema_version": "2.0.0", "human_labelled": True, "cases": cases},
             "corpus_id",
         )
-        corpus_sha = sha256_bytes(canonical_json_bytes(corpus))
+        corpus_bytes = canonical_json_bytes(corpus)
+        corpus_sha = sha256_bytes(corpus_bytes)
         issuer = {
             "subject": "github:human",
             "authentication_method": "github-actions-workflow-dispatch",
@@ -429,6 +430,8 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "record": record,
                 "case_evidence": case_evidence,
                 "corpus": corpus,
+                "corpus_bytes": corpus_bytes,
+                "protected_corpus_sha256": corpus_sha,
                 "label_decision": decision,
                 "artifact_reader": lambda reference: (root / reference["path"]).read_bytes(),
                 "schema_root": Path("schemas"),
@@ -437,6 +440,27 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "evaluated_at": "2026-08-26T10:00:03Z",
             }
             self.assertTrue(qualification_evidence_valid(**arguments))
+            noncanonical_corpus = json.dumps(corpus, indent=2).encode("utf-8")
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **(arguments | {"corpus_bytes": noncanonical_corpus})
+                )
+            )
+            duplicate_key_corpus = corpus_bytes.replace(
+                b'{"cases":', b'{"human_labelled":true,"cases":', 1
+            )
+            duplicate_sha = sha256_bytes(duplicate_key_corpus)
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **(
+                        arguments
+                        | {
+                            "corpus_bytes": duplicate_key_corpus,
+                            "protected_corpus_sha256": duplicate_sha,
+                        }
+                    )
+                )
+            )
             self.assertFalse(
                 qualification_evidence_valid(
                     **(arguments | {"verified_decision_ids": frozenset()})

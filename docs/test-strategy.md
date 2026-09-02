@@ -328,8 +328,10 @@ Seed at least these mutations:
 
 Every mutation must be killed by deterministic tests. Surviving high-risk mutations block release.
 
-The protected mutation probe must also be tested adversarially. A selected
-unittest assertion failure with at least one executed test is the only kill.
+The protected mutation probe must also be tested adversarially. Its fixed corpus
+template must resolve to the exact command recorded by the mutant record, gate
+result, sandbox capability and actual execution. A selected unittest assertion
+failure with at least one executed test is the only kill.
 Compilation failure is `INVALID`; launch failure, missing test selection, import
 or discovery error, candidate crash/signal, mixed failure plus error, absent or
 malformed terminal marker, and a forged `KILLED` record over incompatible raw
@@ -426,8 +428,10 @@ mode's exact prompt, schema, model and material launcher identity; a conformance
 qualification cannot authorize the rapid-review schema. Compare the protected
 typed corpus and every immutable per-case execution with the recorded human
 labels only when the typed label-decision ID is authenticated by the protected
-decision source. Deterministically reconstruct each synthetic candidate from the
-corpus bytes. Resolve and re-hash each normalized captured stdout/stderr stream,
+decision source. Descriptor-read the corpus once, reject duplicate object keys,
+and require its raw byte digest to match the manifest reference, policy, case
+evidence and qualification record before deterministically reconstructing each
+synthetic candidate from those same bytes. Resolve and re-hash each normalized captured stdout/stderr stream,
 verify fixed runtime-value redaction and absence of machine values, parse and
 reconcile the final Codex JSONL message/thread/usage, validate the mode-specific
 result schema and content-addressed reviewer-execution statement, independently

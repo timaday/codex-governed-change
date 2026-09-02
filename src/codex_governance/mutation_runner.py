@@ -28,6 +28,7 @@ from codex_governance.mutation import (
     mutated_source_identity,
     mutation_record_id,
     parse_curated_corpus,
+    selected_mutation_tests,
 )
 from codex_governance.sandbox import (
     build_container_invocation,
@@ -337,9 +338,7 @@ def run_governed_mutation_corpus(
                 evidence_root, locator_relative, locator_sha
             )
             locators.append(locator_reference)
-            selected_tests = sorted(
-                set(item for item in selected if item.startswith("tests"))
-            ) or [" ".join(selected)]
+            selected_tests = selected_mutation_tests(selected)
             record = mutation_record_id(
                 {
                     "schema_version": "1.0.0",
@@ -360,7 +359,7 @@ def run_governed_mutation_corpus(
                     "tool_version": "1.0.0",
                     "location": {"path": relative, "line": line},
                     "requirement_id": mutant["requirement_id"],
-                    "selected_command": selected,
+                    "selected_command": command,
                     "selected_tests": selected_tests,
                     "outcome": outcome,
                     "causal_evidence": (

@@ -191,6 +191,37 @@ mislabelled. Every result for `f7037ae` is stale for this successor; complete
 deterministic gates, the expanded curated corpus, rollback rehearsal, portability
 checks and a new exact-candidate fresh review must be rerun.
 
+The subsequent fresh read-only audit of immutable commit `dfd55cb` completed its
+bounded process observation but was formally `UNKNOWN`: the local review output
+schema still constrained the result to the preceding candidate ID, so the model's
+otherwise schema-valid `BLOCK` result could not bind this candidate. Its four
+concrete findings are nevertheless retained. The reference split-checkout review
+arguments resolved candidate and authority inputs beneath the wrong roots and
+omitted the policy's non-default output bound; the mutation record named the
+unexecuted corpus unittest selection rather than its actual protected probe argv;
+and qualification admission hashed a canonical corpus reserialization instead
+of the single-read retained bytes. The current working-copy successor defines
+separate candidate/authority review roots and policy-derived limits, binds the
+expanded protected mutation-probe argv everywhere, and requires raw corpus-byte
+digest equality plus duplicate-key rejection. All `dfd55cb` evidence is stale
+after these changes and cannot qualify this successor.
+
+The resulting working-copy checkpoint on 2026-09-02 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 250 tests passed
+  with no skips or expected failures, including the public-portability checks;
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
+  all 36 curated mutants `KILLED` for corpus
+  `sha256:135f386af061062fcb6ec2eb3c6c5b553361326302b741ecc75df663a92a4b95`;
+- `PYTHONPATH=src python3 scripts/rehearse_rollback.py 5393338571f8ed5de5192613dcdd6131044932dc`:
+  `PASS`.
+
+These are local deterministic observations, not protected T24 admission
+evidence. This status update changes the candidate, so the final immutable
+successor still requires rebinding gates and a new exact-candidate review.
+
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
 to signal their fixtures fail closed because the outer boundary removes that

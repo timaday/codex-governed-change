@@ -236,10 +236,19 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
         from codex_governance.mutation import (
             MUTATION_INVALID_EXIT,
             MUTATION_KILLED_EXIT,
+            MUTATION_PATH_SENTINEL,
+            MUTATION_PROBE_SENTINEL,
+            MUTATION_PROBE_SOURCE,
             MUTATION_UNKNOWN_EXIT,
             build_mutation_probe_command,
             mutation_probe_outcome,
         )
+
+        def template(*tests: str) -> list[str]:
+            return [
+                "python3", "-I", "-S", "-c", MUTATION_PROBE_SENTINEL,
+                MUTATION_PATH_SENTINEL, *tests,
+            ]
 
         cases = (
             ("self.fail('mutant survived oracle')", "KILLED", MUTATION_KILLED_EXIT),
@@ -262,11 +271,13 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
                 )
                 command = build_mutation_probe_command(
                     "module.py",
-                    [
-                        "python3", "-m", "unittest",
-                        "tests.test_probe.ProbeTest.test_selected", "-v",
-                    ],
+                    template("tests.test_probe.ProbeTest.test_selected"),
                 )
+                self.assertEqual("python3", command[0])
+                self.assertEqual(MUTATION_PROBE_SOURCE, command[4])
+                self.assertEqual("module.py", command[5])
+                self.assertNotIn(MUTATION_PROBE_SENTINEL, command)
+                self.assertNotIn(MUTATION_PATH_SENTINEL, command)
                 completed = subprocess.run(
                     command, cwd=root, stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
@@ -283,7 +294,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             (root / "tests").mkdir()
             (root / "tests/__init__.py").write_text("", encoding="utf-8")
             command = build_mutation_probe_command(
-                "module.py", ["python3", "-m", "unittest", "tests.missing", "-v"]
+                "module.py", template("tests.missing")
             )
             completed = subprocess.run(
                 command, cwd=root, stdin=subprocess.DEVNULL,
@@ -300,7 +311,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             (root / "tests").mkdir()
             (root / "tests/__init__.py").write_text("", encoding="utf-8")
             command = build_mutation_probe_command(
-                "module.py", ["python3", "-m", "unittest", "tests.missing", "-v"]
+                "module.py", template("tests.missing")
             )
             completed = subprocess.run(
                 command, cwd=root, stdin=subprocess.DEVNULL,
@@ -325,7 +336,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             )
             command = build_mutation_probe_command(
                 "module.py",
-                ["python3", "-m", "unittest", "tests.test_mixed.MixedTest", "-v"],
+                template("tests.test_mixed.MixedTest"),
             )
             completed = subprocess.run(
                 command, cwd=root, stdin=subprocess.DEVNULL,

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "mutant_record_id": "sha256:afe4a2daf5c2ec053d3416cfcfaabab57411b505979acad5201fbe079a46a63c",
+  "mutant_record_id": "sha256:db3b42861567d17c67e4a1acb6faa7eea6e42529a34e1d5253d9483049372ed8",
   "repository_id": "repo:example/codex-governed-change",
   "task_contract_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "effective_policy_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -18,8 +18,8 @@
   "tool_version": "1.0.0",
   "location": {"path": "examples/github/governed-change.yml", "line": 80},
   "requirement_id": "GOV-042",
-  "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_ci_admission", "-v"],
-  "selected_tests": ["tests/acceptance/test_ci_admission.py"],
+  "selected_command": ["python3", "-I", "-S", "-c", "import json, os, py_compile, sys, unittest\nPREFIX = 'CODEX_MUTATION_PROBE='\nFIELDS = ('tests_run', 'failures', 'errors', 'skipped', 'expected_failures', 'unexpected_successes')\ndef emit(outcome, counts=None):\n    values = {name: 0 for name in FIELDS}\n    if counts is not None:\n        values.update(counts)\n    payload = {'schema_version': '1.0.0', 'outcome': outcome, **values}\n    print(PREFIX + json.dumps(payload, sort_keys=True, separators=(',', ':')), flush=True)\npath, names = sys.argv[1], sys.argv[2:]\nif path.endswith('.py'):\n    try:\n        py_compile.compile(path, doraise=True)\n    except py_compile.PyCompileError:\n        emit('INVALID')\n        raise SystemExit(120)\ntry:\n    sys.path[:0] = [os.path.join(os.getcwd(), 'src'), os.getcwd()]\n    suite = unittest.defaultTestLoader.loadTestsFromNames(names)\n    result = unittest.TextTestRunner(stream=sys.stderr, verbosity=2).run(suite)\n    counts = {\n        'tests_run': result.testsRun,\n        'failures': len(result.failures),\n        'errors': len(result.errors),\n        'skipped': len(result.skipped),\n        'expected_failures': len(result.expectedFailures),\n        'unexpected_successes': len(result.unexpectedSuccesses),\n    }\nexcept BaseException:\n    emit('UNKNOWN')\n    raise SystemExit(119)\nif counts['tests_run'] > 0 and counts['failures'] > 0 and all(\n    counts[name] == 0\n    for name in ('errors', 'skipped', 'expected_failures', 'unexpected_successes')\n):\n    emit('KILLED', counts)\n    raise SystemExit(100)\nif counts['tests_run'] > 0 and all(counts[name] == 0 for name in FIELDS[1:]):\n    emit('SURVIVED', counts)\n    raise SystemExit(0)\nemit('UNKNOWN', counts)\nraise SystemExit(119)\n", "examples/github/governed-change.yml", "tests.acceptance.test_ci_admission"],
+  "selected_tests": ["tests.acceptance.test_ci_admission"],
   "outcome": "KILLED",
   "causal_evidence": [{"locator_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}],
   "triage": {"identity": "", "rationale": "The admission regression test failed on the mutant only.", "human_reviewed": false},
