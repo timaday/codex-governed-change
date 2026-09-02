@@ -56,7 +56,7 @@
     {
       "gate_id": "acceptance",
       "profiles": ["code", "mixed", "governance"],
-      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
+      "command": ["env", "PYTHONPATH=src", "python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
       "timeout_seconds": 300,
       "max_output_bytes": 2000000,
       "shell": false,
@@ -65,7 +65,7 @@
     {
       "gate_id": "unit",
       "profiles": ["code", "mixed", "governance"],
-      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/unit", "-v"],
+      "command": ["env", "PYTHONPATH=src", "python3", "-m", "unittest", "discover", "-s", "tests/unit", "-v"],
       "timeout_seconds": 300,
       "max_output_bytes": 2000000,
       "shell": false,
@@ -74,7 +74,7 @@
     {
       "gate_id": "security-adversarial",
       "profiles": ["code", "mixed", "governance"],
-      "command": ["python3", "-m", "unittest", "tests.unit.test_artifact_store", "tests.unit.test_gate_runner", "tests.unit.test_reviewer_adapter", "tests.acceptance.test_rapid_review", "-v"],
+      "command": ["env", "PYTHONPATH=src", "python3", "-m", "unittest", "tests.unit.test_artifact_store", "tests.unit.test_gate_runner", "tests.unit.test_reviewer_adapter", "tests.acceptance.test_rapid_review", "-v"],
       "timeout_seconds": 300,
       "max_output_bytes": 2000000,
       "shell": false,

@@ -145,6 +145,14 @@ Each gate result records:
 - status: `PASS`, `FAIL`, or `UNKNOWN`;
 - limitations and producer version.
 
+The protected command descriptor is complete execution authority, not a suffix
+that inherits supervisor setup. It MUST run in the declared clean sandbox
+environment without a developer shell or ambient import path. In particular,
+src-layout Python test gates explicitly set the repository-relative candidate
+import path in argv before invoking the interpreter. Exact-command tests MUST
+exercise at least one such protected descriptor in a clean environment; hosted
+qualification repeats every command in the declared container.
+
 `PASS` requires exit zero, complete required observations, no timeout, matching pre/post candidate identity, and schema-valid artifacts. Non-zero is `FAIL` unless the command could not be observed reliably, in which case it is `UNKNOWN`. Timeout, launch error, signal ambiguity, missing output, invalid encoding where required, truncation of required causal evidence, or identity drift is `UNKNOWN`.
 
 A gate manifest is constructed only after every referenced gate result exists.

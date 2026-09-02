@@ -309,6 +309,12 @@ reconstructed candidate copy.
 
 Oracle: unsupported states are explicit `UNKNOWN/BLOCK`, not silent defaults.
 
+Run protected test-gate command arrays with a clean process environment and no
+caller-supplied `PYTHONPATH`. Assert every src-layout test descriptor establishes
+`PYTHONPATH=src` itself, then execute an exact non-recursive descriptor. The
+hosted gate repeats all descriptors in the declared clean container; an import
+or discovery failure is not a passing test result.
+
 ## Mandatory governance mutation evaluation
 
 Seed at least these mutations:

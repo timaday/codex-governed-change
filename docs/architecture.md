@@ -453,7 +453,10 @@ working-directory content; dirty/unavailable submodule worktrees fail closed,
 and the current MVP blocks reviewer execution for non-empty submodule sets until
 immutable recursive object materialization is available. Candidate processes receive
 no authoritative evidence or governance mount and no inherited secret. The
-sandbox output channel is bounded and untrusted. Container-backed invocations
+sandbox output channel is bounded and untrusted. Protected gate argv is
+self-contained: src-layout Python test gates declare `PYTHONPATH=src` through
+the command array and cannot inherit a developer or supervisor import path.
+Container-backed invocations
 first complete a bounded create transaction using a runtime-only supervisor-owned
 name and ID file; the immutable ID and name are validated before an attached
 start. On normal exit, timeout, interruption, or provider-CLI failure the

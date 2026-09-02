@@ -14,10 +14,10 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-008 | T01, T05, T07 | `test_disposition_policy.py`, `test_gate_evidence.py` |
 | GOV-009 | T03, T05, T06, T17, T19, T24 | `test_candidate_identity.py`, `test_disposition_policy.py`, `test_gate_sandbox.py`, copy-bound mutation runner tests, `test_reviewer_isolation.py` |
 | GOV-010 | T08 | `test_stop_hook.py` |
-| GOV-011 | T09 | `test_governance_integrity.py`, workflow validation |
+| GOV-011 | T09, T23 | `test_governance_integrity.py`, workflow validation, exact protected command clean-environment execution |
 | GOV-012 | T01, T07 | `test_disposition_policy.py` |
 | GOV-013 | T09 | `test_governance_integrity.py` |
-| GOV-014 | T05, T07 | `test_workflow_profiles.py`, `test_gate_evidence.py` |
+| GOV-014 | T05, T07 | `test_workflow_profiles.py`, `test_gate_evidence.py`, protected src-layout import-path tests |
 | GOV-015 | T07 | `test_workflow_profiles.py` |
 | GOV-016 | T06, T21 | `test_reviewer_isolation.py`, protected reviewer-closure admission tests |
 | GOV-017 | T01, T07 | `test_disposition_policy.py` |
@@ -57,7 +57,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-051 | T14, T22 | `test_assurance_case.py`, `test_reference_monitor.py` |
 | GOV-052 | T15, T20, T23 | `test_assurance_case.py` descriptor-bound swap/symlink/FIFO/oversize tests, split-checkout reference-workflow reviewer command test, end-to-end reviewer CLI protected-authority/candidate-root materialization and single-read race/special-file tests, `test_reviewer_isolation.py` |
 | GOV-053 | T14 | `test_assurance_case.py`, `test_disposition_policy.py` |
-| GOV-054 | T20 | `test_reviewer_isolation.py`, permission-profile canary, unit x32-ABI-denial process test, `test_context_compiler.py` |
+| GOV-054 | T20 | `test_reviewer_isolation.py`, protected repository-relative command instruction, permission-profile canary, unit x32-ABI-denial process test, `test_context_compiler.py` |
 | GOV-055 | T20, T24 | `test_reviewer_qualification.py`, mandatory seeded-defect/prompt-injection/control classes, single-read raw-corpus digest plus duplicate-key rejection, deterministic synthetic-candidate plus per-case source/projection/qualification/prepared/post-run context and typed corpus/case/normalized-stream/JSONL-result/primitive-observation/execution reconstruction, nested-credential source-literal tests, portability and protected label-decision tests |
 | GOV-056 | T20 | `test_reviewer_qualification.py`, `test_workflow_profiles.py` |
 | GOV-057 | T18 | `test_rapid_review.py`, `test_rst_operations.py` |

@@ -83,6 +83,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         self.assertIn('shell_environment_policy=', joined)
         self.assertIn('HOME=".reviewer-home"', joined)
         self.assertIn('ZDOTDIR=".reviewer-home"', joined)
+        self.assertIn('PYTHONDONTWRITEBYTECODE="1"', joined)
         for forbidden in ("CODEX_HOME", "HTTPS_PROXY", "HTTP_PROXY"):
             self.assertNotIn(f'"{forbidden}"', joined)
 

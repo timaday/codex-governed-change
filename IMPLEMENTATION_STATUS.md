@@ -222,6 +222,34 @@ These are local deterministic observations, not protected T24 admission
 evidence. This status update changes the candidate, so the final immutable
 successor still requires rebinding gates and a new exact-candidate review.
 
+The fresh read-only audit of immutable commit `fdf0f58` was exactly candidate
+bound and produced an otherwise schema-valid `BLOCK` result, but its formal
+process disposition was `UNKNOWN`: an invented machine-shaped tool argument was
+redacted, so process/capture completeness could not be established. Its one
+concrete finding is retained. Three protected src-layout test commands in the
+public effective policy omitted `PYTHONPATH=src`; the reviewer reproduced the
+exact unit command in a clean environment and all discovered modules failed to
+import `codex_governance`. The current working-copy successor requires
+self-contained protected gate argv and repository-relative reviewer tool
+arguments. Every `fdf0f58` result is stale after this repair begins.
+
+The working-copy remediation checkpoint on 2026-09-02 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 252 tests passed,
+  including an exact protected unit-gate argv in a clean environment with no
+  caller-supplied Python import path;
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
+  all 36 curated mutants `KILLED` for corpus
+  `sha256:135f386af061062fcb6ec2eb3c6c5b553361326302b741ecc75df663a92a4b95`;
+- `PYTHONPATH=src python3 scripts/rehearse_rollback.py 5393338571f8ed5de5192613dcdd6131044932dc`:
+  `PASS`.
+
+These are local deterministic observations, not protected T24 admission
+evidence. This status mutation requires one final gate rebind before the
+successor is committed and independently reviewed.
+
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
 to signal their fixtures fail closed because the outer boundary removes that

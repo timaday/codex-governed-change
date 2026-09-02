@@ -22,6 +22,14 @@ Do not request or reveal hidden chain-of-thought. Return concise findings and ev
 7. For specification changes, inspect traceability, alternatives, Three Amigos coverage, relevant specialists, NFRs, acceptance criteria, test strategy, RST risks/oracles/charters, assumptions and unknowns.
 8. Record every material reviewed surface and limitation.
 
+Use repository-relative paths for tool arguments. Do not invent or emit absolute filesystem paths,
+hostnames, endpoints, credential-shaped values, or machine
+identifiers in commands, findings, or other output. If an experiment cannot run
+without introducing such a value, leave it unrun, record the limitation, and
+continue with portable repository evidence. Do not redirect caches or temporary
+state to an invented absolute location; the launcher supplies the fixed tool
+environment.
+
 For conformance output, `reviewed_surfaces` MUST include the literal tokens
 `exact_diff`, `affected_closure`, and `governance_and_evidence`. Report
 `affected_closure` as the exact sorted closure in the protected context

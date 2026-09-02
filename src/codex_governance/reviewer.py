@@ -159,7 +159,7 @@ REVIEWER_TOOL_ENVIRONMENT_POLICY = (
     'include_only=['
     + ",".join(json.dumps(key) for key in REVIEWER_TOOL_ENVIRONMENT_KEYS)
     + '],set={HOME=".reviewer-home",ZDOTDIR=".reviewer-home",'
-    'XDG_CONFIG_HOME=".reviewer-home"}}'
+    'XDG_CONFIG_HOME=".reviewer-home",PYTHONDONTWRITEBYTECODE="1"}}'
 )
 
 
