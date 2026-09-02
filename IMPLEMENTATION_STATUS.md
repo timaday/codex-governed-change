@@ -504,16 +504,18 @@ now begins before lock selection and is passed through policy, authority,
 candidate, schema, prompt, evidence, CLI-version and final-output observations.
 Shared stream normalization removes complete authorization fields and ordinary
 colon-delimited POSIX paths, then rescans. Unqualified findings remain
-`UNKNOWN`. The protected corpus now contains 85 exact semantic operators with
+`UNKNOWN`. The documented local mutation runner also uses the policy-sized
+300-second acceptance bound after its obsolete 120-second default timed out the
+green 205-test baseline. The protected corpus now contains 86 exact semantic operators with
 content ID
-`sha256:668ff1ede4febfd21588cc999f2c84dadc4b3950ff073296e8d8e7bc1f39213f`
+`sha256:afacbf64980643b719f35f254e0599a7aae2ffe607d657a179205f732ee66d70`
 and protected byte digest
-`sha256:c0bb2346c250abdb26db42428f83ac21d505d5a459dcdf231f3390574655cddf`.
+`sha256:6153e5c45c46a7e5a667cecfb904f410e2f2c64e895e10e478f55b132e2a0b2b`.
 
-Working-copy checks after this remediation observed blueprint integrity, 205
+Working-copy checks after this remediation observed blueprint integrity, 206
 acceptance tests, 91 unit tests, compilation and diff hygiene passing. These are
 local development observations only and this status mutation invalidates their
 candidate binding. The successor must be committed and rerun through all
-deterministic gates, the complete paired-control 85-operator corpus, rollback,
+deterministic gates, the complete paired-control 86-operator corpus, rollback,
 portability and a new exact-candidate fresh review before release readiness can
 be claimed.

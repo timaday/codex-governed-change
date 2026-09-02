@@ -117,6 +117,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "colon-delimited-posix-unredacted",
         "unqualified-finding-confirmed",
         "reviewer-version-deadline-omitted",
+        "local-mutation-timeout-regression",
     }
 )
 

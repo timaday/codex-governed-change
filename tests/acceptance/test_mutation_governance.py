@@ -141,6 +141,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "colon-delimited-posix-unredacted",
             "unqualified-finding-confirmed",
             "reviewer-version-deadline-omitted",
+            "local-mutation-timeout-regression",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
@@ -537,6 +538,18 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
                 canonical_json_bytes(substituted),
                 expected_sha256=sha256_bytes(original),
             )
+
+    def test_documented_local_runner_default_covers_acceptance_policy_bound(self) -> None:
+        from scripts.run_mutation_corpus import (
+            DEFAULT_MUTATION_TIMEOUT_SECONDS,
+            build_parser,
+        )
+
+        self.assertEqual(300, DEFAULT_MUTATION_TIMEOUT_SECONDS)
+        self.assertEqual(
+            DEFAULT_MUTATION_TIMEOUT_SECONDS,
+            build_parser().parse_args([]).timeout,
+        )
 
     def test_unavailable_container_never_falls_back_to_host_mutation_execution(self) -> None:
         from codex_governance.candidate import GitCliRepositoryAdapter

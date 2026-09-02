@@ -27,6 +27,9 @@ from codex_governance.mutation import (
 from codex_governance.sandbox import prepare_candidate_copy
 
 
+DEFAULT_MUTATION_TIMEOUT_SECONDS = 300
+
+
 def run(
     command: list[str], cwd: Path, timeout: int
 ) -> tuple[str, int | None, bytes, str]:
@@ -58,13 +61,20 @@ def run(
     )
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the documented local runner interface with policy-sized bounds."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--corpus", type=Path, default=Path("tests/mutation/corpus.json"))
     parser.add_argument("--evidence-root", default="artifacts/governance")
-    parser.add_argument("--timeout", type=int, default=120)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--timeout", type=int, default=DEFAULT_MUTATION_TIMEOUT_SECONDS
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     repository = args.repository.resolve(strict=True)
     corpus = load_curated_corpus(args.corpus)
     baseline, baseline_exit, _, _ = run(

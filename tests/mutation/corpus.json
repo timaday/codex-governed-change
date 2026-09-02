@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:668ff1ede4febfd21588cc999f2c84dadc4b3950ff073296e8d8e7bc1f39213f",
+  "corpus_id": "sha256:afacbf64980643b719f35f254e0599a7aae2ffe607d657a179205f732ee66d70",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -758,6 +758,15 @@
       "operator": "remove the absolute review deadline from Codex CLI version observation",
       "requirement_id": "GOV-025",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_codex_version_observation_honors_expired_deadline"]
+    },
+    {
+      "mutant_id": "local-mutation-timeout-regression",
+      "path": "scripts/run_mutation_corpus.py",
+      "old": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 300",
+      "new": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 120",
+      "operator": "restore a local mutation timeout shorter than the protected acceptance bound",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_documented_local_runner_default_covers_acceptance_policy_bound"]
     },
     {
       "mutant_id": "preparation-error-launches",
