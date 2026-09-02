@@ -151,6 +151,8 @@ class TrustedAuthorityAcceptanceTest(unittest.TestCase):
                 previous_lkg_policy_sha256="sha256:" + "2" * 64,
                 proposed_policy_sha256="sha256:" + "1" * 64,
                 promotion_decision=None, rollback_evidence=None,
+                expected_rollback_target_commit="1" * 40,
+                rollback_reconstructed=False,
                 verified_decision_ids=frozenset(),
                 now=datetime(2026, 8, 26, 12, tzinfo=timezone.utc),
             ),
@@ -163,15 +165,15 @@ class TrustedAuthorityAcceptanceTest(unittest.TestCase):
         proposed = "sha256:" + "2" * 64
         rollback = content_address(
             {
-                "schema_version": "1.0.0", "repository_id": self.REPOSITORY,
+                "schema_version": "2.0.0", "repository_id": self.REPOSITORY,
                 "task_contract_sha256": self.TASK, "candidate_id": self.CANDIDATE,
                 "previous_lkg_policy_sha256": previous,
                 "proposed_policy_sha256": proposed, "rollback_target_commit": "1" * 40,
-                "gate_result_sha256": "sha256:" + "3" * 64,
-                "sandbox_capability_sha256": "sha256:" + "4" * 64,
-                "provenance_statement_sha256": "sha256:" + "5" * 64,
+                "gate_result": {"path": "evidence/rollback-gate.json", "sha256": "sha256:" + "3" * 64},
+                "sandbox_capability": {"path": "evidence/rollback-capability.json", "sha256": "sha256:" + "4" * 64},
+                "provenance_statement": {"path": "evidence/rollback-provenance.json", "sha256": "sha256:" + "5" * 64},
                 "status": "PASS", "created_at": "2026-08-26T10:00:00Z",
-                "limitations": ["fixture"],
+                "limitations": [],
             },
             "rollback_evidence_id",
         )
@@ -188,6 +190,8 @@ class TrustedAuthorityAcceptanceTest(unittest.TestCase):
             "previous_lkg_policy_sha256": previous,
             "proposed_policy_sha256": proposed, "promotion_decision": decision,
             "rollback_evidence": rollback,
+            "expected_rollback_target_commit": "1" * 40,
+            "rollback_reconstructed": True,
             "verified_decision_ids": frozenset({decision["decision_id"]}),
             "now": datetime(2026, 8, 26, 12, tzinfo=timezone.utc),
         }

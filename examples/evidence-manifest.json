@@ -1,6 +1,6 @@
 {
-  "schema_version": "2.0.0",
-  "manifest_id": "sha256:8c07b3993cc2e72aee5d5f355d783b371b8281171ce73769ede1f51482ec6efe",
+  "schema_version": "3.0.0",
+  "manifest_id": "sha256:644927813f86e70e686bd5a9e09ef51bbe8c53c990a9c8461851cb7f9a449a38",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract": {
@@ -11,8 +11,10 @@
     "path": "artifacts/governance/example/effective-policy.json",
     "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   },
+  "lkg_policy_decision": {"path": "artifacts/governance/example/decisions/lkg-policy.json", "sha256": "sha256:4545454545454545454545454545454545454545454545454545454545454545"},
   "authenticated_decisions": [
-    {"path": "artifacts/governance/example/decisions/task-approval.json", "sha256": "sha256:1212121212121212121212121212121212121212121212121212121212121212"}
+    {"path": "artifacts/governance/example/decisions/task-approval.json", "sha256": "sha256:1212121212121212121212121212121212121212121212121212121212121212"},
+    {"path": "artifacts/governance/example/decisions/lkg-policy.json", "sha256": "sha256:4545454545454545454545454545454545454545454545454545454545454545"}
   ],
   "evidence_locators": [
     {"path": "artifacts/governance/example/locators/gate-result.json", "sha256": "sha256:2424242424242424242424242424242424242424242424242424242424242424"}

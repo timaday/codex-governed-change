@@ -160,6 +160,8 @@ The fresh reviewer emits only schema-valid JSON containing:
 - reviewed surfaces;
 - findings with severity, location, claim, violated oracle, evidence and remediation;
 - missing evidence;
+- the exact protected mandatory claim-ID set from the context assurance kernel,
+  each present once with non-empty resolved evidence references;
 - claim classifications: `DIRECTLY_OBSERVED`, `VERIFIED_WITHIN_SCOPE`,
   `UNVERIFIED`, or `UNKNOWN`;
 - limitations.
@@ -321,8 +323,11 @@ token. Parsing and execution-statement digests use those normalized captured
 bytes. An endpoint- or generic host-path-shaped value in a Codex command-
 execution event whose exact decoded bytes already occur in the immutable
 candidate or protected reviewer inputs is a portable source literal and is
-replaced by a distinct fixed token. The exception does not apply to credentials
-or the final agent message. Other recognized shaped values are replaced before
+replaced by a distinct fixed token. An exact immutable assignment-shaped source
+expression whose right-hand side starts a same-name method call is syntax, not a
+credential value, and receives the same treatment; nested actual credential
+tokens remain ambiguous. The exception does not apply to credential values or
+the final agent message. Other recognized shaped values are replaced before
 persistence, and that ambiguous transformation permanently forces `UNKNOWN`.
 JSONL normalization MUST parse and re-serialize complete events so replacement
 cannot corrupt escaping. Truncation, retained machine values or malformed JSONL
@@ -509,10 +514,17 @@ issuer, issued/expiry times and single-use consumption where applicable.
 Protected changed-surface policy computes a minimum risk profile and gate set.
 Task input may add scrutiny; reducing the floor requires an applicable decision.
 The previous LKG policy supplies the exact TCB path set used for classification.
-When any changed path intersects that set, the evidence manifest must separately
+Admission first requires a protected-source-authenticated LKG-policy decision
+binding that policy digest to the exact task, candidate and candidate base, and
+requires the policy's LKG commit to equal that base. When any changed path
+intersects that authenticated set, the evidence manifest must separately
 reference the proposed policy, authenticated LKG-promotion decision and rollback
-evidence. Admission descriptor-resolves those artifacts and runs the previous-LKG
-promotion predicate; ordinary governance authorization alone is insufficient.
+evidence. Rollback evidence contains typed references to a policy-defined
+rollback gate result, sandbox capability and provenance statement. Admission
+descriptor-resolves and fully reconstructs those nested artifacts, raw streams,
+producer identity and chronology, rejects limitations, binds the rollback target
+to the authenticated base, and then runs the previous-LKG promotion predicate;
+ordinary governance authorization or digest-shaped proof alone is insufficient.
 
 ## 16. Sandboxed execution and provenance
 

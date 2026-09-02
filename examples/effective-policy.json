@@ -88,6 +88,15 @@
       "max_output_bytes": 1000000,
       "shell": false,
       "risk_label": ""
+    },
+    {
+      "gate_id": "rollback-rehearsal",
+      "profiles": ["governance"],
+      "command": ["python3", "scripts/rehearse_rollback.py", "1111111111111111111111111111111111111111"],
+      "timeout_seconds": 300,
+      "max_output_bytes": 1000000,
+      "shell": false,
+      "risk_label": ""
     }
   ],
   "producer_version": "0.1.0-example"

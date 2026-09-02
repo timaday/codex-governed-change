@@ -32,6 +32,13 @@ decision and rollback evidence and invokes the LKG-promotion predicate whenever
 the candidate touches that closure. Other prerequisites use their own success
 vocabulary; they cannot emit `READY_FOR_HUMAN`.
 
+The effective policy is not trusted merely because the candidate and manifest
+repeat its digest. Before any classification, a protected decision-source result
+must authenticate that exact policy for the exact task, candidate and base
+commit, and the policy's LKG commit must equal that base. Rollback evidence uses
+typed gate-result, capability and provenance references whose bytes and execution
+semantics are reconstructed; naked digest-shaped fields cannot promote policy.
+
 ## Alternatives
 
 - **Trust the candidate workflow's last successful job**: rejected because a

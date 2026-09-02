@@ -291,7 +291,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     schema_path=Path("schemas/reviewer-result.schema.json"),
                     output_path=result_path,
                     expected_candidate_id=candidate_id,
-                    candidate_supplier=lambda candidate_id=candidate_id: candidate_id,
+                    candidate_supplier=lambda _deadline, candidate_id=candidate_id: candidate_id,
                     expected_bindings={
                         "repository_id": evaluation_repository,
                         "candidate_id": candidate_id,

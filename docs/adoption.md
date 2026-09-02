@@ -133,6 +133,10 @@ For a candidate touching a path in the previous LKG policy's
 `governance_paths`, the manifest input must also carry separate proposed-policy,
 authenticated LKG-promotion-decision and rollback-evidence references. The
 promotion decision must also appear in the verified authenticated-decision set.
+Every manifest also carries the protected-source-authenticated LKG-policy
+decision that binds the effective policy to the exact task, candidate and base.
+Rollback evidence uses nested gate-result, capability and provenance references;
+all must be retained and reconstructable, and any limitation blocks promotion.
 
 ## 8. Reviewer isolation verification
 

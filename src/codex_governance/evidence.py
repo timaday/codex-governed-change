@@ -20,9 +20,11 @@ from codex_governance.canonical import (
 from codex_governance.artifacts import read_bounded_repository_file
 from codex_governance.candidate import GitCliRepositoryAdapter, verify_candidate_identity
 from codex_governance.context import (
+    MANDATORY_REVIEWER_CLAIMS,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
+    validate_retrieval_expansions,
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.admission import evaluate_admission
@@ -157,6 +159,7 @@ def assemble_evidence_manifest(
     candidate_id: str,
     task_contract: Mapping[str, str],
     effective_policy: Mapping[str, str],
+    lkg_policy_decision: Mapping[str, str],
     required_gate_ids: Sequence[str],
     gate_references: Mapping[str, Mapping[str, str]],
     gate_manifest: Mapping[str, str],
@@ -198,11 +201,12 @@ def assemble_evidence_manifest(
     created_at: str | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "repository_id": repository_id,
         "candidate_id": require_sha256(candidate_id, name="candidate_id"),
         "task_contract": dict(task_contract),
         "effective_policy": dict(effective_policy),
+        "lkg_policy_decision": dict(lkg_policy_decision),
         "authenticated_decisions": [dict(item) for item in authenticated_decisions],
         "evidence_locators": [dict(item) for item in evidence_locators],
         "sandbox_capabilities": [dict(item) for item in sandbox_capabilities],
@@ -329,6 +333,34 @@ def evaluate_manifest(
     except (KeyError, OSError, TypeError, ValueError):
         decisions = []
     valid_decisions = [item for item in decisions if verify_content_address(item, "decision_id")]
+    try:
+        lkg_policy_decision = load(
+            manifest["lkg_policy_decision"], "authenticated-decision"
+        )
+        base_commit = str(current_candidate["base_commit"])
+        lkg_policy_authorized = bool(
+            manifest["lkg_policy_decision"] in manifest["authenticated_decisions"]
+            and policy.get("lkg_governance_commit") == base_commit
+            and decision_applies(
+                decision=lkg_policy_decision,
+                repository_id=repository_id,
+                candidate_id=current_candidate_id,
+                task_contract_sha256=task_sha,
+                policy_sha256=policy_sha,
+                required_type="lkg_policy_authorization",
+                required_scope=[f"policy:{policy_sha}", f"lkg:{base_commit}"],
+                now=now,
+                source_verified=(
+                    lkg_policy_decision.get("decision_id")
+                    in verified_decision_ids
+                ),
+                required_base_commit=base_commit,
+            )
+        )
+    except (KeyError, OSError, TypeError, ValueError):
+        lkg_policy_authorized = False
+    if not lkg_policy_authorized:
+        return DispositionState.BLOCK, ["PREVIOUS_LKG_POLICY_NOT_AUTHENTICATED"]
     try:
         locators = [load(reference, "evidence-locator") for reference in manifest["evidence_locators"]]
         resolved_locators = {
@@ -466,6 +498,7 @@ def evaluate_manifest(
             policy_sha256=policy_sha, required_type="task_approval",
             required_scope=task.get("scope", ()), now=now,
             source_verified=item.get("decision_id") in verified_decision_ids,
+            required_base_commit=str(current_candidate["base_commit"]),
         )
         for item in valid_decisions
     )
@@ -510,6 +543,7 @@ def evaluate_manifest(
             verified_decision_ids=verified_decision_ids,
             governance_change_authorized=False,
             approver="", now=now,
+            base_commit=str(current_candidate["base_commit"]),
         )
     except (KeyError, TypeError, ValueError):
         governed_paths = list(changed_paths)
@@ -519,54 +553,6 @@ def evaluate_manifest(
         defeaters["governance_integrity"].append("protected governance authorization is absent")
     else:
         upstream["governance"] = "success"
-
-    if governed_paths:
-        try:
-            proposed_policy = load(
-                manifest["proposed_policy"], "effective-policy"
-            )
-            promotion_decision = load(
-                manifest["lkg_promotion_decision"], "authenticated-decision"
-            )
-            rollback_evidence = load(
-                manifest["rollback_evidence"], "rollback-evidence"
-            )
-            promotion_reference_is_authenticated = any(
-                reference == manifest["lkg_promotion_decision"]
-                for reference in manifest["authenticated_decisions"]
-            )
-            promotion_state = (
-                evaluate_lkg_promotion(
-                    repository_id=repository_id,
-                    candidate_id=current_candidate_id,
-                    task_contract_sha256=task_sha,
-                    evaluating_policy_sha256=policy_sha,
-                    previous_lkg_policy_sha256=policy_sha,
-                    proposed_policy_sha256=sha256_canonical(proposed_policy),
-                    promotion_decision=promotion_decision,
-                    rollback_evidence=rollback_evidence,
-                    now=now,
-                    verified_decision_ids=verified_decision_ids,
-                )
-                if (
-                    proposed_policy.get("repository_id") == repository_id
-                    and promotion_reference_is_authenticated
-                )
-                else DispositionState.BLOCK
-            )
-        except (KeyError, OSError, TypeError, ValueError):
-            promotion_state = DispositionState.UNKNOWN
-        if promotion_state is DispositionState.BLOCK:
-            upstream["governance"] = "failure"
-            defeaters["governance_integrity"].append(
-                "previous-LKG promotion or rollback evidence is invalid"
-            )
-        elif promotion_state is not DispositionState.READY_FOR_HUMAN:
-            if upstream["governance"] != "failure":
-                upstream["governance"] = "absent"
-            defeaters["governance_integrity"].append(
-                "previous-LKG promotion or rollback evidence is unavailable"
-            )
 
     try:
         obligations = resolve_protected_obligations(
@@ -837,6 +823,117 @@ def evaluate_manifest(
     else:
         upstream["gates"] = "success"
 
+    if governed_paths:
+        try:
+            proposed_policy = load(
+                manifest["proposed_policy"], "effective-policy"
+            )
+            promotion_decision = load(
+                manifest["lkg_promotion_decision"], "authenticated-decision"
+            )
+            rollback_evidence = load(
+                manifest["rollback_evidence"], "rollback-evidence"
+            )
+            rollback_gate = load(
+                rollback_evidence["gate_result"], "gate-result"
+            )
+            rollback_capability = load(
+                rollback_evidence["sandbox_capability"], "sandbox-capability"
+            )
+            rollback_provenance = load(
+                rollback_evidence["provenance_statement"],
+                "provenance-statement",
+            )
+            rollback_definition = gate_policy["rollback-rehearsal"]
+            rollback_target = str(current_candidate["base_commit"])
+            proposed_sha = sha256_canonical(proposed_policy)
+            required_materials = {
+                ("rollback-target-commit", sha256_bytes(rollback_target.encode())),
+                ("proposed-policy", proposed_sha),
+            }
+            observed_materials = {
+                (item.get("name"), item.get("sha256"))
+                for item in rollback_provenance.get("predicate", {}).get(
+                    "materials", ()
+                )
+                if isinstance(item, Mapping)
+            }
+            rollback_reconstructed = bool(
+                manifest["lkg_promotion_decision"]
+                in manifest["authenticated_decisions"]
+                and rollback_evidence["sandbox_capability"]
+                in manifest["sandbox_capabilities"]
+                and rollback_evidence["provenance_statement"]
+                in manifest["provenance_statements"]
+                and rollback_gate.get("sandbox_capability_sha256")
+                == rollback_evidence["sandbox_capability"]["sha256"]
+                and rollback_gate.get("provenance_statement")
+                == rollback_evidence["provenance_statement"]
+                and required_materials <= observed_materials
+                and rollback_evidence.get("limitations") == []
+                and rollback_gate.get("limitations") == []
+                and rollback_capability.get("limitations") == []
+                and rollback_provenance.get("predicate", {}).get("limitations")
+                == []
+                and parse_rfc3339(rollback_gate["ended_at"])
+                <= parse_rfc3339(rollback_evidence["created_at"])
+                <= parse_rfc3339(promotion_decision["issued_at"])
+                and execution_evidence_valid(
+                    rollback_gate,
+                    source_identity=current_candidate_id,
+                    expected_command=rollback_definition["command"],
+                    expected_gate_id="rollback-rehearsal",
+                    expected_gate_definition_sha256=sha256_canonical(
+                        rollback_definition
+                    ),
+                    expected_implementation_sha256=gate_implementation_sha256(),
+                    expected_timeout_seconds=rollback_definition[
+                        "timeout_seconds"
+                    ],
+                    expected_max_output_bytes=rollback_definition[
+                        "max_output_bytes"
+                    ],
+                    expected_shell=bool(rollback_definition["shell"]),
+                )
+            )
+            promotion_state = (
+                evaluate_lkg_promotion(
+                    repository_id=repository_id,
+                    candidate_id=current_candidate_id,
+                    task_contract_sha256=task_sha,
+                    evaluating_policy_sha256=policy_sha,
+                    previous_lkg_policy_sha256=str(
+                        lkg_policy_decision["effective_policy_sha256"]
+                    ),
+                    proposed_policy_sha256=proposed_sha,
+                    promotion_decision=promotion_decision,
+                    rollback_evidence=rollback_evidence,
+                    expected_rollback_target_commit=rollback_target,
+                    rollback_reconstructed=rollback_reconstructed,
+                    now=now,
+                    verified_decision_ids=verified_decision_ids,
+                )
+                if (
+                    proposed_policy.get("repository_id") == repository_id
+                    and proposed_policy.get("lkg_governance_commit")
+                    == current_candidate.get("head_commit")
+                )
+                else DispositionState.BLOCK
+            )
+        except (KeyError, OSError, TypeError, ValueError):
+            promotion_state = DispositionState.UNKNOWN
+        if promotion_state is DispositionState.BLOCK:
+            upstream["governance"] = "failure"
+            defeaters["governance_integrity"].append(
+                "previous-LKG promotion or rollback evidence is invalid"
+            )
+        elif promotion_state is not DispositionState.READY_FOR_HUMAN:
+            if upstream["governance"] != "failure":
+                upstream["governance"] = "absent"
+            defeaters["governance_integrity"].append(
+                "previous-LKG promotion or rollback evidence is unavailable"
+            )
+
     mutation_records: list[dict[str, Any]] = []
     try:
         corpus_reference = manifest["mutation_corpus"]
@@ -1053,6 +1150,18 @@ def evaluate_manifest(
             and context_execution.get("reasoning_effort")
             == policy.get("reviewer", {}).get("reasoning_effort")
             and context_execution.get("usage_observed") is True
+            and validate_retrieval_expansions(
+                retrieval_expansions=context_execution.get(
+                    "retrieval_expansions", ()
+                ),
+                retrieval_index=reconstructed["retrieval_index"],
+                artifact_reader=lambda reference: read_bounded_repository_file(
+                    repository,
+                    normalize_repo_path(reference),
+                    max_bytes=8_000_000,
+                ),
+            )
+            == context_execution.get("retrieval_expansions")
         )
     except (KeyError, OSError, TypeError, ValueError):
         context_receipt, context_execution, context_ok = {}, {}, False
@@ -1170,13 +1279,31 @@ def evaluate_manifest(
         )
         reviewer_verdict = reviewer.get("verdict") if reviewer_exact and qualification_ok else "UNKNOWN"
         claims = reviewer.get("claims", ())
+        expected_claim_ids = {
+            item["claim_id"] for item in MANDATORY_REVIEWER_CLAIMS
+        }
+        observed_claim_ids = [
+            claim.get("claim_id")
+            for claim in claims
+            if isinstance(claim, Mapping)
+        ]
+        kernel_claims = context_projection.get("assurance_kernel", {}).get(
+            "mandatory_claims"
+        )
         if reviewer_verdict == "NO_BLOCKING_FINDING_OBSERVED" and (
-            not claims
+            kernel_claims != [dict(item) for item in MANDATORY_REVIEWER_CLAIMS]
+            or len(observed_claim_ids) != len(expected_claim_ids)
+            or set(observed_claim_ids) != expected_claim_ids
             or any(
                 claim.get("classification") not in {
                     "DIRECTLY_OBSERVED",
                     "VERIFIED_WITHIN_SCOPE",
                 }
+                for claim in claims
+                if isinstance(claim, Mapping)
+            )
+            or any(
+                not claim.get("evidence_refs")
                 for claim in claims
                 if isinstance(claim, Mapping)
             )

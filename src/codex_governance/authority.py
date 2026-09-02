@@ -25,6 +25,7 @@ def decision_applies(
     required_scope: Sequence[str],
     now: datetime,
     source_verified: bool,
+    required_base_commit: str | None = None,
 ) -> bool:
     if not source_verified or now.tzinfo is None:
         return False
@@ -53,6 +54,11 @@ def decision_applies(
     }
     if any(decision.get(key) != value for key, value in expected.items()):
         return False
+    if (
+        required_base_commit is not None
+        and decision.get("base_commit") != required_base_commit
+    ):
+        return False
     scope = decision.get("scope")
     if not isinstance(scope, Sequence) or isinstance(scope, (str, bytes)):
         return False
@@ -79,6 +85,7 @@ def authorize_governance_change(
     governance_change_authorized: bool,
     approver: str,
     now: datetime,
+    base_commit: str | None = None,
 ) -> DispositionState | None:
     del governance_change_authorized, approver
     from codex_governance.governance import is_governance_path
@@ -105,6 +112,7 @@ def authorize_governance_change(
             required_scope=["schemas/" if path.startswith("schemas/") else path for path in governed],
             now=now,
             source_verified=decision.get("decision_id") in verified_decision_ids,
+            required_base_commit=base_commit,
         ):
             return None
     return DispositionState.BLOCK
@@ -150,6 +158,8 @@ def evaluate_lkg_promotion(
     proposed_policy_sha256: str,
     promotion_decision: Mapping[str, Any] | None,
     rollback_evidence: Mapping[str, Any] | None,
+    expected_rollback_target_commit: str,
+    rollback_reconstructed: bool,
     now: datetime,
     verified_decision_ids: Set[str],
 ) -> DispositionState:
@@ -160,14 +170,19 @@ def evaluate_lkg_promotion(
     if not isinstance(promotion_decision, Mapping) or not isinstance(rollback_evidence, Mapping):
         return DispositionState.UNKNOWN
     rollback_exact = (
-        verify_content_address(rollback_evidence, "rollback_evidence_id")
+        rollback_reconstructed
+        and verify_content_address(rollback_evidence, "rollback_evidence_id")
+        and rollback_evidence.get("schema_version") == "2.0.0"
         and rollback_evidence.get("repository_id") == repository_id
         and rollback_evidence.get("task_contract_sha256") == task_contract_sha256
         and rollback_evidence.get("candidate_id") == candidate_id
         and rollback_evidence.get("previous_lkg_policy_sha256")
         == previous_lkg_policy_sha256
         and rollback_evidence.get("proposed_policy_sha256") == proposed_policy_sha256
+        and rollback_evidence.get("rollback_target_commit")
+        == expected_rollback_target_commit
         and rollback_evidence.get("status") == "PASS"
+        and rollback_evidence.get("limitations") == []
     )
     if not rollback_exact:
         return DispositionState.BLOCK
@@ -184,6 +199,7 @@ def evaluate_lkg_promotion(
         ],
         now=now,
         source_verified=promotion_decision.get("decision_id") in verified_decision_ids,
+        required_base_commit=expected_rollback_target_commit,
     ):
         return DispositionState.BLOCK
     return DispositionState.READY_FOR_HUMAN

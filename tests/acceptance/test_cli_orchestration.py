@@ -649,7 +649,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             key: example[key]
             for key in (
                 "repository_id", "candidate_id", "task_contract",
-                "effective_policy", "authenticated_decisions", "evidence_locators",
+                "effective_policy", "lkg_policy_decision",
+                "authenticated_decisions", "evidence_locators",
                 "sandbox_capabilities", "provenance_statements", "gate_manifest",
                 "required_gate_ids", "mutation_corpus", "mutation_baseline",
                 "mutant_records", "reviewer_qualification",

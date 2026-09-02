@@ -413,11 +413,16 @@ also requires its `decision_id` in the explicit result of the protected
 decision-source adapter. The default set is empty; absence or mismatch therefore
 cannot be recovered from issuer prose embedded in the decision.
 
-The previous LKG effective policy is also the classifier authority: its
+The previous LKG effective policy becomes classifier authority only after an
+authenticated protected-source decision binds its digest to the exact task,
+candidate and base commit and its `lkg_governance_commit` equals that base. Its
 `governance_paths` enumerate the complete trusted implementation and deployment
 closure. A matching candidate requires separately referenced proposed-policy,
-promotion-decision and rollback artifacts, and admission invokes the LKG
-promotion predicate before the governance prerequisite can succeed.
+promotion-decision and rollback artifacts. Rollback evidence references a
+policy-defined rollback gate result, capability and provenance statement;
+admission re-hashes and reconstructs their raw streams, execution semantics,
+producer identity, chronology, target and absence of limitations before invoking
+the LKG promotion predicate.
 
 CI uses the kernel from the previous protected LKG governance commit. Its final
 job runs regardless of direct dependency status, validates that every dependency

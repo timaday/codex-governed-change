@@ -47,7 +47,7 @@ JSON_TYPES = frozenset(
 SUPPORTED_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "title", "description", "type",
     "const", "enum", "required", "properties", "additionalProperties",
-    "items", "minItems", "uniqueItems", "minLength", "pattern", "minimum",
+    "items", "minItems", "maxItems", "uniqueItems", "minLength", "pattern", "minimum",
 }
 
 
@@ -164,6 +164,9 @@ def validate_instance(instance: Any, schema: dict[str, Any]) -> list[str]:
             minimum = node.get("minItems")
             if isinstance(minimum, int) and len(value) < minimum:
                 errors.append(f"{location}: requires at least {minimum} items")
+            maximum = node.get("maxItems")
+            if isinstance(maximum, int) and len(value) > maximum:
+                errors.append(f"{location}: permits at most {maximum} items")
             if node.get("uniqueItems") is True:
                 encoded = [canonical_json_bytes(item) for item in value]
                 if len(encoded) != len(set(encoded)):

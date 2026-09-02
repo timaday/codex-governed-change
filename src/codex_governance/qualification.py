@@ -318,6 +318,8 @@ def qualification_context_documents(
         review_mode=mode,
         reviewer_output_sha256=require_sha256(reviewer_output_sha256),
         retrieval_expansions=[],
+        retrieval_index=compiled["retrieval_index"],
+        artifact_reader=None,
         usage_observed=execution.get("usage_observed") is True,
         actual_input_tokens=int(execution.get("input_tokens", 0)),
         actual_output_tokens=int(execution.get("output_tokens", 0)),

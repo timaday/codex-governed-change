@@ -721,7 +721,11 @@ def cleanup_container(
                     if complete_identity and not removal_failed and not identity_tainted:
                         cidfile.unlink()
                         return True
-                    return False
+                    if supplied_valid and cidfile_id == container_id:
+                        return False
+                    # An unresolved create may materialize after any fixed
+                    # number of empty polls. Keep the reserved name under
+                    # quarantine for the complete bounded cleanup interval.
             else:
                 stable_absence = 0
             remaining = deadline - time.monotonic()

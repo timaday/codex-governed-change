@@ -102,7 +102,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
 
     def verified_decision_ids(self, manifest: dict) -> frozenset[str]:
         references = [
-            manifest["authenticated_decisions"][0],
+            *manifest["authenticated_decisions"],
             manifest["reviewer_qualification_label_decision"],
         ]
         return frozenset(
@@ -539,7 +539,17 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "command": ["python3", "-m", "unittest"],
                 "timeout_seconds": 60, "max_output_bytes": 1000,
                 "shell": False, "risk_label": "",
-            }
+            },
+            {
+                "gate_id": "rollback-rehearsal",
+                "profiles": ["governance"],
+                "command": [
+                    "python3", "scripts/rehearse_rollback.py",
+                    policy["lkg_governance_commit"],
+                ],
+                "timeout_seconds": 60, "max_output_bytes": 1000,
+                "shell": False, "risk_label": "",
+            },
         ]
         policy["sandbox"]["process_limit"] = 16
         policy["sandbox"]["memory_bytes"] = 1000000
@@ -638,6 +648,19 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "decision_id",
         )
         decision_ref = self.write("decision.json", decision, "authenticated-decision")
+        lkg_policy_decision = content_address(
+            decision
+            | {
+                "decision_type": "lkg_policy_authorization",
+                "scope": [f"policy:{policy_sha}", f"lkg:{task['base_commit']}"],
+            },
+            "decision_id",
+        )
+        lkg_policy_decision_ref = self.write(
+            "lkg-policy-decision.json",
+            lkg_policy_decision,
+            "authenticated-decision",
+        )
 
         observation = self.raw("observation.txt", b"verified observation\n")
         locator = content_address(
@@ -978,7 +1001,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         context_ref = self.write("context.json", context_receipt, "context-receipt")
 
         reviewer = {
-            "schema_version": "2.0.0", "repository_id": self.REPOSITORY_ID,
+            "schema_version": "3.0.0", "repository_id": self.REPOSITORY_ID,
             "candidate_id": self.CANDIDATE_ID, "task_contract_sha256": task_sha,
             "effective_policy_sha256": policy_sha,
             "gate_manifest_sha256": gate_manifest_ref["sha256"],
@@ -991,7 +1014,21 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ],
             "affected_closure": affected_closure,
             "retrieval_expansions": [], "findings": [], "missing_evidence": [],
-            "claims": [{"claim": "bounded review", "classification": "VERIFIED_WITHIN_SCOPE", "evidence_refs": [typed_reference]}],
+            "claims": [
+                {
+                    "claim_id": claim_id,
+                    "claim": "bounded " + claim_id.replace("_", " "),
+                    "classification": "VERIFIED_WITHIN_SCOPE",
+                    "evidence_refs": [typed_reference],
+                }
+                for claim_id in (
+                    "candidate_identity",
+                    "required_gates",
+                    "affected_closure",
+                    "governance_integrity",
+                    "evidence_reconstruction",
+                )
+            ],
             "limitations": ["fresh context is not independence"],
         }
         if reviewer_defect == "missing-surface":
@@ -1006,6 +1043,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             review_mode="conformance",
             reviewer_output_sha256=reviewer_ref["sha256"],
             retrieval_expansions=[],
+            retrieval_index=compiled_context["retrieval_index"],
+            artifact_reader=None,
             usage_observed=True,
             actual_input_tokens=100,
             actual_output_tokens=20,
@@ -1162,6 +1201,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             review_mode="rapid_review",
             reviewer_output_sha256=session_ref["sha256"],
             retrieval_expansions=[],
+            retrieval_index=compiled_context["retrieval_index"],
+            artifact_reader=None,
             usage_observed=True,
             actual_input_tokens=120,
             actual_output_tokens=30,
@@ -1309,9 +1350,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         assurance_ref = self.write("assurance.json", assurance, "assurance-case")
         manifest = content_address(
             {
-                "schema_version": "2.0.0", "repository_id": self.REPOSITORY_ID,
+                "schema_version": "3.0.0", "repository_id": self.REPOSITORY_ID,
                 "candidate_id": self.CANDIDATE_ID, "task_contract": task_ref,
-                "effective_policy": policy_ref, "authenticated_decisions": [decision_ref],
+                "effective_policy": policy_ref,
+                "lkg_policy_decision": lkg_policy_decision_ref,
+                "authenticated_decisions": [decision_ref, lkg_policy_decision_ref],
                 "evidence_locators": locator_refs, "sandbox_capabilities": capability_refs,
                 "provenance_statements": provenance_refs, "gate_manifest": gate_manifest_ref,
                 "required_gate_ids": ["unit"], "gate_results": gate_items,
@@ -1343,6 +1386,162 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         schema = load_json(self.ROOT / "schemas/evidence-manifest.schema.json")
         self.assertEqual([], validate_instance(manifest, schema))
         return manifest
+
+    def rollback_execution_references(
+        self,
+        *,
+        manifest: dict,
+        proposed_policy_sha256: str,
+    ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+        policy = json.loads(
+            (self.repository / manifest["effective_policy"]["path"]).read_text()
+        )
+        definition = next(
+            item
+            for item in policy["gates"]
+            if item["gate_id"] == "rollback-rehearsal"
+        )
+        command = definition["command"]
+        execution_identity = sandbox_execution_identity(
+            provider="docker",
+            provider_version="fixture",
+            image=policy["sandbox"]["image"],
+            command=command,
+            process_limit=16,
+            memory_bytes=1000000,
+            cpu_seconds=60,
+            timeout_seconds=60,
+            output_bytes=1000,
+        )
+        capability = content_address(
+            {
+                "schema_version": "1.0.0",
+                "provider": "docker",
+                "provider_version": "fixture",
+                "implementation_sha256": gate_implementation_sha256(),
+                "image": policy["sandbox"]["image"],
+                "command": command,
+                "source_identity": self.CANDIDATE_ID,
+                "execution_identity": execution_identity,
+                "disposable": True,
+                "secrets_present": False,
+                "network_mode": "none",
+                "candidate_copy_writable": True,
+                "protected_paths_writable": False,
+                "evidence_paths_writable": False,
+                "supervisor_paths_writable": False,
+                "process_limit": 16,
+                "memory_bytes": 1000000,
+                "cpu_seconds": 60,
+                "timeout_seconds": 60,
+                "output_bytes": 1000,
+                "verified_at": self.AT,
+                "limitations": [],
+            },
+            "capability_id",
+        )
+        capability_ref = self.write(
+            "rollback/capability.json", capability, "sandbox-capability"
+        )
+        stdout_ref = self.raw("rollback/stdout.bin", b"rollback ok\n")
+        stderr_ref = self.raw("rollback/stderr.bin", b"")
+        target = policy["lkg_governance_commit"]
+        provenance = build_provenance_statement(
+            repository_id=self.REPOSITORY_ID,
+            candidate_id=self.CANDIDATE_ID,
+            repository_digest=self.CANDIDATE_ID,
+            task_contract_sha256=manifest["task_contract"]["sha256"],
+            effective_policy_sha256=manifest["effective_policy"]["sha256"],
+            gate_definition_sha256=sha256_canonical(definition),
+            reviewer_prompt_sha256="sha256:" + "f" * 64,
+            producer={
+                "builder_id": "codex-governed-change",
+                "implementation_sha256": gate_implementation_sha256(),
+                "version": PRODUCER_VERSION,
+            },
+            workflow={"system": "unit", "run_id": "rollback-fixture", "attempt": 1},
+            tools=[
+                {"name": "python", "version": "fixture"},
+                {"name": "docker", "version": "fixture"},
+            ],
+            environment={
+                "source_identity": self.CANDIDATE_ID,
+                "execution_identity": execution_identity,
+                "sandbox_capability_sha256": capability_ref["sha256"],
+            },
+            materials=[
+                {"name": "candidate", "sha256": self.CANDIDATE_ID},
+                {
+                    "name": "rollback-target-commit",
+                    "sha256": sha256_bytes(target.encode()),
+                },
+                {"name": "proposed-policy", "sha256": proposed_policy_sha256},
+            ],
+            started_at=self.AT,
+            ended_at=self.ENDED,
+            result="PASS",
+            limits={
+                "timeout_seconds": 60,
+                "max_output_bytes": 1000,
+                "process_limit": 16,
+                "memory_bytes": 1000000,
+                "cpu_seconds": 60,
+            },
+            artifacts=[
+                {"name": "stdout", "sha256": stdout_ref["sha256"]},
+                {"name": "stderr", "sha256": stderr_ref["sha256"]},
+                {"name": "sandbox-capability", "sha256": capability_ref["sha256"]},
+            ],
+            limitations=[],
+        )
+        provenance_ref = self.write(
+            "rollback/provenance.json", provenance, "provenance-statement"
+        )
+        result = {
+            "schema_version": "1.0.0",
+            "repository_id": self.REPOSITORY_ID,
+            "task_contract_sha256": manifest["task_contract"]["sha256"],
+            "gate_id": "rollback-rehearsal",
+            "profile": "governance",
+            "candidate_before": self.CANDIDATE_ID,
+            "candidate_after": self.CANDIDATE_ID,
+            "source_identity": self.CANDIDATE_ID,
+            "execution_identity": execution_identity,
+            "sandbox_capability_sha256": capability_ref["sha256"],
+            "command": command,
+            "started_at": self.AT,
+            "ended_at": self.ENDED,
+            "duration_ms": 1000,
+            "termination": {"kind": "exited", "exit_code": 0},
+            "artifacts": [
+                {
+                    "stream": "stdout",
+                    "path": stdout_ref["path"],
+                    "bytes": 12,
+                    "sha256": stdout_ref["sha256"],
+                    "truncated": False,
+                },
+                {
+                    "stream": "stderr",
+                    "path": stderr_ref["path"],
+                    "bytes": 0,
+                    "sha256": stderr_ref["sha256"],
+                    "truncated": False,
+                },
+            ],
+            "redactions": [],
+            "observation_complete": True,
+            "status": "PASS",
+            "limitations": [],
+            "provenance_statement": provenance_ref,
+            "producer_version": PRODUCER_VERSION,
+        }
+        result_ref = self.write(
+            "rollback/gate-result.json", result, "gate-result"
+        )
+        manifest["sandbox_capabilities"].append(capability_ref)
+        manifest["provenance_statements"].append(provenance_ref)
+        return result_ref, capability_ref, provenance_ref
 
     def test_only_reconstructable_exact_candidate_manifest_is_ready(self) -> None:
         manifest = self.complete_manifest()
@@ -1629,9 +1828,63 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             schema_root=self.ROOT / "schemas",
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
         )
         self.assertEqual(DispositionState.BLOCK, state)
         self.assertTrue(any("governance" in reason.lower() for reason in reasons), reasons)
+
+    def test_previous_lkg_policy_requires_exact_authenticated_base_binding(self) -> None:
+        manifest = self.complete_manifest()
+        original_reference = manifest["lkg_policy_decision"]
+        original = json.loads(
+            (self.repository / original_reference["path"]).read_text()
+        )
+        variants: list[tuple[str, dict, frozenset[str]]] = []
+        variants.append(
+            (
+                "unverified",
+                manifest,
+                self.verified_decision_ids(manifest)
+                - {original["decision_id"]},
+            )
+        )
+        for defect in ("base", "policy"):
+            candidate = deepcopy(original)
+            if defect == "base":
+                candidate["base_commit"] = "2" * 40
+            else:
+                candidate["scope"] = [
+                    "policy:sha256:" + "0" * 64,
+                    f"lkg:{self.candidate['base_commit']}",
+                ]
+            candidate = content_address(candidate, "decision_id")
+            reference = self.write(
+                f"lkg-policy-{defect}.json",
+                candidate,
+                "authenticated-decision",
+            )
+            variant = deepcopy(manifest)
+            variant["lkg_policy_decision"] = reference
+            variant["authenticated_decisions"] = [
+                reference if item == original_reference else item
+                for item in variant["authenticated_decisions"]
+            ]
+            variant = content_address(variant, "manifest_id")
+            variants.append(
+                (defect, variant, self.verified_decision_ids(variant))
+            )
+        for defect, variant, verified in variants:
+            state, reasons = evaluate_manifest(
+                repository=self.repository,
+                manifest=variant,
+                schema_root=self.ROOT / "schemas",
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=verified,
+            )
+            with self.subTest(defect=defect):
+                self.assertEqual(DispositionState.BLOCK, state)
+                self.assertIn("PREVIOUS_LKG_POLICY_NOT_AUTHENTICATED", reasons)
 
     def test_governance_candidate_requires_admission_path_lkg_promotion(self) -> None:
         manifest = self.complete_manifest(
@@ -1676,23 +1929,30 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
 
         proposed_policy = deepcopy(policy)
         proposed_policy["policy_id"] = "POLICY-PROPOSED-FIXTURE"
+        proposed_policy["lkg_governance_commit"] = self.candidate["head_commit"]
         proposed_ref = self.write(
             "proposed-policy.json", proposed_policy, "effective-policy"
         )
+        rollback_gate_ref, rollback_capability_ref, rollback_provenance_ref = (
+            self.rollback_execution_references(
+                manifest=manifest,
+                proposed_policy_sha256=proposed_ref["sha256"],
+            )
+        )
         rollback = content_address(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "2.0.0",
                 "repository_id": self.REPOSITORY_ID,
                 "task_contract_sha256": manifest["task_contract"]["sha256"],
                 "candidate_id": self.CANDIDATE_ID,
                 "previous_lkg_policy_sha256": manifest["effective_policy"]["sha256"],
                 "proposed_policy_sha256": proposed_ref["sha256"],
-                "rollback_target_commit": "1" * 40,
-                "gate_result_sha256": "sha256:" + "2" * 64,
-                "sandbox_capability_sha256": "sha256:" + "3" * 64,
-                "provenance_statement_sha256": "sha256:" + "4" * 64,
+                "rollback_target_commit": self.candidate["base_commit"],
+                "gate_result": rollback_gate_ref,
+                "sandbox_capability": rollback_capability_ref,
+                "provenance_statement": rollback_provenance_ref,
                 "status": "PASS",
-                "created_at": self.AT,
+                "created_at": self.ENDED,
                 "limitations": [],
             },
             "rollback_evidence_id",
@@ -1708,6 +1968,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     f"promote:{proposed_ref['sha256']}",
                     f"rollback:{rollback['rollback_evidence_id']}",
                 ],
+                "issued_at": "2026-08-26T10:00:02Z",
+                "expires_at": "2026-08-27T10:00:02Z",
             },
             "decision_id",
         )
@@ -1732,6 +1994,113 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ),
         )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, promoted_state, reasons)
+
+        for defect in (
+            "missing-gate",
+            "dummy-gate-digest",
+            "readdressed-gate",
+            "dummy-capability-digest",
+            "dummy-provenance-digest",
+            "readdressed-stream",
+            "limitation",
+            "target",
+            "chronology",
+        ):
+            variant = deepcopy(promoted_manifest)
+            rollback_variant = deepcopy(rollback)
+            if defect == "missing-gate":
+                rollback_variant["gate_result"] = {
+                    "path": "evidence/rollback/missing-gate.json",
+                    "sha256": "sha256:" + "0" * 64,
+                }
+            elif defect == "dummy-gate-digest":
+                rollback_variant["gate_result"] = {
+                    "path": rollback_gate_ref["path"],
+                    "sha256": "sha256:" + "0" * 64,
+                }
+            elif defect in {"readdressed-gate", "readdressed-stream"}:
+                gate = json.loads(
+                    (self.repository / rollback_gate_ref["path"]).read_text()
+                )
+                if defect == "readdressed-gate":
+                    gate["command"] = [
+                        "python3",
+                        "-c",
+                        "raise SystemExit(0)",
+                    ]
+                else:
+                    stream = self.raw(
+                        "rollback/readdressed-stdout.bin", b"forged pass\n"
+                    )
+                    stdout = next(
+                        item
+                        for item in gate["artifacts"]
+                        if item["stream"] == "stdout"
+                    )
+                    stdout.update(
+                        path=stream["path"],
+                        sha256=stream["sha256"],
+                        bytes=len(b"forged pass\n"),
+                    )
+                rollback_variant["gate_result"] = self.write(
+                    f"rollback/{defect}-result.json",
+                    gate,
+                    "gate-result",
+                )
+            elif defect == "dummy-capability-digest":
+                rollback_variant["sandbox_capability"] = {
+                    "path": rollback_capability_ref["path"],
+                    "sha256": "sha256:" + "0" * 64,
+                }
+            elif defect == "dummy-provenance-digest":
+                rollback_variant["provenance_statement"] = {
+                    "path": rollback_provenance_ref["path"],
+                    "sha256": "sha256:" + "0" * 64,
+                }
+            elif defect == "limitation":
+                rollback_variant["limitations"] = ["rollback proof incomplete"]
+            elif defect == "target":
+                rollback_variant["rollback_target_commit"] = "2" * 40
+            else:
+                rollback_variant["created_at"] = "2026-08-26T10:00:03Z"
+            rollback_variant = content_address(
+                rollback_variant, "rollback_evidence_id"
+            )
+            rollback_variant_ref = self.write(
+                f"rollback-evidence-{defect}.json",
+                rollback_variant,
+                "rollback-evidence",
+            )
+            promotion_variant = deepcopy(promotion_decision)
+            promotion_variant["scope"] = [
+                f"promote:{proposed_ref['sha256']}",
+                f"rollback:{rollback_variant['rollback_evidence_id']}",
+            ]
+            promotion_variant = content_address(
+                promotion_variant, "decision_id"
+            )
+            promotion_variant_ref = self.write(
+                f"promotion-decision-{defect}.json",
+                promotion_variant,
+                "authenticated-decision",
+            )
+            variant["rollback_evidence"] = rollback_variant_ref
+            variant["lkg_promotion_decision"] = promotion_variant_ref
+            variant["authenticated_decisions"] = [
+                promotion_variant_ref if item == promotion_ref else item
+                for item in variant["authenticated_decisions"]
+            ]
+            variant = content_address(variant, "manifest_id")
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=variant,
+                schema_root=self.ROOT / "schemas",
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(variant),
+            )
+            with self.subTest(defect=defect):
+                self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
 
 
 if __name__ == "__main__":

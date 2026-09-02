@@ -141,8 +141,24 @@ redaction forces `UNKNOWN` without persisting the canary.
 Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
 IPv4/local endpoints and generic host paths. Exact-value normalization is
 reported; an exact immutable-source literal is replaced by its distinct portable
-token without invalidating JSONL, ambiguous pattern normalization forces
-`UNKNOWN`, and no original bytes may enter retained evidence.
+token without invalidating JSONL, an exact same-name method-call assignment is
+recognized as source syntax while a nested or standalone credential remains
+forbidden, ambiguous pattern normalization forces `UNKNOWN`, and no original
+bytes may enter retained evidence.
+
+Reviewer-result tests require the exact unique protected claim-ID set, non-empty
+resolved evidence per claim, and reject omitted, duplicate, unknown or
+evidence-free claims. Retrieval tests report unknown references, wrong digests,
+missing files and model-only copied assertions; finalization and admission must
+both reject them.
+
+Previous-LKG tests substitute policy/base bindings and omit or tamper with the
+authenticated LKG-policy decision. Rollback tests replace each nested gate,
+capability, provenance and raw-stream artifact with a digest-shaped or stale
+value, change the target or chronology, and add limitations. Reviewer deadline
+tests stall pre/post identity Git observations and snapshot Git helpers. Container
+cleanup tests materialize a reserved name after the former three-empty-poll
+threshold and require it to be discovered and removed before quarantine ends.
 
 Context reconstruction tests independently alter every protected source class,
 adverse signal, inventory/closure entry, profile qualification, source bundle,

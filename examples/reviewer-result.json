@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -25,6 +25,7 @@
   "missing_evidence": [],
   "claims": [
     {
+      "claim_id": "candidate_identity",
       "claim": "The blueprint quality gate passed for the supplied candidate",
       "classification": "DIRECTLY_OBSERVED",
       "evidence_refs": [
@@ -32,10 +33,35 @@
       ]
     },
     {
+      "claim_id": "required_gates",
       "claim": "No blocking defect was discovered in the reviewed surfaces",
       "classification": "VERIFIED_WITHIN_SCOPE",
       "evidence_refs": [
         {"locator_id": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"}
+      ]
+    },
+    {
+      "claim_id": "affected_closure",
+      "claim": "The exact protected affected closure was reviewed",
+      "classification": "VERIFIED_WITHIN_SCOPE",
+      "evidence_refs": [
+        {"locator_id": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
+      ]
+    },
+    {
+      "claim_id": "governance_integrity",
+      "claim": "Protected governance authority was inspected",
+      "classification": "VERIFIED_WITHIN_SCOPE",
+      "evidence_refs": [
+        {"locator_id": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"}
+      ]
+    },
+    {
+      "claim_id": "evidence_reconstruction",
+      "claim": "Relied-on evidence references were reconstructed",
+      "classification": "VERIFIED_WITHIN_SCOPE",
+      "evidence_refs": [
+        {"locator_id": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
       ]
     }
   ],

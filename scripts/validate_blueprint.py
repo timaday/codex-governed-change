@@ -175,6 +175,8 @@ def validate_instance(
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
             fail(f"{location}: expected at least {schema['minItems']} items")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            fail(f"{location}: expected at most {schema['maxItems']} items")
         if schema.get("uniqueItems"):
             rendered = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
             if len(rendered) != len(set(rendered)):

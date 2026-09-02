@@ -70,6 +70,26 @@ class SchemaAdapterTest(unittest.TestCase):
             any("invalid type declaration" in item for item in validate_instance(None, invalid_definition))
         )
 
+    def test_reviewer_requires_the_exact_five_evidence_backed_claims(self) -> None:
+        schema = load_json(Path("schemas/reviewer-result.schema.json"))
+        example = load_json(Path("examples/reviewer-result.json"))
+        defects = []
+        omitted = deepcopy(example)
+        omitted["claims"].pop()
+        defects.append(omitted)
+        duplicate = deepcopy(example)
+        duplicate["claims"][-1] = deepcopy(duplicate["claims"][0])
+        defects.append(duplicate)
+        unknown = deepcopy(example)
+        unknown["claims"][0]["claim_id"] = "caller_selected"
+        defects.append(unknown)
+        unsupported = deepcopy(example)
+        unsupported["claims"][0]["evidence_refs"] = []
+        defects.append(unsupported)
+        for document in defects:
+            with self.subTest(document=document):
+                self.assertTrue(validate_instance(document, schema))
+
     def test_semantic_identity_and_lifecycle_validation_fails_closed(self) -> None:
         candidate = load_json(Path("examples/candidate.json"))
         candidate["changed_paths"] = ["schemas/hidden.schema.json"]

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shutil
 import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
@@ -578,6 +580,10 @@ REVIEWER_AMBIGUOUS_PATTERNS = (
     re.compile(rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b"),
 )
 REVIEWER_PORTABLE_SOURCE_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[5:]
+REVIEWER_SOURCE_EXPRESSION = re.compile(
+    rb"(?i)\b(?P<name>api[_-]?key|token|secret|password|passwd|authorization)"
+    rb"\s*[:=]\s*(?P=name)\.[A-Za-z_][A-Za-z0-9_]*\([^\s,;]*"
+)
 
 
 def reviewer_portable_source_literals(
@@ -585,6 +591,7 @@ def reviewer_portable_source_literals(
     *,
     protected_sources: Sequence[bytes] = (),
     max_source_bytes: int = 8_000_000,
+    deadline: float | None = None,
 ) -> frozenset[bytes]:
     """Return shaped literals already present in immutable reviewer sources."""
     literals: set[bytes] = set()
@@ -592,10 +599,16 @@ def reviewer_portable_source_literals(
     def observe(data: bytes) -> None:
         for pattern in REVIEWER_PORTABLE_SOURCE_PATTERNS:
             literals.update(match.group(0) for match in pattern.finditer(data))
+        for match in REVIEWER_AMBIGUOUS_PATTERNS[1].finditer(data):
+            literal = match.group(0)
+            if REVIEWER_SOURCE_EXPRESSION.fullmatch(literal):
+                literals.add(literal)
 
     for data in protected_sources:
+        _remaining(deadline)
         observe(bytes(data))
-    for relative in _candidate_paths(candidate_repository):
+    for relative in _candidate_paths(candidate_repository, deadline=deadline):
+        _remaining(deadline)
         path = candidate_repository.joinpath(*relative.split("/"))
         if not path.exists() and not path.is_symlink():
             continue
@@ -603,7 +616,13 @@ def reviewer_portable_source_literals(
         if stat.S_ISLNK(info.st_mode):
             observe(os.fsencode(os.readlink(path)))
         elif stat.S_ISREG(info.st_mode) and info.st_size <= max_source_bytes:
-            observe(path.read_bytes())
+            observe(
+                read_bounded_repository_file(
+                    candidate_repository,
+                    relative,
+                    max_bytes=max_source_bytes,
+                )
+            )
     return frozenset(literals)
 
 
@@ -852,14 +871,29 @@ def build_reviewer_execution_statement(
     return content_address(document, "execution_id")
 
 
-def _run_git(repository: Path, *args: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "-C", os.fspath(repository), *args],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+def _remaining(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("reviewer absolute deadline expired")
+    return remaining
+
+
+def _run_git(
+    repository: Path, *args: str, deadline: float | None = None
+) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(repository), *args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("review snapshot Git operation timed out") from exc
     if completed.returncode != 0:
         raise RuntimeError(
             "review snapshot Git operation failed: "
@@ -880,9 +914,20 @@ def _remove_scoped_tree(path: Path, *, boundary: Path) -> None:
         path.rmdir()
 
 
-def _candidate_paths(repository: Path, *, evidence_root: str | None = None) -> list[str]:
+def _candidate_paths(
+    repository: Path,
+    *,
+    evidence_root: str | None = None,
+    deadline: float | None = None,
+) -> list[str]:
     output = _run_git(
-        repository, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+        repository,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        deadline=deadline,
     )
     paths: list[str] = []
     for raw in output.split(b"\x00"):
@@ -899,7 +944,10 @@ def _candidate_paths(repository: Path, *, evidence_root: str | None = None) -> l
     return sorted(set(paths))
 
 
-def _copy_entry(source: Path, destination: Path) -> None:
+def _copy_entry(
+    source: Path, destination: Path, *, deadline: float | None = None
+) -> None:
+    _remaining(deadline)
     info = source.lstat()
     destination.parent.mkdir(parents=True, exist_ok=True)
     if stat.S_ISLNK(info.st_mode):
@@ -913,10 +961,14 @@ def _copy_entry(source: Path, destination: Path) -> None:
         # A Git submodule entry is represented as a directory. Copy only its
         # tracked/non-ignored candidate files, never its machine-specific .git.
         destination.mkdir(parents=True, exist_ok=True)
-        for nested in _candidate_paths(source):
+        for nested in _candidate_paths(source, deadline=deadline):
             nested_source = source.joinpath(*nested.split("/"))
             if nested_source.exists() or nested_source.is_symlink():
-                _copy_entry(nested_source, destination.joinpath(*nested.split("/")))
+                _copy_entry(
+                    nested_source,
+                    destination.joinpath(*nested.split("/")),
+                    deadline=deadline,
+                )
     else:
         raise ValueError("unsupported candidate file type in reviewer snapshot")
 
@@ -1165,6 +1217,7 @@ def prepare_sanitized_harness(
     prepared_evidence: Mapping[str, bytes] | None = None,
     fixed_prompt_bytes: bytes | None = None,
     output_schema_bytes: bytes | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Path]:
     """Create an outer Git root with an immutable nested candidate snapshot."""
     candidate = candidate_repository.resolve()
@@ -1183,12 +1236,19 @@ def prepare_sanitized_harness(
         ),
         "evidence_root": normalized_evidence_root,
     }
-    source_candidate = GitCliRepositoryAdapter(candidate).identify(**identity_arguments)
+    _remaining(deadline)
+    source_candidate = GitCliRepositoryAdapter(
+        candidate, deadline=deadline
+    ).identify(**identity_arguments)
     if source_candidate != dict(expected_candidate):
         raise ValueError("reviewer source does not match the expected candidate")
     if permitted_inputs.get("candidate_id") != expected_candidate.get("candidate_id"):
         raise ValueError("reviewer permitted candidate binding mismatch")
-    paths = _candidate_paths(candidate, evidence_root=normalized_evidence_root)
+    paths = _candidate_paths(
+        candidate,
+        evidence_root=normalized_evidence_root,
+        deadline=deadline,
+    )
     harness = harness_root.resolve(strict=False)
     if harness == candidate:
         raise ValueError("review harness cannot be the candidate repository")
@@ -1196,20 +1256,26 @@ def prepare_sanitized_harness(
         raise FileExistsError("review harness must be absent or empty")
     harness.mkdir(parents=True, exist_ok=True)
     snapshot = harness / "candidate"
-    clone = subprocess.run(
-        [
-            "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
-            os.fspath(candidate), os.fspath(snapshot),
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        clone = subprocess.run(
+            [
+                "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
+                os.fspath(candidate), os.fspath(snapshot),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("reviewer snapshot clone timed out") from exc
     if clone.returncode != 0:
         raise RuntimeError("unable to create reviewer candidate snapshot")
-    _run_git(snapshot, "checkout", "--quiet", "--detach", "HEAD")
-    _run_git(snapshot, "remote", "remove", "origin")
+    _run_git(
+        snapshot, "checkout", "--quiet", "--detach", "HEAD", deadline=deadline
+    )
+    _run_git(snapshot, "remote", "remove", "origin", deadline=deadline)
     logs = snapshot / ".git/logs"
     if logs.exists():
         _remove_scoped_tree(logs, boundary=snapshot)
@@ -1217,11 +1283,13 @@ def prepare_sanitized_harness(
         source = candidate.joinpath(*relative.split("/"))
         destination = snapshot.joinpath(*relative.split("/"))
         if source.exists() or source.is_symlink():
-            _copy_entry(source, destination)
+            _copy_entry(source, destination, deadline=deadline)
         elif destination.exists() or destination.is_symlink():
             _remove_scoped_tree(destination, boundary=snapshot)
     _validate_snapshot_symlinks(snapshot, paths)
-    copied_candidate = GitCliRepositoryAdapter(snapshot).identify(**identity_arguments)
+    copied_candidate = GitCliRepositoryAdapter(
+        snapshot, deadline=deadline
+    ).identify(**identity_arguments)
     if copied_candidate != dict(expected_candidate):
         raise ValueError("reviewer snapshot does not match the expected candidate")
     prompt = harness / "reviewer.prompt.md"
@@ -1250,13 +1318,25 @@ def prepare_sanitized_harness(
         evidence_root=evidence_root,
         prepared_evidence=prepared_evidence,
     )
-    initialized = subprocess.run(
-        ["git", "-c", "init.defaultBranch=review", "-C", os.fspath(harness), "init", "--quiet"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        initialized = subprocess.run(
+            [
+                "git",
+                "-c",
+                "init.defaultBranch=review",
+                "-C",
+                os.fspath(harness),
+                "init",
+                "--quiet",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("reviewer harness initialization timed out") from exc
     if initialized.returncode != 0:
         raise RuntimeError("unable to initialize sanitized reviewer harness")
     _make_read_only(snapshot)
@@ -1286,6 +1366,7 @@ def launch_reviewer(
     max_output_bytes: int = 1_000_000,
     environment: Mapping[str, str] | None = None,
     portable_source_literals: frozenset[bytes] = frozenset(),
+    absolute_deadline: float | None = None,
 ) -> dict[str, Any]:
     """Launch the fresh reviewer and validate its exact output and binding."""
     if review_mode not in {"conformance", "rapid_review"}:
@@ -1298,10 +1379,45 @@ def launch_reviewer(
         return {"verdict": ReviewerVerdict.UNKNOWN, "reason": "stale output path exists"}
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     started_monotonic = time.monotonic()
-    deadline = started_monotonic + timeout_seconds
+    deadline = (
+        absolute_deadline
+        if absolute_deadline is not None
+        else started_monotonic + timeout_seconds
+    )
+    if deadline <= started_monotonic:
+        return {
+            "verdict": ReviewerVerdict.UNKNOWN,
+            "reason": "reviewer absolute deadline expired before launch",
+        }
     cleanup_reserve = min(5.0, timeout_seconds * 0.75)
     execution_deadline = deadline - cleanup_reserve
-    before = candidate_supplier()
+
+    def observe_candidate() -> tuple[bool, str]:
+        outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+        def observe() -> None:
+            try:
+                outcome.put((True, candidate_supplier(deadline)))
+            except Exception as exc:  # trusted adapter failure becomes UNKNOWN
+                outcome.put((False, exc.__class__.__name__))
+
+        thread = threading.Thread(target=observe, daemon=True)
+        thread.start()
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        if thread.is_alive():
+            return False, ""
+        try:
+            succeeded, value = outcome.get_nowait()
+        except queue.Empty:
+            return False, ""
+        return succeeded and isinstance(value, str), value if isinstance(value, str) else ""
+
+    before_observed, before = observe_candidate()
+    if not before_observed:
+        return {
+            "verdict": ReviewerVerdict.UNKNOWN,
+            "reason": "pre-review candidate observation was unavailable",
+        }
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
     timed_out = False
@@ -1325,6 +1441,8 @@ def launch_reviewer(
     actual_command = list(command)
     sanitized_environment = build_reviewer_environment(environment or os.environ)
     try:
+        if time.monotonic() >= execution_deadline:
+            raise TimeoutError("reviewer execution budget exhausted before launch")
         if os.name != "posix":
             raise OSError("trusted reviewer descendant supervision is unavailable")
         status_read, status_write = os.pipe()
@@ -1350,8 +1468,6 @@ def launch_reviewer(
         os.close(status_write)
         status_write = None
         assert process.stdin is not None and process.stdout is not None and process.stderr is not None
-        import threading
-
         threads = [
             threading.Thread(target=stdout_capture.read, args=(process.stdout,), daemon=True),
             threading.Thread(target=stderr_capture.read, args=(process.stderr,), daemon=True),
@@ -1476,10 +1592,9 @@ def launch_reviewer(
             observation_complete = False
         if not capture_threads_completed:
             process_cleanup_complete = False
-    try:
-        after = candidate_supplier()
-    except Exception:
-        after = ""
+    after_observed, after = observe_candidate()
+    if not after_observed:
+        observation_complete = False
     ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     latency_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
     output_present = output_path.is_file() and not output_path.is_symlink()

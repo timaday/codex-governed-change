@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from pathlib import Path
@@ -661,6 +662,7 @@ def _mutate(args: argparse.Namespace) -> int:
 
 
 def _review(args: argparse.Namespace) -> int:
+    review_deadline = time.monotonic() + args.timeout_seconds
     schema_cache: dict[str, Mapping[str, Any]] = {}
 
     def validated_bytes(data: bytes, name: str) -> dict[str, Any]:
@@ -861,10 +863,10 @@ def _review(args: argparse.Namespace) -> int:
         if sha256_bytes(data) != permitted.get(digest_key):
             raise ValueError("reviewer evidence digest mismatch")
         prepared_evidence[relative] = data
-    adapter = GitCliRepositoryAdapter(args.repository)
-
-    def current_candidate() -> str:
-        return adapter.identify(
+    def current_candidate(deadline: float) -> str:
+        return GitCliRepositoryAdapter(
+            args.repository, deadline=deadline
+        ).identify(
             repository_id=policy["repository_id"],
             mode=candidate["mode"],
             base_commit=candidate["base_commit"],
@@ -885,6 +887,7 @@ def _review(args: argparse.Namespace) -> int:
             prepared_evidence=prepared_evidence,
             fixed_prompt_bytes=prompt_bytes,
             output_schema_bytes=output_schema_bytes,
+            deadline=review_deadline,
         )
         command = build_reviewer_command(
             codex_executable=args.codex,
@@ -917,7 +920,9 @@ def _review(args: argparse.Namespace) -> int:
                     permitted_bytes,
                     *prepared_evidence.values(),
                 ),
+                deadline=review_deadline,
             ),
+            absolute_deadline=review_deadline,
         )
         if not reviewer_stream_is_portable(
             result["stdout_bytes"]
@@ -944,6 +949,17 @@ def _review(args: argparse.Namespace) -> int:
                 result["result"].get("retrieval_expansions", ())
                 if isinstance(result.get("result"), Mapping)
                 else ()
+            ),
+            retrieval_index={
+                item["reference"]: item["sha256"]
+                for item in context_sources.get("sources", {}).get(
+                    "artifacts", ()
+                )
+            },
+            artifact_reader=lambda reference: read_bounded_repository_file(
+                args.repository,
+                normalize_repo_path(reference),
+                max_bytes=8_000_000,
             ),
             usage_observed=result["usage_observed"],
             actual_input_tokens=result["input_tokens"],

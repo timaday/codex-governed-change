@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "candidate_id", "task_contract_sha256", "effective_policy_sha256", "gate_manifest_sha256", "context_receipt_sha256", "reviewer_prompt_sha256", "qualification_id", "model", "invocation_id", "verdict", "reviewed_surfaces", "affected_closure", "retrieval_expansions", "findings", "missing_evidence", "claims", "limitations"],
   "properties": {
-    "schema_version": { "type": "string", "const": "2.0.0" },
+    "schema_version": { "type": "string", "const": "3.0.0" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
@@ -42,14 +42,18 @@
     "missing_evidence": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "claims": {
       "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["claim", "classification", "evidence_refs"],
+        "required": ["claim_id", "claim", "classification", "evidence_refs"],
         "properties": {
+          "claim_id": { "type": "string", "enum": ["candidate_identity", "required_gates", "affected_closure", "governance_integrity", "evidence_reconstruction"] },
           "claim": { "type": "string", "minLength": 1 },
           "classification": { "type": "string", "enum": ["DIRECTLY_OBSERVED", "VERIFIED_WITHIN_SCOPE", "UNVERIFIED", "UNKNOWN"] },
-          "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } }
+          "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/reference" } }
         }
       }
     },

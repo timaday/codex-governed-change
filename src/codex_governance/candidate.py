@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -142,9 +143,16 @@ class GitCommandError(RuntimeError):
 class GitCliRepositoryAdapter:
     """Read-only Git adapter using shell-free argument arrays."""
 
-    def __init__(self, repository: Path, *, git_executable: str = "git"):
+    def __init__(
+        self,
+        repository: Path,
+        *,
+        git_executable: str = "git",
+        deadline: float | None = None,
+    ):
         self.repository = repository.resolve()
         self.git_executable = git_executable
+        self.deadline = deadline
         if not self.repository.is_dir():
             raise ValueError("repository must be an existing directory")
         root = Path(self._git("rev-parse", "--show-toplevel").decode("utf-8").strip())
@@ -152,15 +160,21 @@ class GitCliRepositoryAdapter:
             raise ValueError("repository must be the Git worktree root")
 
     def _git(self, *args: str) -> bytes:
+        timeout = None
+        if self.deadline is not None:
+            timeout = self.deadline - time.monotonic()
+            if timeout <= 0:
+                raise GitCommandError("Git observation deadline expired")
         try:
             completed = subprocess.run(
                 [self.git_executable, "-C", os.fspath(self.repository), *args],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                timeout=timeout,
                 check=False,
             )
-        except OSError as exc:
+        except (OSError, subprocess.TimeoutExpired) as exc:
             raise GitCommandError(
                 f"unable to launch Git: {exc.__class__.__name__}"
             ) from exc

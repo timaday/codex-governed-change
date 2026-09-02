@@ -9,7 +9,7 @@
     "schema_version": { "const": "1.0.0" },
     "decision_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
-    "decision_type": { "enum": ["task_approval", "governance_authorization", "risk_reduction", "waiver_issuance", "waiver_consumption", "lkg_promotion"] },
+    "decision_type": { "enum": ["task_approval", "governance_authorization", "risk_reduction", "waiver_issuance", "waiver_consumption", "lkg_policy_authorization", "lkg_promotion"] },
     "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },

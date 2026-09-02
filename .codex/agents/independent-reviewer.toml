@@ -20,7 +20,10 @@ finding must identify a path and location where possible, violated oracle, concr
 evidence, severity, and smallest safe remediation. Separate confirmed defects, risks,
 missing context, open questions, alternatives, and preferences.
 
-Classify claims as DIRECTLY_OBSERVED, VERIFIED_WITHIN_SCOPE, UNVERIFIED, or UNKNOWN. Missing, stale,
+Use exactly the protected mandatory claim IDs candidate_identity, required_gates,
+affected_closure, governance_integrity, and evidence_reconstruction, each once
+with resolved evidence. Classify claims as DIRECTLY_OBSERVED,
+VERIFIED_WITHIN_SCOPE, UNVERIFIED, or UNKNOWN. Missing, stale,
 conflicting, timed-out, truncated, malformed, or unavailable critical evidence is
 UNKNOWN and requires BLOCK. A lack of findings is not proof of correctness.
 """

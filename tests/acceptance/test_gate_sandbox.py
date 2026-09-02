@@ -285,7 +285,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                     filter_value = arguments[arguments.index("--filter") + 1]
                     if filter_value.startswith("name="):
                         name_queries += 1
-                        if name_queries == 2:
+                        if name_queries == 7:
                             cidfile.write_text(late_id + "\n", encoding="ascii")
                             return subprocess.CompletedProcess(
                                 arguments,

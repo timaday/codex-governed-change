@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     import resource
@@ -176,7 +177,30 @@ class ReviewerAdapterTest(unittest.TestCase):
 
     def fake_codex(self, body: str) -> Path:
         executable = Path(self.temporary.name) / f"fake-codex-{len(list(Path(self.temporary.name).glob('fake-codex-*')))}"
-        executable.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
+        claims = [
+            {
+                "claim_id": claim_id,
+                "claim": claim_id,
+                "classification": "VERIFIED_WITHIN_SCOPE",
+                "evidence_refs": [
+                    {
+                        "locator_id": "sha256:" + "1" * 64,
+                        "sha256": "sha256:" + "2" * 64,
+                    }
+                ],
+            }
+            for claim_id in (
+                "candidate_identity",
+                "required_gates",
+                "affected_closure",
+                "governance_integrity",
+                "evidence_reconstruction",
+            )
+        ]
+        executable.write_text(
+            "#!/usr/bin/env python3\nMANDATORY_CLAIMS = " + repr(claims) + "\n" + body,
+            encoding="utf-8",
+        )
         executable.chmod(0o755)
         return executable
 
@@ -239,7 +263,7 @@ deadline = time.monotonic() + 2
 while not Path({str(marker)!r}).is_file() and time.monotonic() < deadline:
     time.sleep(0.01)
 payload = {{
-  'schema_version': '2.0.0', 'repository_id': inputs['repository_id'],
+  'schema_version': '3.0.0', 'repository_id': inputs['repository_id'],
   'candidate_id': inputs['candidate_id'],
   'task_contract_sha256': inputs['task_contract_sha256'],
   'effective_policy_sha256': inputs['effective_policy_sha256'],
@@ -251,7 +275,7 @@ payload = {{
   'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
   'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
-  'claims': [], 'limitations': []
+  'claims': MANDATORY_CLAIMS, 'limitations': []
 }}
 Path(args[args.index('--output-last-message') + 1]).write_text(json.dumps(payload))
 print(json.dumps({{'type': 'thread.started', 'thread_id': 'retained-stream'}}))
@@ -265,7 +289,7 @@ print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'cach
                 schema_path=self.harness["schema"],
                 output_path=self.harness["output"],
                 expected_candidate_id=self.CANDIDATE,
-                candidate_supplier=lambda: self.CANDIDATE,
+                candidate_supplier=lambda _deadline: self.CANDIDATE,
                 expected_bindings={
                     "repository_id": self.inputs["repository_id"],
                     "task_contract_sha256": self.inputs["task_contract_sha256"],
@@ -337,7 +361,7 @@ time.sleep(30)
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             timeout_seconds=1.0,
         )
         self.assertTrue(result["timed_out"])
@@ -391,7 +415,7 @@ Path({str(attack)!r}).write_text(outcome)
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             timeout_seconds=2,
         )
         self.assertIn(
@@ -530,19 +554,19 @@ Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
         self.assertNotIn(str(self.repository), (candidate / ".git/config").read_text(encoding="utf-8"))
 
     def test_source_change_during_copy_is_rejected_by_snapshot_identity(self) -> None:
-        from unittest.mock import patch
-
         from codex_governance import reviewer
 
         original = reviewer._copy_entry
         changed = False
 
-        def race(source: Path, destination: Path) -> None:
+        def race(
+            source: Path, destination: Path, *, deadline: float | None = None
+        ) -> None:
             nonlocal changed
             if source == self.repository / "tracked.txt" and not changed:
                 source.write_text("raced\n", encoding="utf-8")
                 changed = True
-            original(source, destination)
+            original(source, destination, deadline=deadline)
 
         with patch("codex_governance.reviewer._copy_entry", side_effect=race):
             with self.assertRaisesRegex(ValueError, "snapshot does not match"):
@@ -554,6 +578,28 @@ Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
                     permitted_inputs=self.inputs,
                     expected_candidate=self.candidate,
                     evidence_root="evidence",
+                )
+
+    def test_snapshot_git_clone_obeys_the_shared_absolute_deadline(self) -> None:
+        real_run = subprocess.run
+
+        def bounded(arguments, **kwargs):
+            if arguments[:2] == ["git", "clone"]:
+                self.assertIsNotNone(kwargs.get("timeout"))
+                raise subprocess.TimeoutExpired(arguments, kwargs["timeout"])
+            return real_run(arguments, **kwargs)
+
+        with patch("codex_governance.reviewer.subprocess.run", side_effect=bounded):
+            with self.assertRaisesRegex(TimeoutError, "snapshot clone"):
+                prepare_sanitized_harness(
+                    candidate_repository=self.repository,
+                    harness_root=Path(self.temporary.name) / "deadline-harness",
+                    fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+                    output_schema_path=Path("schemas/reviewer-result.schema.json"),
+                    permitted_inputs=self.inputs,
+                    expected_candidate=self.candidate,
+                    evidence_root="evidence",
+                    deadline=time.monotonic() + 2,
                 )
 
     def test_protected_evidence_root_is_configurable_and_enforced(self) -> None:
@@ -579,7 +625,7 @@ raw = sys.stdin.read()
 inputs = json.loads(raw.split('PERMITTED_INPUTS ', 1)[1])
 output = Path(args[args.index('--output-last-message') + 1])
 result = {
-  'schema_version': '2.0.0', 'repository_id': inputs['repository_id'],
+  'schema_version': '3.0.0', 'repository_id': inputs['repository_id'],
   'candidate_id': inputs['candidate_id'],
   'task_contract_sha256': inputs['task_contract_sha256'],
   'effective_policy_sha256': inputs['effective_policy_sha256'],
@@ -591,7 +637,7 @@ result = {
   'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
   'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
-  'claims': [], 'limitations': []
+  'claims': MANDATORY_CLAIMS, 'limitations': []
 }
 output.write_text(json.dumps(result), encoding='utf-8')
 observed = Path(args[args.index('--cd') + 1]) / 'observed.json'
@@ -611,7 +657,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={
                 "repository_id": self.inputs["repository_id"],
                 "task_contract_sha256": self.inputs["task_contract_sha256"],
@@ -652,7 +698,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"task_contract_sha256": "sha256:" + "0" * 64},
             timeout_seconds=2, environment=environment,
         )
@@ -683,7 +729,7 @@ args = sys.argv[1:]
 inputs = json.loads(sys.stdin.read().split('PERMITTED_INPUTS ', 1)[1])
 output = Path(args[args.index('--output-last-message') + 1])
 payload = {
-  'schema_version': '2.0.0', 'repository_id': inputs['repository_id'],
+  'schema_version': '3.0.0', 'repository_id': inputs['repository_id'],
   'candidate_id': inputs['candidate_id'],
   'task_contract_sha256': inputs['task_contract_sha256'],
   'effective_policy_sha256': inputs['effective_policy_sha256'],
@@ -695,7 +741,7 @@ payload = {
   'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
   'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
-  'claims': [], 'limitations': []
+  'claims': MANDATORY_CLAIMS, 'limitations': []
 }
 output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'portable-stream'}))
@@ -716,7 +762,7 @@ print(os.environ['CODEX_HOME'] + ' ' + str(output), file=sys.stderr)
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
             environment=environment,
@@ -740,7 +786,7 @@ args = sys.argv[1:]
 output = pathlib.Path(args[args.index('--output-last-message') + 1])
 candidate = %r
 payload = {
-  'schema_version': '2.0.0', 'repository_id': 'repo:example/project',
+  'schema_version': '3.0.0', 'repository_id': 'repo:example/project',
   'candidate_id': candidate, 'task_contract_sha256': %r,
   'effective_policy_sha256': %r, 'gate_manifest_sha256': %r,
   'context_receipt_sha256': %r, 'reviewer_prompt_sha256': %r,
@@ -748,7 +794,7 @@ payload = {
   'invocation_id': 'fake:redaction', 'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
   'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
-  'claims': [], 'limitations': []
+  'claims': MANDATORY_CLAIMS, 'limitations': []
 }
 output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'redaction'}))
@@ -767,7 +813,7 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
         )
@@ -781,6 +827,7 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
 
     def test_immutable_source_literal_is_portable_and_preserves_jsonl(self) -> None:
         source_literal = "/" + "var" + "/lib/public-example"
+        source_expression = b'token = token.replace("~1"'
         credential_literal = ("gh" + "p_" + "Q" * 32).encode("utf-8")
         fake = self.fake_codex(
             """
@@ -789,7 +836,7 @@ args = sys.argv[1:]
 output = pathlib.Path(args[args.index('--output-last-message') + 1])
 candidate = %r
 payload = {
-  'schema_version': '2.0.0', 'repository_id': 'repo:example/project',
+  'schema_version': '3.0.0', 'repository_id': 'repo:example/project',
   'candidate_id': candidate, 'task_contract_sha256': %r,
   'effective_policy_sha256': %r, 'gate_manifest_sha256': %r,
   'context_receipt_sha256': %r, 'reviewer_prompt_sha256': %r,
@@ -798,7 +845,7 @@ payload = {
   'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
   'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
-  'claims': [], 'limitations': []
+  'claims': MANDATORY_CLAIMS, 'limitations': []
 }
 output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'source-literal'}))
@@ -822,14 +869,19 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         )
         literals = reviewer_portable_source_literals(
             self.repository,
-            protected_sources=(source_literal.encode("utf-8"), credential_literal),
+            protected_sources=(
+                source_literal.encode("utf-8"),
+                source_expression,
+                credential_literal,
+            ),
         )
+        self.assertIn(source_expression, literals)
         self.assertNotIn(credential_literal, literals)
         result = launch_reviewer(
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
             portable_source_literals=literals,
@@ -845,8 +897,8 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.harness["output"].unlink()
         fake.write_text(
             fake.read_text(encoding="utf-8").replace(
-                "'claims': [], 'limitations': []",
-                "'claims': [], 'limitations': [%r]" % source_literal,
+                "'claims': MANDATORY_CLAIMS, 'limitations': []",
+                "'claims': MANDATORY_CLAIMS, 'limitations': [%r]" % source_literal,
             ),
             encoding="utf-8",
         )
@@ -854,7 +906,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
             portable_source_literals=literals,
@@ -884,7 +936,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(Path(self.temporary.name) / "missing-codex"),
             stdin_text=self.stdin(), schema_path=self.harness["schema"],
             output_path=self.harness["output"], expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE, timeout_seconds=0.1,
+            candidate_supplier=lambda _deadline: self.CANDIDATE, timeout_seconds=0.1,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, unavailable["verdict"])
 
@@ -895,7 +947,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(malformed_fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE, timeout_seconds=2,
+            candidate_supplier=lambda _deadline: self.CANDIDATE, timeout_seconds=2,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, malformed["verdict"])
         self.harness["output"].unlink()
@@ -905,10 +957,71 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=self.command(slow_fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE, timeout_seconds=0.05,
+            candidate_supplier=lambda _deadline: self.CANDIDATE, timeout_seconds=0.05,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, timeout["verdict"])
         self.assertTrue(timeout["timed_out"])
+
+    def test_pre_and_post_candidate_observation_share_the_absolute_deadline(self) -> None:
+        idle = self.fake_codex("raise SystemExit(0)\n")
+        started = time.monotonic()
+        pre = launch_reviewer(
+            command=self.command(idle),
+            stdin_text=self.stdin(),
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda _deadline: time.sleep(5),
+            timeout_seconds=0.2,
+        )
+        self.assertLess(time.monotonic() - started, 0.8)
+        self.assertEqual(ReviewerVerdict.UNKNOWN, pre["verdict"])
+        self.assertIn("pre-review", pre["reason"])
+
+        fake = self.fake_codex(
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "args = sys.argv[1:]\n"
+            "inputs = json.loads(sys.stdin.read().split('PERMITTED_INPUTS ', 1)[1])\n"
+            "payload = {'schema_version': '3.0.0', 'repository_id': inputs['repository_id'], "
+            "'candidate_id': inputs['candidate_id'], 'task_contract_sha256': inputs['task_contract_sha256'], "
+            "'effective_policy_sha256': inputs['effective_policy_sha256'], "
+            "'gate_manifest_sha256': inputs['gate_manifest_sha256'], "
+            "'context_receipt_sha256': inputs['context_receipt_sha256'], "
+            "'reviewer_prompt_sha256': inputs['reviewer_prompt_sha256'], "
+            "'qualification_id': inputs['reviewer_qualification_id'], 'model': 'fake-gpt', "
+            "'invocation_id': 'fake:post-deadline', 'verdict': 'NO_BLOCKING_FINDING_OBSERVED', "
+            "'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'], "
+            "'retrieval_expansions': [], 'findings': [], 'missing_evidence': [], "
+            "'claims': MANDATORY_CLAIMS, 'limitations': []}\n"
+            "Path(args[args.index('--output-last-message') + 1]).write_text(json.dumps(payload))\n"
+            "print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, "
+            "'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}))\n"
+        )
+        observations = 0
+
+        def supplier(_deadline: float) -> str:
+            nonlocal observations
+            observations += 1
+            if observations == 2:
+                time.sleep(5)
+            return self.CANDIDATE
+
+        started = time.monotonic()
+        post = launch_reviewer(
+            command=self.command(fake),
+            stdin_text=self.stdin(),
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=supplier,
+            expected_bindings={"repository_id": self.inputs["repository_id"]},
+            timeout_seconds=1.0,
+        )
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(ReviewerVerdict.UNKNOWN, post["verdict"])
+        self.assertFalse(post["observation_complete"])
+        self.assertFalse(post["execution_valid"])
 
     def test_broken_reviewer_stdin_retains_process_handle_for_cleanup(self) -> None:
         closes_stdin = self.fake_codex(
@@ -920,7 +1033,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             timeout_seconds=0.5,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
@@ -938,7 +1051,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             timeout_seconds=0.5,
         )
         self.assertLess(time.monotonic() - started, 1.0)
@@ -962,7 +1075,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "from pathlib import Path\n"
             "args = sys.argv[1:]\n"
             "inputs = json.loads(sys.stdin.read().split('PERMITTED_INPUTS ', 1)[1])\n"
-            "payload = {'schema_version': '2.0.0', 'repository_id': inputs['repository_id'], "
+            "payload = {'schema_version': '3.0.0', 'repository_id': inputs['repository_id'], "
             "'candidate_id': inputs['candidate_id'], 'task_contract_sha256': inputs['task_contract_sha256'], "
             "'effective_policy_sha256': inputs['effective_policy_sha256'], "
             "'gate_manifest_sha256': inputs['gate_manifest_sha256'], "
@@ -972,7 +1085,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "'invocation_id': 'fake:no-usage', 'verdict': 'NO_BLOCKING_FINDING_OBSERVED', "
             "'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'], "
             "'retrieval_expansions': [], 'findings': [], 'missing_evidence': [], "
-            "'claims': [], 'limitations': []}\n"
+            "'claims': MANDATORY_CLAIMS, 'limitations': []}\n"
             "Path(args[args.index('--output-last-message') + 1]).write_text(json.dumps(payload))\n"
         )
         result = launch_reviewer(
@@ -981,7 +1094,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             schema_path=self.harness["schema"],
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
         )
@@ -1330,7 +1443,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=command, stdin_text="rapid review", schema_path=Path(
                 "schemas/rapid-review-session.schema.json"
             ), output_path=output, expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings=expected, review_mode="rapid_review", timeout_seconds=2,
         )
         self.assertTrue(result["execution_valid"])
@@ -1342,7 +1455,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             command=command, stdin_text="rapid review", schema_path=Path(
                 "schemas/rapid-review-session.schema.json"
             ), output_path=output, expected_candidate_id=self.CANDIDATE,
-            candidate_supplier=lambda: self.CANDIDATE,
+            candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings=expected, review_mode="rapid_review", timeout_seconds=2,
         )
         self.assertFalse(mismatched["execution_valid"])

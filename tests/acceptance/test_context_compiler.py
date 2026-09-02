@@ -403,9 +403,10 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
         prepared = self.compile()["receipt"]
         original = deepcopy(prepared)
         output_sha = "sha256:" + "9" * 64
+        expansion_bytes = b"large evidence"
         expansion = {
             "reference": "evidence/large.log",
-            "sha256": "sha256:" + "1" * 64,
+            "sha256": sha256_bytes(expansion_bytes),
             "level": "complete_artifact",
             "reason": "inspect complete evidence",
         }
@@ -414,6 +415,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             review_mode="conformance",
             reviewer_output_sha256=output_sha,
             retrieval_expansions=[expansion],
+            retrieval_index={expansion["reference"]: expansion["sha256"]},
+            artifact_reader=lambda _reference: expansion_bytes,
             usage_observed=True,
             actual_input_tokens=120,
             actual_output_tokens=30,
@@ -434,6 +437,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             review_mode="conformance",
             reviewer_output_sha256=output_sha,
             retrieval_expansions=[],
+            retrieval_index={},
+            artifact_reader=None,
             usage_observed=False,
             actual_input_tokens=0,
             actual_output_tokens=0,
@@ -446,6 +451,69 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
         )
         self.assertFalse(unavailable["usage_observed"])
         self.assertNotEqual(completed["execution_receipt_id"], unavailable["execution_receipt_id"])
+
+    def test_post_run_retrieval_requires_protected_index_and_exact_bytes(self) -> None:
+        from codex_governance.context import finalize_context_receipt
+
+        prepared = self.compile()["receipt"]
+        observed = b"protected retrieval bytes"
+        digest = sha256_bytes(observed)
+        expansion = {
+            "reference": "evidence/retrieval.bin",
+            "sha256": digest,
+            "level": "complete_artifact",
+            "reason": "verify the complete artifact",
+        }
+        common = {
+            "review_mode": "conformance",
+            "reviewer_output_sha256": "sha256:" + "9" * 64,
+            "retrieval_expansions": [expansion],
+            "usage_observed": True,
+            "actual_input_tokens": 1,
+            "actual_output_tokens": 1,
+            "cached_input_tokens": 0,
+            "reasoning_output_tokens": 0,
+            "latency_ms": 1,
+            "cost": "unavailable",
+            "created_at": "2026-08-26T10:01:00Z",
+        }
+        defects = (
+            ({}, lambda _reference: observed),
+            ({expansion["reference"]: "sha256:" + "0" * 64}, lambda _reference: observed),
+            ({expansion["reference"]: digest}, lambda _reference: b"changed"),
+            ({expansion["reference"]: digest}, None),
+        )
+        for retrieval_index, reader in defects:
+            with self.subTest(index=retrieval_index, reader=reader), self.assertRaises(
+                (OSError, ValueError)
+            ):
+                finalize_context_receipt(
+                    prepared,
+                    retrieval_index=retrieval_index,
+                    artifact_reader=reader,
+                    **common,
+                )
+
+    def test_caller_cannot_replace_protected_mandatory_claims(self) -> None:
+        from codex_governance.context import compile_context
+
+        sources = self.sources()
+        sources["mandatory_claims"] = [
+            {"claim_id": "candidate_identity", "claim": "caller-selected subset"}
+        ]
+        with self.assertRaisesRegex(ValueError, "protected policy"):
+            compile_context(
+                sources=sources,
+                candidate=self.candidate(),
+                requested_profile="STANDARD",
+                token_budget=64000,
+                changed_paths=["src/service.py"],
+                affected_closure=sources["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=self.qualification("STANDARD"),
+                protected_qualification_ids=self.qualification_ids(),
+            )
 
 
 if __name__ == "__main__":

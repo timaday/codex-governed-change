@@ -26,7 +26,11 @@ For conformance output, `reviewed_surfaces` MUST include the literal tokens
 `exact_diff`, `affected_closure`, and `governance_and_evidence`. Report
 `affected_closure` as the exact sorted closure in the protected context
 projection, not a sample or summary. A success verdict requires at least one
-reviewed claim and no claim classified `UNVERIFIED` or `UNKNOWN`.
+resolved evidence reference for each of the exact protected claim IDs:
+`candidate_identity`, `required_gates`, `affected_closure`,
+`governance_integrity`, and `evidence_reconstruction`. Emit each exactly once;
+unknown, duplicate, omitted, or evidence-free claims are invalid. No claim may
+be classified `UNVERIFIED` or `UNKNOWN` under a success verdict.
 
 ## Chartered RST-inspired rapid-review mode
 

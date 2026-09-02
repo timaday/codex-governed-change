@@ -23,6 +23,13 @@ from codex_governance.qualification import context_variant_qualified
 
 CONTEXT_PROFILES = ("COMPACT", "STANDARD", "DEEP")
 CONTEXT_PROJECTION_VERSION = "1.0.0"
+MANDATORY_REVIEWER_CLAIMS = (
+    {"claim_id": "candidate_identity", "claim": "The exact candidate identity and diff were reviewed."},
+    {"claim_id": "required_gates", "claim": "Every protected mandatory gate is reconstructed and successful."},
+    {"claim_id": "affected_closure", "claim": "The complete protected affected closure was reviewed."},
+    {"claim_id": "governance_integrity", "claim": "Governance authority and protected controls were not bypassed."},
+    {"claim_id": "evidence_reconstruction", "claim": "Every relied-on evidence reference is resolved and digest-bound."},
+)
 FORBIDDEN_SOURCE_KEYS = frozenset(
     {"author_conversation", "author_hidden_reasoning", "persisted_reasoning", "author_transcript"}
 )
@@ -52,6 +59,7 @@ KERNEL_FIELDS = (
     "changed_files",
     "affected_closure",
     "gate_results",
+    "mandatory_claims",
     "risks",
     "failures",
     "conflicts",
@@ -180,6 +188,7 @@ def build_protected_context_sources(
         "changed_files": list(candidate.get("changed_paths", ())),
         "affected_closure": closure,
         "gate_results": gates,
+        "mandatory_claims": [dict(item) for item in MANDATORY_REVIEWER_CLAIMS],
         "risks": list(task.get("risks", ())),
         "failures": failures,
         "conflicts": conflicts,
@@ -299,6 +308,14 @@ def compile_context(
     forbidden = FORBIDDEN_SOURCE_KEYS & set(sources)
     if forbidden:
         raise ValueError("author session state is forbidden context input: " + ", ".join(sorted(forbidden)))
+    mandatory_claims = [dict(item) for item in MANDATORY_REVIEWER_CLAIMS]
+    if (
+        "mandatory_claims" in sources
+        and sources.get("mandatory_claims") != mandatory_claims
+    ):
+        raise ValueError("mandatory reviewer claims do not match protected policy")
+    sources = dict(sources)
+    sources["mandatory_claims"] = mandatory_claims
     missing = [field for field in KERNEL_FIELDS if field not in sources]
     if missing:
         raise ValueError("mandatory context sources missing: " + ", ".join(missing))
@@ -416,6 +433,7 @@ def compile_context(
         _source_reference("change", "changed_files", sources["changed_files"]),
         _source_reference("closure", "affected_closure", sources["affected_closure"]),
         _source_reference("gate", "gate_results", sources["gate_results"]),
+        _source_reference("rubric", "mandatory_claims", sources["mandatory_claims"]),
         _source_reference("risk", "risks", sources["risks"]),
         _source_reference("gate", "failures", sources["failures"]),
         _source_reference("unknown", "conflicts", sources["conflicts"]),
@@ -500,12 +518,52 @@ def record_retrieval_expansion(
     return content_address(updated, "receipt_id")
 
 
+def validate_retrieval_expansions(
+    *,
+    retrieval_expansions: Sequence[Mapping[str, Any]],
+    retrieval_index: Mapping[str, str],
+    artifact_reader: Any | None,
+) -> list[dict[str, Any]]:
+    """Resolve every reported disclosure through the protected retrieval index."""
+    expansions = [dict(item) for item in retrieval_expansions]
+    seen_expansions: set[tuple[str, str]] = set()
+    for expansion in expansions:
+        if (
+            set(expansion) != {"reference", "sha256", "level", "reason"}
+            or expansion["level"] not in {
+                "typed_summary", "relevant_excerpt", "complete_artifact"
+            }
+            or not isinstance(expansion["reference"], str)
+            or not isinstance(expansion["reason"], str)
+            or not expansion["reason"].strip()
+        ):
+            raise ValueError("invalid retrieval expansion")
+        digest = require_sha256(
+            expansion["sha256"], name="retrieval expansion digest"
+        )
+        reference = expansion["reference"]
+        key = (reference, expansion["level"])
+        if (
+            key in seen_expansions
+            or retrieval_index.get(reference) != digest
+            or not callable(artifact_reader)
+        ):
+            raise ValueError("retrieval expansion is not in the protected index")
+        observed = artifact_reader(reference)
+        if not isinstance(observed, bytes) or sha256_bytes(observed) != digest:
+            raise ValueError("retrieval expansion artifact is unavailable or changed")
+        seen_expansions.add(key)
+    return expansions
+
+
 def finalize_context_receipt(
     receipt: Mapping[str, Any],
     *,
     review_mode: str,
     reviewer_output_sha256: str,
     retrieval_expansions: Sequence[Mapping[str, Any]],
+    retrieval_index: Mapping[str, str],
+    artifact_reader: Any | None,
     usage_observed: bool,
     actual_input_tokens: int,
     actual_output_tokens: int,
@@ -531,18 +589,11 @@ def finalize_context_receipt(
     if not isinstance(usage_observed, bool) or not isinstance(cost, str):
         raise ValueError("context usage observation and cost are required")
     parse_rfc3339(created_at)
-    expansions = [dict(item) for item in retrieval_expansions]
-    for expansion in expansions:
-        if (
-            set(expansion) != {"reference", "sha256", "level", "reason"}
-            or expansion["level"] not in {
-                "typed_summary", "relevant_excerpt", "complete_artifact"
-            }
-            or not isinstance(expansion["reference"], str)
-            or not isinstance(expansion["reason"], str)
-        ):
-            raise ValueError("invalid retrieval expansion")
-        require_sha256(expansion["sha256"], name="retrieval expansion digest")
+    expansions = validate_retrieval_expansions(
+        retrieval_expansions=retrieval_expansions,
+        retrieval_index=retrieval_index,
+        artifact_reader=artifact_reader,
+    )
     prepared_sha256 = sha256_canonical(receipt)
     document = {
         "schema_version": "1.0.0",

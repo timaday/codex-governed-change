@@ -78,8 +78,8 @@ The successor working-copy checkpoint on 2026-09-02 observed:
 
 - `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
   schema/example pairs.
-- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 229 tests passed
-  (165 acceptance and 64 unit tests);
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 235 tests passed
+  (168 acceptance and 67 unit tests);
   no skips or expected failures were reported.
 - `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
   all 23 curated mutants `KILLED` for corpus
@@ -107,6 +107,20 @@ contained a host-path-shaped literal from the source under review. The trusted
 normalizer now re-serializes parsed JSONL and replaces only exact literals proven
 to occur in the immutable candidate or protected inputs with a distinct portable
 source token; unproven shaped output still redacts and forces `UNKNOWN`.
+
+A subsequent fresh read-only audit of immutable commit `db46cc4` reported six
+blocking implementation findings: rollback promotion trusted nested proof
+summaries; previous-LKG policy identity was self-selected; reviewer claims had
+no protected exact set; retrieval expansion was model-self-reported; repository
+observation and snapshot Git work were outside the reviewer deadline; and an
+unresolved container create could outlive three empty cleanup polls. The audit's
+formal process disposition was `UNKNOWN` because one immutable Python source
+expression matched the credential-shape filter. All six findings now have
+contract-first remediations and adversarial tests in this working-copy successor.
+Exact same-name method-call source syntax is distinguished from credential
+values without permitting nested or standalone credentials. The `db46cc4`
+review and the 235-test checkpoint are stale after these changes; deterministic
+gates, mutation and a new exact-candidate fresh review must be rerun.
 
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
