@@ -24,7 +24,9 @@ from codex_governance.candidate import (
 )
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.reviewer import (
+    build_reviewer_stdin,
     parse_codex_jsonl_evidence,
+    reviewer_argv_sha256,
     reviewer_observation_facts,
     reviewer_stream_is_portable,
 )
@@ -721,6 +723,7 @@ def qualification_evidence_valid(
     protected_repository_id: str,
     verified_decision_ids: frozenset[str],
     evaluated_at: str,
+    prompt_bytes: bytes,
 ) -> bool:
     """Recompute a protected qualification from its corpus and every case."""
     if mode not in {"conformance", "rapid_review"}:
@@ -809,6 +812,11 @@ def qualification_evidence_valid(
     identity = {field: record.get(field) for field in REVIEWER_IDENTITY_FIELDS}
     if case_evidence.get("identity") != identity:
         return False
+    if (
+        not isinstance(prompt_bytes, bytes)
+        or sha256_bytes(prompt_bytes) != identity.get("prompt_sha256")
+    ):
+        return False
     case_ids: list[str] = []
     labels: dict[str, str] = {}
     observed_case_classes: set[str] = set()
@@ -886,19 +894,23 @@ def qualification_evidence_valid(
         if not isinstance(observation, Mapping):
             return False
         try:
+            artifact_names = [
+                "context_sources",
+                "context_projection",
+                "context_qualification",
+                "context_receipt",
+                "context_execution_receipt",
+                "permitted_inputs",
+                "reviewer_output",
+                "reviewer_execution",
+                "stdout",
+                "stderr",
+            ]
+            if mode == "rapid_review":
+                artifact_names.extend(("risk_assessment", "review_charter"))
             artifacts = {
                 name: artifact_reader(observation[name])
-                for name in (
-                    "context_sources",
-                    "context_projection",
-                    "context_qualification",
-                    "context_receipt",
-                    "context_execution_receipt",
-                    "reviewer_output",
-                    "reviewer_execution",
-                    "stdout",
-                    "stderr",
-                )
+                for name in artifact_names
             }
             if any(
                 sha256_bytes(artifacts[name]) != observation[name].get("sha256")
@@ -907,6 +919,13 @@ def qualification_evidence_valid(
                 return False
             result = result_adapter.parse(artifacts["reviewer_output"])
             execution = execution_adapter.parse(artifacts["reviewer_execution"])
+            permitted_inputs = json.loads(artifacts["permitted_inputs"])
+            if (
+                not isinstance(permitted_inputs, dict)
+                or canonical_json_bytes(permitted_inputs)
+                != artifacts["permitted_inputs"]
+            ):
+                return False
             parsed_context = {
                 name: JsonRepresentationAdapter(
                     schema_root / f"{schema_name}.schema.json"
@@ -979,11 +998,78 @@ def qualification_evidence_valid(
             task_contract_sha256=task_sha256,
             candidate_id=candidate_id,
         )
+        expected_permitted_values = {
+            "task_contract_sha256": task_sha256,
+            "repository_id": evaluation_repository_id,
+            "candidate_id": candidate_id,
+            "candidate_path": "candidate",
+            "effective_policy_sha256": policy_sha256,
+            "gate_manifest_sha256": sha256_canonical(expected_gate_manifest),
+            "context_receipt_path": observation["context_receipt"]["path"],
+            "context_receipt_sha256": observation["context_receipt"]["sha256"],
+            "context_sources_path": observation["context_sources"]["path"],
+            "context_sources_sha256": observation["context_sources"]["sha256"],
+            "context_projection_path": observation["context_projection"]["path"],
+            "context_projection_sha256": observation["context_projection"]["sha256"],
+            "context_qualification_path": observation["context_qualification"]["path"],
+            "context_qualification_sha256": observation["context_qualification"]["sha256"],
+            "context_qualification_id": expected_context[
+                "context_qualification"
+            ]["qualification_id"],
+            "reviewer_qualification_sha256": sha256_canonical(bootstrap),
+            "reviewer_qualification_id": bootstrap["qualification_id"],
+            "reviewer_prompt_sha256": identity["prompt_sha256"],
+            "review_mode": mode,
+        }
+        path_only_keys = {
+            "task_contract_path",
+            "effective_policy_path",
+            "gate_manifest_path",
+            "reviewer_qualification_path",
+            "evidence_root",
+        }
+        try:
+            if any(
+                normalize_repo_path(permitted_inputs[key])
+                != permitted_inputs[key]
+                for key in path_only_keys
+            ):
+                return False
+            if mode == "rapid_review":
+                expected_permitted_values.update(
+                    risk_assessment_path=observation["risk_assessment"]["path"],
+                    risk_assessment_sha256=observation["risk_assessment"]["sha256"],
+                    review_charter_path=observation["review_charter"]["path"],
+                    review_charter_sha256=observation["review_charter"]["sha256"],
+                )
+            elif "risk_assessment" in observation or "review_charter" in observation:
+                return False
+            expected_stdin_sha256 = sha256_bytes(
+                build_reviewer_stdin(
+                    fixed_prompt=prompt_bytes.decode("utf-8"),
+                    permitted_inputs=permitted_inputs,
+                ).encode("utf-8")
+            )
+            expected_argv_sha256 = reviewer_argv_sha256(
+                model=str(identity["model"]),
+                reasoning_effort=str(identity["reasoning_effort"]),
+            )
+        except (KeyError, TypeError, UnicodeError, ValueError):
+            return False
+        if any(
+            permitted_inputs.get(key) != value
+            for key, value in expected_permitted_values.items()
+        ):
+            return False
         expected_materials = [
             {"name": "task-contract", "sha256": task_sha256},
             {"name": "effective-policy", "sha256": policy_sha256},
             {"name": "candidate", "sha256": candidate_id},
             {"name": "reviewer-prompt", "sha256": identity["prompt_sha256"]},
+            {
+                "name": "permitted-inputs",
+                "sha256": observation["permitted_inputs"]["sha256"],
+            },
             {"name": "output-schema", "sha256": identity["schema_sha256"]},
             {"name": "launcher", "sha256": identity["launcher_sha256"]},
             {"name": "qualification", "sha256": bootstrap["qualification_id"]},
@@ -993,6 +1079,19 @@ def qualification_evidence_valid(
             {"name": "prepared-context", "sha256": expected_context_receipt_sha256},
             {"name": "post-run-context", "sha256": expected_context_execution_sha256},
         ]
+        if mode == "rapid_review":
+            expected_materials.extend(
+                [
+                    {
+                        "name": "risk-assessment",
+                        "sha256": observation["risk_assessment"]["sha256"],
+                    },
+                    {
+                        "name": "review-charter",
+                        "sha256": observation["review_charter"]["sha256"],
+                    },
+                ]
+            )
         output_bindings = {
             "repository_id": evaluation_repository_id,
             "task_contract_sha256": task_sha256,
@@ -1089,6 +1188,8 @@ def qualification_evidence_valid(
             or execution.get("qualification_id") != bootstrap["qualification_id"]
             or execution.get("model") != identity["model"]
             or execution.get("reasoning_effort") != identity["reasoning_effort"]
+            or execution.get("argv_sha256") != expected_argv_sha256
+            or execution.get("stdin_sha256") != expected_stdin_sha256
             or execution.get("reviewer_output_sha256")
             != observation["reviewer_output"].get("sha256")
             or any(

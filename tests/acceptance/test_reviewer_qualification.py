@@ -12,6 +12,8 @@ from codex_governance.domain.model import DispositionState
 
 
 class ReviewerQualificationAcceptanceTest(unittest.TestCase):
+    PROMPT_BYTES = b"qualification fixture prompt\n"
+
     def test_launcher_identity_covers_every_material_orchestration_module(self) -> None:
         from codex_governance.reviewer import (
             REVIEWER_LAUNCHER_FILES,
@@ -40,7 +42,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
 
     def identity(self) -> dict:
         return {
-            "prompt_sha256": "sha256:" + "a" * 64,
+            "prompt_sha256": sha256_bytes(self.PROMPT_BYTES),
             "schema_sha256": sha256_bytes(
                 Path("schemas/reviewer-result.schema.json").read_bytes()
             ),
@@ -225,8 +227,10 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             REVIEW_RUBRIC,
         )
         from codex_governance.reviewer import (
+            build_reviewer_stdin,
             build_reviewer_execution_statement,
             launch_reviewer,
+            reviewer_argv_sha256,
         )
 
         cases = [
@@ -474,6 +478,71 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                             )
                 result_bytes = canonical_json_bytes(result)
                 prefix = case["case_id"].lower()
+                preliminary_references = {
+                    name: store(
+                        prefix + "/" + name.replace("_", "-") + ".json",
+                        canonical_json_bytes(preliminary_context[name]),
+                    )
+                    for name in (
+                        "context_sources",
+                        "context_projection",
+                        "context_qualification",
+                        "context_receipt",
+                    )
+                }
+                permitted = {
+                    "task_contract_path": prefix + "/task-contract.json",
+                    "task_contract_sha256": task_sha,
+                    "repository_id": evaluation_repository,
+                    "candidate_id": candidate_id,
+                    "candidate_path": "candidate",
+                    "effective_policy_path": prefix + "/effective-policy.json",
+                    "effective_policy_sha256": policy_sha,
+                    "gate_manifest_path": prefix + "/gate-manifest.json",
+                    "gate_manifest_sha256": sha256_bytes(
+                        canonical_json_bytes(gate_manifest)
+                    ),
+                    "context_receipt_path": preliminary_references[
+                        "context_receipt"
+                    ]["path"],
+                    "context_receipt_sha256": preliminary_references[
+                        "context_receipt"
+                    ]["sha256"],
+                    "context_sources_path": preliminary_references[
+                        "context_sources"
+                    ]["path"],
+                    "context_sources_sha256": preliminary_references[
+                        "context_sources"
+                    ]["sha256"],
+                    "context_projection_path": preliminary_references[
+                        "context_projection"
+                    ]["path"],
+                    "context_projection_sha256": preliminary_references[
+                        "context_projection"
+                    ]["sha256"],
+                    "context_qualification_path": preliminary_references[
+                        "context_qualification"
+                    ]["path"],
+                    "context_qualification_sha256": preliminary_references[
+                        "context_qualification"
+                    ]["sha256"],
+                    "context_qualification_id": preliminary_context[
+                        "context_qualification"
+                    ]["qualification_id"],
+                    "reviewer_qualification_path": prefix
+                    + "/reviewer-qualification.json",
+                    "reviewer_qualification_sha256": sha256_bytes(
+                        canonical_json_bytes(bootstrap)
+                    ),
+                    "reviewer_qualification_id": bootstrap["qualification_id"],
+                    "evidence_root": "qualification",
+                    "reviewer_prompt_sha256": identity["prompt_sha256"],
+                    "review_mode": "conformance",
+                }
+                permitted_bytes = canonical_json_bytes(permitted)
+                permitted_reference = store(
+                    prefix + "/permitted-inputs.json", permitted_bytes
+                )
                 payload_path = root / (prefix + "-payload.json")
                 result_path = root / (prefix + "-result.json")
                 payload_path.write_bytes(result_bytes)
@@ -485,7 +554,10 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         str(result_path),
                         "-",
                     ],
-                    stdin_text="qualification fixture\n",
+                    stdin_text=build_reviewer_stdin(
+                        fixed_prompt=self.PROMPT_BYTES.decode("utf-8"),
+                        permitted_inputs=permitted,
+                    ),
                     schema_path=Path("schemas/reviewer-result.schema.json"),
                     output_path=result_path,
                     expected_candidate_id=candidate_id,
@@ -501,6 +573,10 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
                 self.assertTrue(execution_facts["execution_valid"])
                 execution_facts["reviewer_prompt_sha256"] = identity["prompt_sha256"]
+                execution_facts["argv_sha256"] = reviewer_argv_sha256(
+                    model=identity["model"],
+                    reasoning_effort=identity["reasoning_effort"],
+                )
                 context_execution_facts = dict(execution_facts)
                 context_execution_facts.update(
                     model=identity["model"],
@@ -567,6 +643,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     stdout_reference=stdout_reference,
                     stderr_reference=stderr_reference,
                     execution=execution_facts,
+                    permitted_inputs_sha256=permitted_reference["sha256"],
                 )
                 total_latency += execution["latency_ms"]
                 observations.append(
@@ -581,6 +658,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         "effective_policy_sha256": policy_sha,
                         "candidate": candidate,
                         **context_references,
+                        "permitted_inputs": permitted_reference,
                         "reviewer_output": store(prefix + "/result.json", result_bytes),
                         "reviewer_execution": store(
                             prefix + "/execution.json", canonical_json_bytes(execution)
@@ -591,7 +669,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
             case_evidence = content_address(
                 {
-                    "schema_version": "3.0.0",
+                    "schema_version": "4.0.0",
                     "mode": "conformance",
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -639,6 +717,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "protected_repository_id": "repo:example/project",
                 "verified_decision_ids": frozenset({decision["decision_id"]}),
                 "evaluated_at": "2026-08-26T10:00:03Z",
+                "prompt_bytes": self.PROMPT_BYTES,
             }
             self.assertTrue(qualification_evidence_valid(**arguments))
             noncanonical_corpus = json.dumps(corpus, indent=2).encode("utf-8")

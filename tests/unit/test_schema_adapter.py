@@ -77,6 +77,42 @@ class SchemaAdapterTest(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual({"value": "second"}, load_json(document))
 
+    def test_authoritative_reference_session_never_reopens_or_rebinds_a_path(self) -> None:
+        from unittest.mock import patch
+
+        from codex_governance.evidence import (
+            authoritative_reference_session,
+            read_reference,
+        )
+        from codex_governance.canonical import sha256_bytes
+
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            payload = b"first observation"
+            reference = {
+                "path": "evidence/item.bin",
+                "sha256": sha256_bytes(payload),
+            }
+            with patch(
+                "codex_governance.evidence.read_bounded_repository_file",
+                return_value=payload,
+            ) as reader, authoritative_reference_session():
+                self.assertEqual(
+                    payload,
+                    read_reference(repository=repository, reference=reference),
+                )
+                self.assertEqual(
+                    payload,
+                    read_reference(repository=repository, reference=reference),
+                )
+                with self.assertRaisesRegex(ValueError, "conflicting"):
+                    read_reference(
+                        repository=repository,
+                        reference=reference
+                        | {"sha256": "sha256:" + "0" * 64},
+                    )
+            reader.assert_called_once()
+
     def test_union_types_accept_null_and_still_enforce_each_concrete_type(self) -> None:
         reviewer_schema = load_json(Path("schemas/reviewer-result.schema.json"))
         reviewer = load_json(Path("examples/reviewer-result.json"))

@@ -124,7 +124,7 @@ affected surfaces remain an additional assertion used for closure checks.
 
 `.git/` and the configured evidence output root are excluded. No other tracked candidate path may be excluded. Ignored files are outside the candidate contract and MUST NOT be needed for correctness; required generated inputs must be represented by a declared gate artifact digest.
 
-Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. Every gate, mutation baseline and mutant probe MUST independently re-identify its exact executed copy both before and after execution; observing the untouched source repository cannot establish copy stability. A mutant source identity additionally binds a complete concrete Git-visible tree manifest after the protected patch is applied. That manifest recursively binds each submodule's exact commit and its own tracked plus non-ignored untracked bytes; a gitlink commit alone is insufficient because submodule worktree bytes can drift without moving `HEAD`. A mismatch makes the result `UNKNOWN`. Submodules copied for gates MUST be reconstructed from their bound commits rather than copied from working directories, so ignored and machine-local files remain absent. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
+Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. Every gate, mutation baseline and per-mutant copy MUST independently re-identify both its exact unmodified copied candidate and the source candidate before modification or execution under the same absolute deadline; every executed copy is re-observed afterward. Observing the untouched source repository cannot establish copy stability. Expected mutation bytes and tree identity come from the already verified copy rather than a separately reopened source. A mutant source identity additionally binds a complete concrete Git-visible tree manifest after the protected patch is applied. That manifest recursively binds each submodule's exact commit and its own tracked plus non-ignored untracked bytes; a gitlink commit alone is insufficient because submodule worktree bytes can drift without moving `HEAD`. A mismatch makes the result `UNKNOWN`. Submodules copied for gates MUST be reconstructed from their bound commits rather than copied from working directories, so ignored and machine-local files remain absent. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
 
 In commit mode, resolving the caller-requested head is not proof of the checked
 out repository state. The repository adapter MUST independently resolve actual
@@ -288,9 +288,13 @@ The launcher MUST:
   roots, tool network, or tool-visible credential;
 - pass only a fixed reviewer prompt, normalized task contract, exact candidate identifiers, required gate manifest and raw evidence locations;
 - copy only explicitly allowlisted, digest-matched, bounded regular evidence
-  files into the sanitized harness; caller-selected harness roots, absolute
-  paths, symlinks, path traversal and undeclared evidence are forbidden;
-- record digest-only argv/stdin identities and the exact sanitized invocation
+  files into the sanitized harness through descriptor-bound stop-capable copy
+  helpers sharing the reviewer deadline; caller-selected harness roots,
+  absolute paths, symlinks, path traversal and undeclared evidence are forbidden;
+- record and material-bind the canonical permitted-input manifest and, for
+  rapid review, the exact risk assessment and one approved charter; record
+  digest-only argv/stdin identities rebuilt from a fixed portable sanitized
+  argv plus the exact protected prompt/permitted-input bytes and the exact sanitized invocation
   configuration in a content-addressed reviewer-execution statement that also
   binds the Codex thread and CLI versions, workflow run/attempt, limits,
   materials, prompt/schema/model/qualification/launcher identities,
@@ -305,7 +309,9 @@ The launcher MUST:
 
 A zero-exit reviewer parent is not complete process observation. Stdin delivery
 MUST run in a bounded writer and share one absolute launcher deadline with
-process waiting, stream closure, capture joins and forced cleanup. Process
+snapshot/evidence copying, permission finalization, process waiting, stream
+closure, capture joins and forced cleanup. Every potentially blocking copy is
+isolated in a terminable helper operating on no-follow validated descriptors. Process
 execution reserves part of that same bound for cleanup; no phase receives a
 fresh timeout after the deadline. A reviewer that retains but does not read
 stdin forces bounded termination and `UNKNOWN`. Both bounded
@@ -343,9 +349,9 @@ Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
 proxy and other allowlisted parent-environment values with a fixed portable
 token. Gate and reviewer normalization use the same shaped-value recognizer.
-It consumes complete multi-component paths beneath recognized POSIX host roots,
-Windows user roots and UNC shares, as well as IP, local and named network
-endpoints including scheme-qualified endpoints. Parsing and execution-statement digests use those normalized captured
+It consumes every delimited absolute POSIX path plus complete Windows user-root
+and UNC paths, as well as bare IPv4/IPv6, local and named network endpoints
+including scheme-qualified endpoints. Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working
 material and MUST be projected to fixed omission tokens before shaped-value
@@ -415,18 +421,23 @@ result, or evidence manifest. The launcher MUST re-observe the live candidate
 before and after the reviewer process. A trusted post-run phase MUST persist the
 reviewer result, normalized stdout and stderr bytes, reviewer-execution statement
 and a context-execution receipt linked to the immutable prepared receipt. The
-execution statement binds both receipts, both direct stream references and the
-output without creating a circular content address. Admission MUST resolve the
-raw streams, reconstruct their JSONL result/usage and primitive observation
-facts, and then reconstruct those links;
+execution statement binds both receipts, both direct stream references, the
+canonical permitted-input manifest, any rapid-review risk/charter material and
+the output without creating a circular content address. Admission MUST resolve
+the raw streams, reconstruct their JSONL result/usage and primitive observation
+facts, rebuild the portable sanitized argv and exact stdin bytes from protected
+inputs, compare both digests, and then reconstruct those links;
 a schema-valid reviewer document or ambient workflow success is insufficient.
 
-The reviewer CLI has two non-overlapping input authorities. Candidate,
+The reviewer and admission CLIs have two non-overlapping input authorities. Candidate,
 effective-policy, permitted-input and referenced evidence paths are relative to
 the declared candidate repository. Prompt, output-schema and validation-schema
 paths are relative to a separately declared protected authority root. Both roots
 use the same bounded descriptor-relative, no-follow reader. A split-checkout
-workflow MUST pass paths relative to the appropriate root, derive timeout and
+workflow MUST pass paths relative to the appropriate root. Admission MUST receive
+the protected authority root explicitly and rebuild reviewer stdin from the same
+descriptor-read protected prompt bytes; it MUST NOT reopen a candidate-owned
+prompt path. The workflow MUST derive timeout and
 output bounds from the already protected policy, and rely on the CLI's exact
 policy comparison; checkout-directory-prefixed or caller-default bounds are not
 authority.
@@ -516,7 +527,7 @@ For each exact candidate, the workflow MUST:
 1. create or update a candidate-bound risk assessment;
 2. select risk-proportionate, time-boxed charters;
 3. run cheap deterministic checks first when useful;
-4. conduct each required charter in a fresh-context read-only harness with the approved contract, risk assessment, charter, and allowlisted evidence, never the implementer's conversation;
+4. conduct each required charter in its own fresh-context read-only harness with the approved contract, exact risk assessment, exactly one approved charter, and allowlisted evidence, never the implementer's conversation; retain those inputs and require a one-to-one session/execution/charter binding;
 5. record experiments, direct observations, fallible oracles, evidence, findings, counter-hypotheses, coverage, omissions, obstacles, follow-up charters, and residual risks;
 6. debrief the product story, testing story, and quality-of-testing story separately;
 7. return actionable findings for remediation; and
@@ -618,7 +629,9 @@ original ID or same-name substitution permanently taints the transaction; later
 removal or absence cannot restore certainty.
 Every gate receives a newly reconstructed candidate copy. The gate's one
 absolute monotonic deadline starts before that reconstruction and is passed to
-every clone, checkout, submodule and identity helper; command launch and cleanup
+every clone, checkout, submodule, identity and file-copy helper. Regular source
+leaves are opened no-follow, type-checked and copied through a terminable
+descriptor-only helper; source leaf identity is re-stated afterward. Command launch and cleanup
 receive only the remaining budget. If preparation expires, fails or cannot be
 observed completely, the supervisor publishes an `UNKNOWN` gate result with the
 preparation limitation and does not launch the command. A writable copy is
@@ -679,7 +692,12 @@ governance invariants. The previous-LKG policy binds the complete corpus byte
 digest, and the producer reads those exact bytes from the protected governance
 checkout, copies them into write-once evidence, and rejects a candidate-local or
 digest-mismatched substitute. It runs in a disposable candidate after a green
-baseline and before final review. Each corpus entry binds selected tests through
+baseline and before final review. Before applying each operator, the producer
+re-identifies the source and fresh unmodified copy as the exact candidate and
+derives the expected mutation tree from that verified copy. The mutant's one
+absolute deadline applies to every recursive Git, file and tree observation;
+timeout, drift or mismatch emits retained `UNKNOWN` evidence without launching
+the probe. Each corpus entry binds selected tests through
 one fixed non-executable command template. Protected producer code validates the
 template and replaces only its fixed probe-source and mutated-path sentinels,
 producing an isolated structured-probe argv. The expanded argv recorded in the
@@ -796,7 +814,9 @@ evidence additions are breaking: `effective-policy` is `3.0.0` with the
 protected mutation-corpus digest; `reviewer-qualification`, `context-receipt`,
 `sandbox-capability`, and `provenance-statement` are `2.0.0`;
 `evidence-manifest` is `3.0.0`; `reviewer-qualification-cases` is `3.0.0`
-with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `3.0.0` with
+with full candidate and per-case context evidence and `4.0.0` with the retained
+permitted-input manifest plus mode-specific risk-assessment and charter references;
+`reviewer-qualification-corpus` is `3.0.0` with
 mandatory typed case classes and human-labelled critical expected-finding targets; and `reviewer-execution` is `3.0.0` with primitive
 observation plus direct stream references. `rapid-review-session` is `2.0.0`
 with typed path and line fields on every finding. The initial-release
@@ -825,7 +845,10 @@ before bytes are read through that descriptor. After bounded readback the leaf
 name is re-stated relative to the retained parent and must still name the same
 regular-file device/inode, and retained parent identities must remain bound.
 Parsing, schema validation and command use consume that single byte observation;
-they do not reopen the authoritative pathname. Pathname validation followed by a
+they do not reopen the authoritative pathname. One locked CLI command caches
+each referenced observation by canonical repository root and normalized path,
+binds its expected digest, rejects a later conflicting digest and does not
+reopen it during lock selection, evaluation or nested reconstruction. Pathname validation followed by a
 later pathname read is not an admissible fallback; unavailable descriptor-bound
 access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
 materializing permitted evidence into the reviewer harness. The reviewer CLI

@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from codex_governance.artifacts import FilesystemArtifactStore
+from codex_governance.artifacts import (
+    FilesystemArtifactStore,
+    read_bounded_repository_file,
+)
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import (
     canonical_json_bytes,
@@ -63,6 +66,21 @@ def parse_protected_corpus(
     if sha256_bytes(data) != expected_sha256:
         raise ValueError("protected mutation corpus digest mismatch")
     return parse_curated_corpus(data)
+
+
+def original_candidate_copy_is_exact(
+    *,
+    source_before: str,
+    copied_candidate: str,
+    source_after: str,
+    expected_candidate: str,
+) -> bool:
+    """Require one unmodified source and copy identity immediately before patching."""
+    expected = str(expected_candidate)
+    return all(
+        observed == expected
+        for observed in (source_before, copied_candidate, source_after)
+    )
 
 
 def run_governed_mutation_corpus(
@@ -197,6 +215,20 @@ def run_governed_mutation_corpus(
 
     with tempfile.TemporaryDirectory(prefix="codex-governance-mutation-") as temporary:
         supervisor = Path(temporary).resolve()
+        identity_arguments = {
+            "repository_id": policy["repository_id"],
+            "mode": candidate["mode"],
+            "base_commit": candidate["base_commit"],
+            "head_commit": candidate.get("head_commit"),
+            "effective_policy_sha256": effective_policy_sha256,
+            "evidence_root": evidence_root,
+        }
+
+        def identify_original(root: Path, deadline: float) -> str:
+            return GitCliRepositoryAdapter(root, deadline=deadline).identify(
+                **identity_arguments
+            )["candidate_id"]
+
         baseline_command = [
             "/usr/bin/env", "PYTHONPATH=src", *corpus["baseline_command"]
         ]
@@ -209,27 +241,24 @@ def run_governed_mutation_corpus(
         baseline_copy = supervisor / "baseline"
         baseline_preparation_error: str | None = None
         try:
+            if identify_original(repository, baseline_deadline) != candidate["candidate_id"]:
+                raise CandidatePreparationError(
+                    "mutation baseline source identity mismatch"
+                )
             prepare_candidate_copy(
                 repository=repository,
                 destination=baseline_copy,
                 evidence_root=evidence_root,
                 deadline=baseline_deadline,
             )
-            baseline_adapter = GitCliRepositoryAdapter(
-                baseline_copy, deadline=baseline_deadline
-            )
-
             def baseline_candidate() -> str:
-                return baseline_adapter.identify(
-                    repository_id=policy["repository_id"],
-                    mode=candidate["mode"],
-                    base_commit=candidate["base_commit"],
-                    head_commit=candidate.get("head_commit"),
-                    effective_policy_sha256=effective_policy_sha256,
-                    evidence_root=evidence_root,
-                )["candidate_id"]
+                return identify_original(baseline_copy, baseline_deadline)
 
-            if baseline_candidate() != candidate["candidate_id"]:
+            if (
+                baseline_candidate() != candidate["candidate_id"]
+                or identify_original(repository, baseline_deadline)
+                != candidate["candidate_id"]
+            ):
                 raise CandidatePreparationError(
                     "mutation baseline copy identity mismatch"
                 )
@@ -279,13 +308,51 @@ def run_governed_mutation_corpus(
             mutant_deadline = time.monotonic() + limits["timeout_seconds"]
             mutant_copy = supervisor / f"mutant-{index}"
             try:
+                source_before_copy = identify_original(repository, mutant_deadline)
+                if source_before_copy != candidate["candidate_id"]:
+                    raise CandidatePreparationError(
+                        "mutation source identity mismatch before copy"
+                    )
                 prepare_candidate_copy(
                     repository=repository,
                     destination=mutant_copy,
                     evidence_root=evidence_root,
                     deadline=mutant_deadline,
                 )
-            except (OSError, RuntimeError, ValueError) as exc:
+                copied_candidate = identify_original(mutant_copy, mutant_deadline)
+                source_after_copy = identify_original(repository, mutant_deadline)
+                if not original_candidate_copy_is_exact(
+                    source_before=source_before_copy,
+                    copied_candidate=copied_candidate,
+                    source_after=source_after_copy,
+                    expected_candidate=candidate["candidate_id"],
+                ):
+                    raise CandidatePreparationError(
+                        "mutation source or copy identity mismatch before patch"
+                    )
+                original = read_bounded_repository_file(
+                    mutant_copy, relative, deadline=mutant_deadline
+                ).decode("utf-8")
+                line = original[: original.index(mutant["old"])].count("\n") + 1
+                expected_tree_sha256 = expected_mutated_tree_sha256(
+                    repository=mutant_copy,
+                    evidence_root=evidence_root,
+                    mutant=mutant,
+                    deadline=mutant_deadline,
+                )
+                patch_sha = apply_curated_mutant(
+                    mutant_copy, mutant, deadline=mutant_deadline
+                )
+                actual_tree_sha256 = git_visible_tree_sha256(
+                    mutant_copy,
+                    evidence_root=evidence_root,
+                    deadline=mutant_deadline,
+                )
+                if actual_tree_sha256 != expected_tree_sha256:
+                    raise CandidatePreparationError(
+                        "mutated candidate copy identity mismatch"
+                    )
+            except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
                 _, failed_ref, _, _ = invoke(
                     candidate_copy=repository,
                     source_identity=candidate["candidate_id"],
@@ -312,21 +379,6 @@ def run_governed_mutation_corpus(
                     "sandbox_capabilities": capabilities,
                     "provenance_statements": provenance,
                 }
-            original = mutant_copy.joinpath(*relative.split("/")).read_text(
-                encoding="utf-8"
-            )
-            line = original[: original.index(mutant["old"])].count("\n") + 1
-            patch_sha = apply_curated_mutant(mutant_copy, mutant)
-            expected_tree_sha256 = expected_mutated_tree_sha256(
-                repository=repository,
-                evidence_root=evidence_root,
-                mutant=mutant,
-            )
-            actual_tree_sha256 = git_visible_tree_sha256(
-                mutant_copy, evidence_root=evidence_root
-            )
-            if actual_tree_sha256 != expected_tree_sha256:
-                raise RuntimeError("mutated candidate copy identity mismatch")
             source_identity = mutated_source_identity(
                 candidate_id=candidate["candidate_id"],
                 corpus_id=corpus["corpus_id"],
@@ -347,7 +399,9 @@ def run_governed_mutation_corpus(
                     mutant_id=mutant_id,
                     patch_sha256=patch,
                     tree_sha256=git_visible_tree_sha256(
-                        copy, evidence_root=evidence_root
+                        copy,
+                        evidence_root=evidence_root,
+                        deadline=mutant_deadline,
                     ),
                 )
             result, result_ref, capability_ref, provenance_ref = invoke(

@@ -52,6 +52,43 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
         no_cause = content_address(no_cause, "mutant_record_id")
         self.assertEqual(DispositionState.UNKNOWN, evaluate_mutation_record(no_cause))
 
+    def test_each_mutant_requires_exact_source_and_copy_identity_before_patch(self) -> None:
+        from codex_governance.mutation_runner import original_candidate_copy_is_exact
+
+        expected = "sha256:" + "a" * 64
+        self.assertTrue(
+            original_candidate_copy_is_exact(
+                source_before=expected,
+                copied_candidate=expected,
+                source_after=expected,
+                expected_candidate=expected,
+            )
+        )
+        for field in ("source_before", "copied_candidate", "source_after"):
+            values = {
+                "source_before": expected,
+                "copied_candidate": expected,
+                "source_after": expected,
+                "expected_candidate": expected,
+            }
+            values[field] = "sha256:" + "b" * 64
+            with self.subTest(field=field):
+                self.assertFalse(original_candidate_copy_is_exact(**values))
+
+    def test_mutation_git_observations_use_the_shared_absolute_deadline(self) -> None:
+        from codex_governance.mutation import _git
+
+        deadline = __import__("time").monotonic() + 2
+        with patch(
+            "codex_governance.mutation.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+        ) as run:
+            self.assertEqual(b"", _git(Path("."), "status", deadline=deadline))
+        timeout = run.call_args.kwargs["timeout"]
+        self.assertIsNotNone(timeout)
+        self.assertGreater(timeout, 0)
+        self.assertLessEqual(timeout, 2)
+
     def test_mandatory_corpus_contains_all_known_bypass_classes(self) -> None:
         from codex_governance.mutation import REQUIRED_CURATED_MUTANTS, load_curated_corpus
 
@@ -86,6 +123,15 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "ioctl-signal-escape", "authoritative-json-pathname-read",
             "authoritative-json-reopened", "untracked-pathname-read",
             "candidate-clone-unbounded", "preparation-error-launches",
+            "candidate-entry-pathname-copy", "reviewer-entry-pathname-copy",
+            "reviewer-permission-deadline-omitted",
+            "mutant-copy-identity-omitted", "mutation-git-deadline-omitted",
+            "reviewer-argv-unchecked", "reviewer-stdin-unchecked",
+            "reviewer-permitted-input-unchecked",
+            "rapid-risk-material-unchecked",
+            "rapid-charter-material-unchecked",
+            "authoritative-reference-reopened", "bare-ipv6-unredacted",
+            "admission-candidate-prompt-read",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

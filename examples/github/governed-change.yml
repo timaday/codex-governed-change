@@ -368,6 +368,8 @@ jobs:
           done
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas evaluate \
             --repository candidate \
+            --authority-root governance \
+            --prompt .codex/review/reviewer.prompt.md \
             --manifest candidate/artifacts/governance/evidence-manifest.json \
             --candidate candidate/artifacts/governance/candidate.json \
             --evaluated-at "$EVALUATED_AT" \

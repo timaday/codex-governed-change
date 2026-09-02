@@ -573,6 +573,58 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             self.assertGreater(observed_timeout, 0)
             self.assertLessEqual(observed_timeout, 0.25)
 
+    def test_candidate_entries_use_descriptor_copy_with_the_shared_deadline(self) -> None:
+        from codex_governance.sandbox import prepare_candidate_copy
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            (repository / "source.txt").write_text("bounded", encoding="utf-8")
+            environment = dict(os.environ)
+            environment.update(
+                GIT_AUTHOR_NAME="fixture",
+                GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                GIT_COMMITTER_NAME="fixture",
+                GIT_COMMITTER_EMAIL="fixture@example.invalid",
+            )
+            for command in (
+                ["git", "init", "-q", "-b", "main"],
+                ["git", "add", "source.txt"],
+                ["git", "commit", "-q", "-m", "fixture"],
+            ):
+                subprocess.run(
+                    command, cwd=repository, env=environment, check=True
+                )
+            deadline = time.monotonic() + 10
+            observed = []
+
+            def descriptor_copy(
+                source_root, relative_path, destination, *, deadline, max_bytes=None
+            ):
+                observed.append((source_root, relative_path, deadline))
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(
+                    source_root.joinpath(*relative_path.split("/")).read_bytes()
+                )
+                return "regular", destination.stat()
+
+            with patch(
+                "codex_governance.sandbox.copy_bounded_repository_entry",
+                side_effect=descriptor_copy,
+            ):
+                copied = prepare_candidate_copy(
+                    repository=repository,
+                    destination=root / "copy",
+                    evidence_root="artifacts/governance",
+                    deadline=deadline,
+                )
+            self.assertEqual("bounded", (copied / "source.txt").read_text())
+            self.assertTrue(observed)
+            self.assertTrue(
+                all(item == (repository.resolve(), "source.txt", deadline) for item in observed)
+            )
+
     def test_submodule_copy_is_reconstructed_without_ignored_worktree_files(self) -> None:
         from codex_governance.sandbox import prepare_candidate_copy
 

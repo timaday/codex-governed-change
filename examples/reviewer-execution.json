@@ -1,6 +1,6 @@
 {
   "schema_version": "3.0.0",
-  "execution_id": "sha256:9ab1b2d4aec2e58b4dfdf9f1ca7b6c2594edfb5129eff67c42f72440594a993e",
+  "execution_id": "sha256:6906d287366370099dcc116fa00206ea1c96ebe47c70f1b7dd58508883d2a4be",
   "repository_id": "repo:example/codex-governed-change",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -75,6 +75,7 @@
     {"name": "effective-policy", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
     {"name": "candidate", "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
     {"name": "reviewer-prompt", "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+    {"name": "permitted-inputs", "sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434"},
     {"name": "output-schema", "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
     {"name": "launcher", "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
     {"name": "qualification", "sha256": "sha256:1616161616161616161616161616161616161616161616161616161616161616"},

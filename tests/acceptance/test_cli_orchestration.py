@@ -703,6 +703,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             candidate=Path("candidate.json"),
             schema_root=self.ROOT / "schemas",
             repository=self.ROOT,
+            authority_root=self.ROOT,
+            prompt=Path(".codex/review/reviewer.prompt.md"),
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_id=[decision_id],
             output="artifacts/governance/disposition.json",
@@ -723,6 +725,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             frozenset({decision_id}),
             evaluate.call_args.kwargs["verified_decision_ids"],
+        )
+        self.assertEqual(
+            (self.ROOT / ".codex/review/reviewer.prompt.md").read_bytes(),
+            evaluate.call_args.kwargs["protected_prompt_bytes"],
         )
 
     def test_gate_manifest_time_follows_all_referenced_results(self) -> None:

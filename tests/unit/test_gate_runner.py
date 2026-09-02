@@ -276,9 +276,12 @@ class GateRunnerTest(unittest.TestCase):
     def test_complete_host_paths_and_named_endpoints_are_ambiguous(self) -> None:
         values = (
             "/var/lib/runner/cache/result.json",
+            "/workspace/build/cache/result.json",
+            "/Volumes/runner/cache/result.json",
             "C:" + "\\" + "Users\\runner\\workspace\\result.json",
             "\\" * 2 + "build-host\\workspace\\cache\\result.json",
             "https://runner.internal.invalid/api/status",
+            "2001:db8:1234::42",
         )
         result = self.observe(
             "print(" + repr(" ".join(values)) + ")", max_output_bytes=1024
@@ -291,6 +294,18 @@ class GateRunnerTest(unittest.TestCase):
             self.assertNotIn(value.encode(), output)
         self.assertIn(b"<REDACTED_HOST_PATH>", output)
         self.assertIn(b"<REDACTED_ENDPOINT>", output)
+
+    def test_clock_values_are_not_misclassified_as_ipv6_endpoints(self) -> None:
+        result = self.observe(
+            "print('2026-08-26T12:38:00Z face:feed:cafe:dead')"
+        )
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("PASS", result["status"])
+        self.assertIn(b"2026-08-26T12:38:00Z", output)
+        self.assertIn(b"face:feed:cafe:dead", output)
+        self.assertFalse(result["redactions"])
 
     def test_incomplete_preparation_is_retained_unknown_without_launch(self) -> None:
         marker = self.repository / "preparation-must-not-launch"

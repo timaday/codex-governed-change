@@ -18,7 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from codex_governance.artifacts import read_bounded_repository_file
+from codex_governance.artifacts import (
+    copy_bounded_repository_entry,
+    make_tree_read_only_bounded,
+    read_bounded_path_file,
+    read_bounded_repository_file,
+    write_bounded_bytes,
+)
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import (
     canonical_json_bytes,
@@ -103,6 +109,7 @@ REVIEWER_TOOL_ENVIRONMENT_KEYS = (
     "PATH", "HOME", "ZDOTDIR", "XDG_CONFIG_HOME", "LANG", "LC_ALL",
     "TMPDIR", "TMP", "TEMP", "SystemRoot", "SYSTEMROOT",
 )
+PROTECTED_REVIEWER_PROMPT_PATH = ".codex/review/reviewer.prompt.md"
 
 
 def _runtime_prefix(executable: Path) -> Path:
@@ -166,6 +173,97 @@ REVIEWER_TOOL_ENVIRONMENT_POLICY = (
     + '],set={HOME=".reviewer-home",ZDOTDIR=".reviewer-home",'
     'XDG_CONFIG_HOME=".reviewer-home",PYTHONDONTWRITEBYTECODE="1"}}'
 )
+
+_PORTABLE_PERMISSION_PROFILE = "<RUNTIME_READ_PERMISSION_PROFILE>"
+_PORTABLE_REVIEWER_PATH = "<REVIEWER_PATH>"
+
+
+def _portable_reviewer_command(
+    *, model: str, reasoning_effort: str
+) -> list[str]:
+    return [
+        "<CODEX>",
+        "exec",
+        "--ephemeral",
+        "--json",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--model",
+        model,
+        "--config",
+        'default_permissions="governed_reviewer"',
+        "--config",
+        _PORTABLE_PERMISSION_PROFILE,
+        "--config",
+        'approval_policy="never"',
+        "--config",
+        REVIEWER_TOOL_ENVIRONMENT_POLICY,
+        "--config",
+        f'model_reasoning_effort="{reasoning_effort}"',
+        "--config",
+        "features.hooks=false",
+        "--config",
+        "agents.enabled=false",
+        "--output-schema",
+        _PORTABLE_REVIEWER_PATH,
+        "--output-last-message",
+        _PORTABLE_REVIEWER_PATH,
+        "--cd",
+        _PORTABLE_REVIEWER_PATH,
+        "-",
+    ]
+
+
+def reviewer_argv_sha256(*, model: str, reasoning_effort: str) -> str:
+    """Reconstruct the portable, path-sanitized fresh-reviewer argv identity."""
+    if not all(
+        isinstance(value, str) and value for value in (model, reasoning_effort)
+    ):
+        raise ValueError("reviewer model and reasoning effort are required")
+    return sha256_canonical(
+        [
+            "<PYTHON>",
+            "<REVIEWER_SUPERVISOR>",
+            "<STATUS_FD>",
+            "--",
+            *_portable_reviewer_command(
+                model=model, reasoning_effort=reasoning_effort
+            ),
+        ]
+    )
+
+
+def _validate_portable_reviewer_command(
+    command: Sequence[str], *, model: str, reasoning_effort: str
+) -> None:
+    normalized = list(command)
+    if len(normalized) != len(_portable_reviewer_command(
+        model=model, reasoning_effort=reasoning_effort
+    )):
+        raise ValueError("reviewer command does not match the protected argv shape")
+    normalized[0] = "<CODEX>"
+    for option in ("--output-schema", "--output-last-message", "--cd"):
+        try:
+            index = normalized.index(option)
+        except ValueError as exc:
+            raise ValueError("reviewer command is missing a protected path option") from exc
+        normalized[index + 1] = _PORTABLE_REVIEWER_PATH
+    permission_indexes = [
+        index + 1
+        for index, value in enumerate(normalized[:-1])
+        if value == "--config"
+        and normalized[index + 1].startswith(
+            "permissions={governed_reviewer={extends=\":read-only\""
+        )
+    ]
+    if len(permission_indexes) != 1:
+        raise ValueError("reviewer command permission profile is unavailable")
+    normalized[permission_indexes[0]] = _PORTABLE_PERMISSION_PROFILE
+    if normalized != _portable_reviewer_command(
+        model=model, reasoning_effort=reasoning_effort
+    ):
+        raise ValueError("reviewer command does not match the protected argv shape")
 
 
 def build_reviewer_command(
@@ -546,6 +644,8 @@ def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
 REVIEWER_AMBIGUOUS_PATTERNS = tuple(
     pattern for pattern, _category in SHAPED_VALUE_PATTERNS
 )
+
+
 def reviewer_stream_is_portable(data: bytes) -> bool:
     """Reject retained secrets, machine endpoints, and absolute host locations."""
     try:
@@ -673,6 +773,9 @@ def build_reviewer_execution_statement(
     stdout_reference: Mapping[str, str],
     stderr_reference: Mapping[str, str],
     execution: Mapping[str, Any],
+    permitted_inputs_sha256: str,
+    risk_assessment_sha256: str | None = None,
+    review_charter_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Build a content-addressed statement for one fresh reviewer process."""
     if review_mode not in {"conformance", "rapid_review"}:
@@ -704,6 +807,26 @@ def build_reviewer_execution_statement(
     if not isinstance(observation, Mapping):
         raise ValueError("reviewer primitive observation is unavailable")
     facts = reviewer_observation_facts(observation)
+    expected_argv_sha256 = reviewer_argv_sha256(
+        model=model, reasoning_effort=reasoning_effort
+    )
+    if execution.get("argv_sha256") != expected_argv_sha256:
+        raise ValueError("reviewer argv identity does not reconstruct")
+    permitted_digest = require_sha256(
+        permitted_inputs_sha256, name="permitted_inputs_sha256"
+    )
+    if review_mode == "rapid_review":
+        risk_digest = require_sha256(
+            risk_assessment_sha256, name="risk_assessment_sha256"
+        )
+        charter_digest = require_sha256(
+            review_charter_sha256, name="review_charter_sha256"
+        )
+    elif risk_assessment_sha256 is not None or review_charter_sha256 is not None:
+        raise ValueError("conformance review cannot claim rapid-review materials")
+    else:
+        risk_digest = None
+        charter_digest = None
     stream_references: dict[str, dict[str, str]] = {}
     for name, reference, expected_digest in (
         ("stdout", stdout_reference, execution.get("stdout_sha256")),
@@ -738,7 +861,7 @@ def build_reviewer_execution_statement(
         "candidate_after": require_sha256(execution.get("candidate_after")),
         "observation": dict(observation),
         "invocation": descriptor,
-        "argv_sha256": require_sha256(execution.get("argv_sha256")),
+        "argv_sha256": expected_argv_sha256,
         "stdin_sha256": require_sha256(execution.get("stdin_sha256")),
         "codex_thread_id": (
             execution.get("thread_id")
@@ -760,6 +883,7 @@ def build_reviewer_execution_statement(
             {"name": "effective-policy", "sha256": require_sha256(effective_policy_sha256)},
             {"name": "candidate", "sha256": require_sha256(candidate_id)},
             {"name": "reviewer-prompt", "sha256": require_sha256(execution.get("reviewer_prompt_sha256"))},
+            {"name": "permitted-inputs", "sha256": permitted_digest},
             {"name": "output-schema", "sha256": require_sha256(output_schema_sha256)},
             {"name": "launcher", "sha256": require_sha256(launcher_sha256)},
             {"name": "qualification", "sha256": require_sha256(qualification_id)},
@@ -794,6 +918,13 @@ def build_reviewer_execution_statement(
         "reasoning_output_tokens": execution.get("reasoning_output_tokens", 0),
         "limitations": list(execution.get("limitations", ())),
     }
+    if review_mode == "rapid_review":
+        document["materials"].extend(
+            [
+                {"name": "risk-assessment", "sha256": risk_digest},
+                {"name": "review-charter", "sha256": charter_digest},
+            ]
+        )
     return content_address(document, "execution_id")
 
 
@@ -871,44 +1002,24 @@ def _candidate_paths(
 
 
 def _copy_entry(
-    source: Path, destination: Path, *, deadline: float | None = None
+    repository: Path,
+    relative_path: str,
+    destination: Path,
+    *,
+    deadline: float | None = None,
 ) -> None:
-    _remaining(deadline)
-    info = source.lstat()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if stat.S_ISLNK(info.st_mode):
-        if destination.exists() or destination.is_symlink():
-            _remove_scoped_tree(destination, boundary=destination.parent)
-        destination.symlink_to(os.readlink(source))
-    elif stat.S_ISREG(info.st_mode):
-        shutil.copyfile(source, destination, follow_symlinks=False)
-        destination.chmod(0o555 if info.st_mode & 0o111 else 0o444)
-    elif stat.S_ISDIR(info.st_mode):
-        # A Git submodule entry is represented as a directory. Copy only its
-        # tracked/non-ignored candidate files, never its machine-specific .git.
-        destination.mkdir(parents=True, exist_ok=True)
-        for nested in _candidate_paths(source, deadline=deadline):
-            nested_source = source.joinpath(*nested.split("/"))
-            if nested_source.exists() or nested_source.is_symlink():
-                _copy_entry(
-                    nested_source,
-                    destination.joinpath(*nested.split("/")),
-                    deadline=deadline,
-                )
-    else:
-        raise ValueError("unsupported candidate file type in reviewer snapshot")
+    if destination.exists() or destination.is_symlink():
+        _remove_scoped_tree(destination, boundary=destination.parent)
+    copy_bounded_repository_entry(
+        repository,
+        relative_path,
+        destination,
+        deadline=deadline,
+    )
 
 
-def _make_read_only(root: Path) -> None:
-    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
-        if path.is_symlink():
-            continue
-        info = path.stat()
-        if path.is_dir():
-            path.chmod(0o555)
-        else:
-            path.chmod(0o555 if info.st_mode & 0o111 else 0o444)
-    root.chmod(0o555)
+def _make_read_only(root: Path, *, deadline: float | None) -> None:
+    make_tree_read_only_bounded(root, deadline=deadline)
 
 
 REVIEWER_LAUNCHER_FILES = (
@@ -1024,6 +1135,7 @@ def _materialize_permitted_evidence(
     prepared_evidence: Mapping[str, bytes] | None = None,
     max_files: int = 512,
     max_total_bytes: int = 64_000_000,
+    deadline: float | None = None,
 ) -> None:
     normalized_evidence_root = normalize_repo_path(evidence_root)
     path_keys = sorted(
@@ -1064,7 +1176,10 @@ def _materialize_permitted_evidence(
             raise ValueError("validated reviewer evidence bytes are unavailable")
         else:
             data = read_bounded_repository_file(
-                candidate_repository, normalized, max_bytes=max_total_bytes
+                candidate_repository,
+                normalized,
+                max_bytes=max_total_bytes,
+                deadline=deadline,
             )
         if sha256_bytes(data) != expected_digest:
             raise ValueError("review evidence digest mismatch")
@@ -1072,9 +1187,7 @@ def _materialize_permitted_evidence(
         if total > max_total_bytes:
             raise ValueError("review evidence byte budget exceeded")
         destination = harness.joinpath(*normalized.split("/"))
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(data)
-        destination.chmod(0o444)
+        write_bounded_bytes(destination, data, deadline=deadline, mode=0o444)
         destinations[normalized] = expected_digest
         pending_documents.append((normalized, data))
 
@@ -1124,13 +1237,7 @@ def _materialize_permitted_evidence(
             materialize(relative, expected, direct=False)
     evidence = harness.joinpath(*normalized_evidence_root.split("/"))
     if evidence.exists():
-        for directory in sorted(
-            (item for item in evidence.rglob("*") if item.is_dir()),
-            key=lambda item: len(item.parts),
-            reverse=True,
-        ):
-            directory.chmod(0o555)
-        evidence.chmod(0o555)
+        make_tree_read_only_bounded(evidence, deadline=deadline)
 
 
 def prepare_sanitized_harness(
@@ -1177,6 +1284,13 @@ def prepare_sanitized_harness(
         evidence_root=normalized_evidence_root,
         deadline=deadline,
     )
+    deleted_paths = {
+        normalize_repo_path(raw.decode("utf-8"))
+        for raw in _run_git(
+            candidate, "ls-files", "-z", "--deleted", deadline=deadline
+        ).split(b"\x00")
+        if raw
+    }
     harness = harness_root.resolve(strict=False)
     if harness == candidate:
         raise ValueError("review harness cannot be the candidate repository")
@@ -1208,10 +1322,14 @@ def prepare_sanitized_harness(
     if logs.exists():
         _remove_scoped_tree(logs, boundary=snapshot)
     for relative in paths:
-        source = candidate.joinpath(*relative.split("/"))
         destination = snapshot.joinpath(*relative.split("/"))
-        if source.exists() or source.is_symlink():
-            _copy_entry(source, destination, deadline=deadline)
+        if relative not in deleted_paths:
+            _copy_entry(
+                candidate,
+                relative,
+                destination,
+                deadline=deadline,
+            )
         elif destination.exists() or destination.is_symlink():
             _remove_scoped_tree(destination, boundary=snapshot)
     _validate_snapshot_symlinks(snapshot, paths)
@@ -1223,18 +1341,25 @@ def prepare_sanitized_harness(
     prompt = harness / "reviewer.prompt.md"
     schema = harness / "reviewer-output.schema.json"
     manifest = harness / "permitted-inputs.json"
-    prompt.write_bytes(
+    prompt_bytes = (
         bytes(fixed_prompt_bytes)
         if fixed_prompt_bytes is not None
-        else fixed_prompt_path.read_bytes()
+        else read_bounded_path_file(fixed_prompt_path, deadline=deadline)
     )
-    schema.write_bytes(
+    schema_bytes = (
         bytes(output_schema_bytes)
         if output_schema_bytes is not None
-        else output_schema_path.read_bytes()
+        else read_bounded_path_file(output_schema_path, deadline=deadline)
     )
-    manifest.write_bytes(canonical_json_bytes(dict(permitted_inputs)))
-    if sha256_bytes(prompt.read_bytes()) != require_sha256(
+    write_bounded_bytes(prompt, prompt_bytes, deadline=deadline, mode=0o444)
+    write_bounded_bytes(schema, schema_bytes, deadline=deadline, mode=0o444)
+    write_bounded_bytes(
+        manifest,
+        canonical_json_bytes(dict(permitted_inputs)),
+        deadline=deadline,
+        mode=0o444,
+    )
+    if sha256_bytes(prompt_bytes) != require_sha256(
         permitted_inputs.get("reviewer_prompt_sha256"),
         name="reviewer_prompt_sha256",
     ):
@@ -1245,6 +1370,7 @@ def prepare_sanitized_harness(
         permitted_inputs=permitted_inputs,
         evidence_root=evidence_root,
         prepared_evidence=prepared_evidence,
+        deadline=deadline,
     )
     try:
         initialized = subprocess.run(
@@ -1267,9 +1393,7 @@ def prepare_sanitized_harness(
         raise TimeoutError("reviewer harness initialization timed out") from exc
     if initialized.returncode != 0:
         raise RuntimeError("unable to initialize sanitized reviewer harness")
-    _make_read_only(snapshot)
-    for protected in (prompt, schema, manifest):
-        protected.chmod(0o444)
+    _make_read_only(snapshot, deadline=deadline)
     return {
         "root": harness,
         "candidate": snapshot,
@@ -1472,6 +1596,8 @@ def launch_reviewer(
     max_output_bytes: int = 1_000_000,
     environment: Mapping[str, str] | None = None,
     absolute_deadline: float | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Launch the fresh reviewer and validate its exact output and binding."""
     if review_mode not in {"conformance", "rapid_review"}:
@@ -1480,6 +1606,16 @@ def launch_reviewer(
         raise ValueError("reviewer observation bounds must be positive")
     if not command or command[-1] != "-" or "resume" in command:
         raise ValueError("reviewer command must be a fresh stdin-driven exec")
+    portable_argv_sha256: str | None = None
+    if model is not None or reasoning_effort is not None:
+        if not isinstance(model, str) or not isinstance(reasoning_effort, str):
+            raise ValueError("reviewer model and reasoning effort must be paired")
+        _validate_portable_reviewer_command(
+            command, model=model, reasoning_effort=reasoning_effort
+        )
+        portable_argv_sha256 = reviewer_argv_sha256(
+            model=model, reasoning_effort=reasoning_effort
+        )
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     started_monotonic = time.monotonic()
     deadline = (
@@ -1909,7 +2045,7 @@ def launch_reviewer(
         "candidate_before": before,
         "candidate_after": after,
         "environment_keys": sorted(sanitized_environment),
-        "argv_sha256": sha256_canonical(actual_command),
+        "argv_sha256": portable_argv_sha256 or sha256_canonical(actual_command),
         "stdin_sha256": sha256_bytes(stdin_text.encode("utf-8")),
         "output_sha256": output_sha256,
         "timed_out": timed_out,

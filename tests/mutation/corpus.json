@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:73701b1a19aaf810189bf4c3ffea9a9a843208d0d6bf9058081aa0ef112528a8",
+  "corpus_id": "sha256:5c5d1c0c9f74ace0815394e9ba5a3baa65459e892e734d820a34ab0fcb94b74e",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -69,8 +69,8 @@
     {
       "mutant_id": "reviewer-shell",
       "path": "src/codex_governance/reviewer.py",
-      "old": "        \"--ignore-rules\",",
-      "new": "        # reviewer rule isolation removed",
+      "old": "        codex_executable,\n        \"exec\",\n        \"--ephemeral\",\n        \"--json\",\n        \"--ignore-user-config\",\n        \"--ignore-rules\",",
+      "new": "        codex_executable,\n        \"exec\",\n        \"--ephemeral\",\n        \"--json\",\n        \"--ignore-user-config\",\n        # reviewer rule isolation removed",
       "operator": "reactivate candidate reviewer rules",
       "requirement_id": "GOV-006",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation"]
@@ -168,8 +168,8 @@
     {
       "mutant_id": "unverified-reviewer-reference",
       "path": "src/codex_governance/reviewer.py",
-      "old": "        \"--output-schema\",",
-      "new": "        # reviewer output schema removed",
+      "old": "        \"agents.enabled=false\",\n        \"--output-schema\",\n        str(schema_path),",
+      "new": "        \"agents.enabled=false\",\n        # reviewer output schema removed\n        str(schema_path),",
       "operator": "remove schema binding from reviewer",
       "requirement_id": "GOV-052",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation"]
@@ -321,7 +321,7 @@
     {
       "mutant_id": "submodule-head-only",
       "path": "src/codex_governance/mutation.py",
-      "old": "                    \"submodule_tree_sha256\": _git_visible_tree_sha256(\n                        nested_root,\n                        evidence_root=None,\n                        replacements={},\n                        ancestors=nested_ancestors,\n                    ),",
+      "old": "                    \"submodule_tree_sha256\": _git_visible_tree_sha256(\n                        nested_root,\n                        evidence_root=None,\n                        replacements={},\n                        ancestors=nested_ancestors,\n                        deadline=deadline,\n                    ),",
       "new": "                    \"submodule_tree_sha256\": sha256_canonical({\"commit\": commit}),",
       "operator": "bind only the submodule HEAD instead of its concrete Git-visible bytes",
       "requirement_id": "GOV-003",
@@ -501,8 +501,8 @@
     {
       "mutant_id": "shared-host-root-truncated",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"/(?:home|Users|root|var|private|mnt|run|tmp|opt|srv)/\"",
-      "new": "            rb\"/(?:home|Users)/\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~:/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "recognize only user-profile prefixes instead of complete host-root families",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -560,6 +560,123 @@
       "operator": "remove the candidate-clone timeout",
       "requirement_id": "GOV-044",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_candidate_copy_git_helpers_receive_one_absolute_deadline"]
+    },
+    {
+      "mutant_id": "candidate-entry-pathname-copy",
+      "path": "src/codex_governance/sandbox.py",
+      "old": "        copy_bounded_repository_entry(\n            repository,\n            relative_path,\n            destination,\n            deadline=deadline,\n        )",
+      "new": "        shutil.copyfile(\n            repository.joinpath(*relative_path.split(\"/\")),\n            destination,\n            follow_symlinks=False,\n        )",
+      "operator": "replace descriptor-bound candidate copying with a pathname copy",
+      "requirement_id": "GOV-044",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_candidate_entries_use_descriptor_copy_with_the_shared_deadline"]
+    },
+    {
+      "mutant_id": "reviewer-entry-pathname-copy",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    copy_bounded_repository_entry(\n        repository,\n        relative_path,\n        destination,\n        deadline=deadline,\n    )",
+      "new": "    shutil.copyfile(\n        repository.joinpath(*relative_path.split(\"/\")),\n        destination,\n        follow_symlinks=False,\n    )",
+      "operator": "replace descriptor-bound reviewer copying with a pathname copy",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_snapshot_copy_and_permissions_share_the_absolute_deadline"]
+    },
+    {
+      "mutant_id": "reviewer-permission-deadline-omitted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    make_tree_read_only_bounded(root, deadline=deadline)",
+      "new": "    make_tree_read_only_bounded(root, deadline=None)",
+      "operator": "remove the reviewer permission-finalization deadline",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_snapshot_copy_and_permissions_share_the_absolute_deadline"]
+    },
+    {
+      "mutant_id": "mutant-copy-identity-omitted",
+      "path": "src/codex_governance/mutation_runner.py",
+      "old": "        for observed in (source_before, copied_candidate, source_after)",
+      "new": "        for observed in (source_before, source_after)",
+      "operator": "omit the disposable mutant copy from the pre-patch identity proof",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_each_mutant_requires_exact_source_and_copy_identity_before_patch"]
+    },
+    {
+      "mutant_id": "mutation-git-deadline-omitted",
+      "path": "src/codex_governance/mutation.py",
+      "old": "            timeout=_remaining(deadline),\n            check=False,",
+      "new": "            timeout=None,\n            check=False,",
+      "operator": "remove the absolute deadline from mutation Git observations",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutation_git_observations_use_the_shared_absolute_deadline"]
+    },
+    {
+      "mutant_id": "reviewer-argv-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "            and execution.get(\"argv_sha256\") == expected_argv_sha256",
+      "new": "            and True",
+      "operator": "accept a reviewer execution whose sanitized argv does not reconstruct",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "reviewer-stdin-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "            and execution.get(\"stdin_sha256\") == expected_stdin_sha256",
+      "new": "            and True",
+      "operator": "accept a reviewer execution whose exact stdin does not reconstruct",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "reviewer-permitted-input-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                \"sha256\": sha256_bytes(canonical_json_bytes(dict(permitted_inputs))),",
+      "new": "                \"sha256\": next(item[\"sha256\"] for item in execution[\"materials\"] if item[\"name\"] == \"permitted-inputs\"),",
+      "operator": "trust the claimed reviewer permitted-input digest",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "rapid-risk-material-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                            \"sha256\": require_sha256(risk_sha256),",
+      "new": "                            \"sha256\": execution[\"materials\"][-2][\"sha256\"],",
+      "operator": "trust the claimed rapid-review risk material digest",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "rapid-charter-material-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                            \"sha256\": require_sha256(charter_sha256),",
+      "new": "                            \"sha256\": execution[\"materials\"][-1][\"sha256\"],",
+      "operator": "trust the claimed rapid-review charter material digest",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "authoritative-reference-reopened",
+      "path": "src/codex_governance/evidence.py",
+      "old": "    retained = cache.get(key) if cache is not None else None",
+      "new": "    retained = None",
+      "operator": "reopen a digest-bound evidence reference within one command",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_authoritative_reference_session_never_reopens_or_rebinds_a_path"]
+    },
+    {
+      "mutant_id": "bare-ipv6-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"(?i)(?<![0-9a-f:])\"\n            rb\"(?=(?:(?:[0-9a-f]{0,4}:){7}|[0-9a-f:]*::))\"\n            rb\"(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}\"\n            rb\"(?:%[A-Za-z0-9_.-]+)?\"\n            rb\"(?![0-9a-f:])\"",
+      "new": "            rb\"(?!)\"",
+      "operator": "retain a bare non-loopback IPv6 endpoint",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+    },
+    {
+      "mutant_id": "admission-candidate-prompt-read",
+      "path": "src/codex_governance/evidence.py",
+      "old": "    prompt_bytes = protected_prompt_bytes",
+      "new": "    prompt_bytes = read_bounded_repository_file(repository, \".codex/review/reviewer.prompt.md\")",
+      "operator": "rebuild reviewer stdin from a candidate-owned prompt",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_admission_reconstructs_stdin_from_protected_authority_prompt"]
     },
     {
       "mutant_id": "preparation-error-launches",

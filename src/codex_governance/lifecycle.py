@@ -373,6 +373,54 @@ def migrate_reviewer_qualification_cases_v2_to_v3(
     )
 
 
+def migrate_reviewer_qualification_cases_v3_to_v4(
+    document: Mapping[str, Any],
+    *,
+    evidence_references: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """Add protected invocation-material references absent from v3 cases."""
+    migrated = _migration_document(
+        document, from_version="3.0.0", identity_field="case_evidence_id"
+    )
+    observations = migrated.get("observations")
+    if not isinstance(observations, Sequence) or isinstance(
+        observations, (str, bytes)
+    ):
+        raise ValueError("legacy reviewer case observations are unavailable")
+    required = {"permitted_inputs"}
+    if migrated.get("mode") == "rapid_review":
+        required.update(("risk_assessment", "review_charter"))
+    rebuilt = []
+    for raw in observations:
+        if not isinstance(raw, Mapping):
+            raise ValueError("legacy reviewer case observation is invalid")
+        case_id = str(raw.get("case_id"))
+        supplied = evidence_references.get(case_id)
+        if not isinstance(supplied, Mapping) or set(supplied) != required:
+            raise ValueError(
+                "complete protected case invocation references are required"
+            )
+        if required & set(raw):
+            raise ValueError("legacy reviewer case already contains v4 fields")
+        rebuilt.append(
+            {
+                **raw,
+                **{
+                    name: _reference(supplied[name], name=f"{case_id} {name}")
+                    for name in sorted(required)
+                },
+            }
+        )
+    if set(evidence_references) != {
+        str(item.get("case_id")) for item in observations
+    }:
+        raise ValueError("case invocation reference set does not match observations")
+    migrated["observations"] = rebuilt
+    return _finish_migration(
+        migrated, to_version="4.0.0", identity_field="case_evidence_id"
+    )
+
+
 def migrate_reviewer_qualification_corpus_v1_to_v2(
     document: Mapping[str, Any], *, case_classes: Mapping[str, Sequence[str]]
 ) -> dict[str, Any]:
@@ -619,6 +667,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-qualification", "1.0.0", "2.0.0"): migrate_reviewer_qualification_v1_to_v2,
     ("reviewer-qualification-cases", "1.0.0", "2.0.0"): migrate_reviewer_qualification_cases_v1_to_v2,
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
+    ("reviewer-qualification-cases", "3.0.0", "4.0.0"): migrate_reviewer_qualification_cases_v3_to_v4,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
     ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
     ("rapid-review-session", "1.0.0", "2.0.0"): migrate_rapid_review_session_v1_to_v2,
@@ -637,6 +686,8 @@ def migration_policy(kind: str, from_version: str, to_version: str) -> str:
     """Return the protected migration policy for a public representation."""
     if (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:
         return "explicit_required"
-    if from_version == to_version and from_version in {"1.0.0", "2.0.0", "3.0.0"}:
+    if from_version == to_version and from_version in {
+        "1.0.0", "2.0.0", "3.0.0", "4.0.0"
+    }:
         return "identity"
     return "unsupported"

@@ -55,7 +55,11 @@ from codex_governance.qualification import (
     qualification_task_document,
 )
 from codex_governance.schema import load_json, validate_instance
-from codex_governance.reviewer import build_reviewer_execution_statement
+from codex_governance.reviewer import (
+    build_reviewer_execution_statement,
+    build_reviewer_stdin,
+    reviewer_argv_sha256,
+)
 from codex_governance.rollback import protected_rollback_command
 from codex_governance.sandbox import sandbox_execution_identity
 
@@ -73,6 +77,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         (self.repository / "evidence").mkdir()
         (self.repository / "src").mkdir()
         (self.repository / "tests").mkdir()
+        (self.repository / ".codex/review").mkdir(parents=True)
+        self.protected_prompt_bytes = (
+            self.ROOT / ".codex/review/reviewer.prompt.md"
+        ).read_bytes()
         (self.repository / "src/service.py").write_text("VALUE = 2\n", encoding="utf-8")
         (self.repository / "tests/test_service.py").write_text(
             "from src.service import VALUE\n", encoding="utf-8"
@@ -234,7 +242,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 else "rapid-review-session.schema.json"
             )
             return {
-                "prompt_sha256": "sha256:" + "f" * 64,
+                "prompt_sha256": sha256_bytes(
+                    (self.ROOT / ".codex/review/reviewer.prompt.md").read_bytes()
+                ),
                 "schema_sha256": sha256_bytes(
                     (self.ROOT / "schemas" / schema_name).read_bytes()
                 ),
@@ -288,12 +298,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     reviewer_output_sha256="sha256:" + "0" * 64,
                     execution=context_execution_facts,
                 )
+                _gate, gate_manifest = qualification_gate_documents(
+                    repository_id=evaluation_repository,
+                    task_contract_sha256=task_sha,
+                    candidate_id=candidate_id,
+                )
                 if mode == "conformance":
-                    _gate, gate_manifest = qualification_gate_documents(
-                        repository_id=evaluation_repository,
-                        task_contract_sha256=task_sha,
-                        candidate_id=candidate_id,
-                    )
                     qualification_locators = qualification_evidence_locators(
                         repository_id=evaluation_repository,
                         task_contract_sha256=task_sha,
@@ -473,6 +483,112 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     )
                     for name, document in context_documents.items()
                 }
+                rapid_references: dict[str, dict[str, str]] = {}
+                if mode == "rapid_review":
+                    rapid_references = {
+                        "risk_assessment": self.raw(
+                            prefix + "/risk-assessment.json",
+                            canonical_json_bytes(
+                                {
+                                    "case_id": case["case_id"],
+                                    "kind": "qualification-risk",
+                                }
+                            ),
+                        ),
+                        "review_charter": self.raw(
+                            prefix + "/review-charter.json",
+                            canonical_json_bytes(charter),
+                        ),
+                    }
+                permitted_inputs = {
+                    "task_contract_path": prefix + "/task-contract.json",
+                    "task_contract_sha256": task_sha,
+                    "repository_id": evaluation_repository,
+                    "candidate_id": candidate_id,
+                    "candidate_path": "candidate",
+                    "effective_policy_path": prefix + "/effective-policy.json",
+                    "effective_policy_sha256": policy_sha,
+                    "gate_manifest_path": prefix + "/gate-manifest.json",
+                    "gate_manifest_sha256": sha256_canonical(gate_manifest),
+                    "context_receipt_path": context_references["context_receipt"]["path"],
+                    "context_receipt_sha256": context_references["context_receipt"]["sha256"],
+                    "context_sources_path": context_references["context_sources"]["path"],
+                    "context_sources_sha256": context_references["context_sources"]["sha256"],
+                    "context_projection_path": context_references["context_projection"]["path"],
+                    "context_projection_sha256": context_references["context_projection"]["sha256"],
+                    "context_qualification_path": context_references["context_qualification"]["path"],
+                    "context_qualification_sha256": context_references["context_qualification"]["sha256"],
+                    "context_qualification_id": context_documents[
+                        "context_qualification"
+                    ]["qualification_id"],
+                    "reviewer_qualification_path": prefix + "/reviewer-qualification.json",
+                    "reviewer_qualification_sha256": sha256_canonical(bootstrap),
+                    "reviewer_qualification_id": bootstrap["qualification_id"],
+                    "evidence_root": "qualification",
+                    "reviewer_prompt_sha256": identity["prompt_sha256"],
+                    "review_mode": mode,
+                }
+                if mode == "rapid_review":
+                    permitted_inputs.update(
+                        risk_assessment_path=rapid_references[
+                            "risk_assessment"
+                        ]["path"],
+                        risk_assessment_sha256=rapid_references[
+                            "risk_assessment"
+                        ]["sha256"],
+                        review_charter_path=rapid_references[
+                            "review_charter"
+                        ]["path"],
+                        review_charter_sha256=rapid_references[
+                            "review_charter"
+                        ]["sha256"],
+                    )
+                permitted_reference = self.raw(
+                    prefix + "/permitted-inputs.json",
+                    canonical_json_bytes(permitted_inputs),
+                )
+                prompt_bytes = (
+                    self.ROOT / ".codex/review/reviewer.prompt.md"
+                ).read_bytes()
+                qualification_execution_facts = {
+                    "reviewer_prompt_sha256": identity["prompt_sha256"],
+                    "output_sha256": sha256_bytes(result_bytes),
+                    "candidate_before": candidate_id,
+                    "candidate_after": candidate_id,
+                    "environment_keys": ["CODEX_HOME", "PATH"],
+                    "argv_sha256": reviewer_argv_sha256(
+                        model=identity["model"],
+                        reasoning_effort=identity["reasoning_effort"],
+                    ),
+                    "stdin_sha256": sha256_bytes(
+                        build_reviewer_stdin(
+                            fixed_prompt=prompt_bytes.decode("utf-8"),
+                            permitted_inputs=permitted_inputs,
+                        ).encode("utf-8")
+                    ),
+                    "thread_id": thread_id,
+                    "started_at": self.AT,
+                    "ended_at": self.ENDED,
+                    "latency_ms": 1,
+                    "return_code": 0,
+                    "timed_out": False,
+                    "observation_complete": True,
+                    "capture_threads_completed": True,
+                    "process_cleanup_complete": True,
+                    "execution_valid": True,
+                    "output_valid": True,
+                    "bindings_match": True,
+                    "output_truncated": False,
+                    "stdout_sha256": sha256_bytes(stdout),
+                    "stderr_sha256": sha256_bytes(stderr),
+                    "usage_observed": True,
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_output_tokens": 1,
+                    "limitations": [],
+                    "observation": primitive_observation,
+                }
                 execution = build_reviewer_execution_statement(
                     repository_id=evaluation_repository,
                     task_contract_sha256=task_sha,
@@ -505,39 +621,20 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     timeout_seconds=60,
                     max_output_bytes=1000,
                     codex_cli_version=identity["codex_cli_version"],
-                    execution={
-                        "reviewer_prompt_sha256": identity["prompt_sha256"],
-                        "output_sha256": sha256_bytes(result_bytes),
-                        "candidate_before": candidate_id,
-                        "candidate_after": candidate_id,
-                        "environment_keys": ["CODEX_HOME", "PATH"],
-                        "argv_sha256": "sha256:" + "8" * 64,
-                        "stdin_sha256": "sha256:" + "9" * 64,
-                        "thread_id": thread_id,
-                        "started_at": self.AT,
-                        "ended_at": self.ENDED,
-                        "latency_ms": 1,
-                        "return_code": 0,
-                        "timed_out": False,
-                        "observation_complete": True,
-                        "capture_threads_completed": True,
-                        "process_cleanup_complete": True,
-                        "execution_valid": True,
-                        "output_valid": True,
-                        "bindings_match": True,
-                        "output_truncated": False,
-                        "stdout_sha256": sha256_bytes(stdout),
-                        "stderr_sha256": sha256_bytes(stderr),
-                        "usage_observed": True,
-                        "input_tokens": 1,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 1,
-                        "reasoning_output_tokens": 1,
-                        "limitations": [],
-                        "observation": primitive_observation,
-                    },
+                    execution=qualification_execution_facts,
                     stdout_reference=stdout_reference,
                     stderr_reference=stderr_reference,
+                    permitted_inputs_sha256=permitted_reference["sha256"],
+                    risk_assessment_sha256=(
+                        rapid_references.get("risk_assessment", {}).get("sha256")
+                        if mode == "rapid_review"
+                        else None
+                    ),
+                    review_charter_sha256=(
+                        rapid_references.get("review_charter", {}).get("sha256")
+                        if mode == "rapid_review"
+                        else None
+                    ),
                 )
                 observations.append(
                     {
@@ -551,6 +648,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         "effective_policy_sha256": policy_sha,
                         "candidate": candidate,
                         **context_references,
+                        "permitted_inputs": permitted_reference,
+                        **rapid_references,
                         "reviewer_output": result_reference,
                         "reviewer_execution": self.raw(
                             prefix + "/execution.json",
@@ -562,7 +661,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 )
             return content_address(
                 {
-                    "schema_version": "3.0.0",
+                    "schema_version": "4.0.0",
                     "mode": mode,
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -868,7 +967,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             reviewer_prompt_sha256=(
                 "sha256:" + "0" * 64
                 if provenance_defect == "ordinary-prompt"
-                else "sha256:" + "f" * 64
+                else qualification["prompt_sha256"]
             ),
             producer={"builder_id": "codex-governed-change", "implementation_sha256": gate_implementation_sha256(), "version": PRODUCER_VERSION},
             workflow={"system": "unit", "run_id": "gate-fixture", "attempt": 1},
@@ -1020,7 +1119,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "sha256:" + "0" * 64
                     if provenance_defect
                     == ("mutant-prompt" if patch_sha is not None else "baseline-prompt")
-                    else "sha256:" + "f" * 64
+                    else qualification["prompt_sha256"]
                 ),
                 producer={"builder_id": "codex-governed-change", "implementation_sha256": mutation_implementation_sha256(), "version": PRODUCER_VERSION},
                 workflow={"system": "unit", "run_id": "mutation-fixture", "attempt": 1},
@@ -1212,6 +1311,35 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         context_receipt = compiled_context["receipt"]
         context_ref = self.write("context.json", context_receipt, "context-receipt")
+        conformance_permitted_inputs = {
+            "task_contract_path": task_ref["path"],
+            "task_contract_sha256": task_ref["sha256"],
+            "repository_id": self.REPOSITORY_ID,
+            "candidate_id": self.CANDIDATE_ID,
+            "candidate_path": "candidate",
+            "effective_policy_path": policy_ref["path"],
+            "effective_policy_sha256": policy_ref["sha256"],
+            "gate_manifest_path": gate_manifest_ref["path"],
+            "gate_manifest_sha256": gate_manifest_ref["sha256"],
+            "context_receipt_path": context_ref["path"],
+            "context_receipt_sha256": context_ref["sha256"],
+            "context_sources_path": context_sources_ref["path"],
+            "context_sources_sha256": context_sources_ref["sha256"],
+            "context_projection_path": context_projection_ref["path"],
+            "context_projection_sha256": context_projection_ref["sha256"],
+            "context_qualification_path": context_qualification_ref["path"],
+            "context_qualification_sha256": context_qualification_ref["sha256"],
+            "context_qualification_id": context_qualification["qualification_id"],
+            "reviewer_qualification_path": qualification_ref["path"],
+            "reviewer_qualification_sha256": qualification_ref["sha256"],
+            "reviewer_qualification_id": qualification["qualification_id"],
+            "evidence_root": policy["evidence_root"],
+            "reviewer_prompt_sha256": qualification["prompt_sha256"],
+            "review_mode": "conformance",
+        }
+        protected_prompt_bytes = (
+            self.ROOT / ".codex/review/reviewer.prompt.md"
+        ).read_bytes()
 
         reviewer = {
             "schema_version": "3.0.0", "repository_id": self.REPOSITORY_ID,
@@ -1331,8 +1459,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "candidate_before": self.CANDIDATE_ID,
             "candidate_after": self.CANDIDATE_ID,
             "environment_keys": ["CODEX_HOME", "PATH"],
-            "argv_sha256": "sha256:" + "7" * 64,
-            "stdin_sha256": "sha256:" + "8" * 64,
+            "argv_sha256": reviewer_argv_sha256(
+                model=qualification["model"],
+                reasoning_effort=qualification["reasoning_effort"],
+            ),
+            "stdin_sha256": sha256_bytes(
+                build_reviewer_stdin(
+                    fixed_prompt=protected_prompt_bytes.decode("utf-8"),
+                    permitted_inputs=conformance_permitted_inputs,
+                ).encode("utf-8")
+            ),
             "thread_id": "fixture-thread-conformance",
             "started_at": self.AT,
             "ended_at": self.ENDED,
@@ -1381,6 +1517,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             stdout_reference=reviewer_stdout_ref,
             stderr_reference=reviewer_stderr_ref,
             execution=execution_facts,
+            permitted_inputs_sha256=sha256_bytes(
+                canonical_json_bytes(conformance_permitted_inputs)
+            ),
         )
         reviewer_execution_ref = self.write(
             "reviewer-execution.json", reviewer_execution, "reviewer-execution"
@@ -1460,6 +1599,18 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             rapid_context_execution,
             "context-execution-receipt",
         )
+        rapid_permitted_inputs = dict(
+            conformance_permitted_inputs,
+            reviewer_qualification_path=rapid_qualification_ref["path"],
+            reviewer_qualification_sha256=rapid_qualification_ref["sha256"],
+            reviewer_qualification_id=rapid_qualification["qualification_id"],
+            reviewer_prompt_sha256=rapid_qualification["prompt_sha256"],
+            review_mode="rapid_review",
+            risk_assessment_path=risk_ref["path"],
+            risk_assessment_sha256=risk_ref["sha256"],
+            review_charter_path=charter_ref["path"],
+            review_charter_sha256=charter_ref["sha256"],
+        )
         rapid_execution_facts = dict(
             execution_facts,
             reviewer_prompt_sha256=rapid_qualification["prompt_sha256"],
@@ -1469,6 +1620,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             output_tokens=30,
             reasoning_output_tokens=7,
             latency_ms=1200,
+            argv_sha256=reviewer_argv_sha256(
+                model=rapid_qualification["model"],
+                reasoning_effort=rapid_qualification["reasoning_effort"],
+            ),
+            stdin_sha256=sha256_bytes(
+                build_reviewer_stdin(
+                    fixed_prompt=protected_prompt_bytes.decode("utf-8"),
+                    permitted_inputs=rapid_permitted_inputs,
+                ).encode("utf-8")
+            ),
         )
         rapid_bytes = (self.repository / session_ref["path"]).read_bytes()
         rapid_stdout = b"".join(
@@ -1517,6 +1678,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             stdout_reference=rapid_stdout_ref,
             stderr_reference=rapid_stderr_ref,
             execution=rapid_execution_facts,
+            permitted_inputs_sha256=sha256_bytes(
+                canonical_json_bytes(rapid_permitted_inputs)
+            ),
+            risk_assessment_sha256=risk_ref["sha256"],
+            review_charter_sha256=charter_ref["sha256"],
         )
         rapid_execution_ref = self.write(
             "rapid-execution.json", rapid_execution, "reviewer-execution"
@@ -1638,6 +1804,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         policy = json.loads(
             (self.repository / manifest["effective_policy"]["path"]).read_text()
         )
+        qualification = json.loads(
+            (
+                self.repository
+                / manifest["reviewer_qualification"]["path"]
+            ).read_text()
+        )
         definition = next(
             item
             for item in policy["gates"]
@@ -1698,7 +1870,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             task_contract_sha256=manifest["task_contract"]["sha256"],
             effective_policy_sha256=manifest["effective_policy"]["sha256"],
             gate_definition_sha256=sha256_canonical(definition),
-            reviewer_prompt_sha256="sha256:" + "f" * 64,
+            reviewer_prompt_sha256=qualification["prompt_sha256"],
             producer={
                 "builder_id": "codex-governed-change",
                 "implementation_sha256": gate_implementation_sha256(),
@@ -1800,7 +1972,24 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         manifest = self.complete_manifest()
         state, reasons = evaluate_manifest(
             repository=self.repository, manifest=manifest, schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate, evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
+
+    def test_admission_reconstructs_stdin_from_protected_authority_prompt(self) -> None:
+        manifest = self.complete_manifest()
+        self.assertFalse(
+            (self.repository / ".codex/review/reviewer.prompt.md").exists()
+        )
+        state, reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
         )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
@@ -1811,6 +2000,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T09:59:59Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1822,6 +2012,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2028-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1841,6 +2032,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1872,6 +2064,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1893,6 +2086,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1905,6 +2099,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ("conformance", "missing-stream"),
             ("rapid_review", "tampered-stream"),
             ("conformance", "fabricated-observation"),
+            ("conformance", "forged-argv"),
+            ("conformance", "forged-stdin"),
+            ("conformance", "forged-permitted-inputs"),
+            ("rapid_review", "forged-risk-material"),
+            ("rapid_review", "forged-charter-material"),
         ):
             manifest = self.complete_manifest()
             reference = (
@@ -1920,7 +2119,23 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             elif defect == "tampered-stream":
                 stdout_path.write_bytes(b"tampered\n")
             else:
-                execution["observation"]["stdin"]["bytes_written"] -= 1
+                if defect == "fabricated-observation":
+                    execution["observation"]["stdin"]["bytes_written"] -= 1
+                elif defect == "forged-argv":
+                    execution["argv_sha256"] = "sha256:" + "0" * 64
+                elif defect == "forged-stdin":
+                    execution["stdin_sha256"] = "sha256:" + "0" * 64
+                else:
+                    material_name = {
+                        "forged-permitted-inputs": "permitted-inputs",
+                        "forged-risk-material": "risk-assessment",
+                        "forged-charter-material": "review-charter",
+                    }[defect]
+                    next(
+                        item
+                        for item in execution["materials"]
+                        if item["name"] == material_name
+                    )["sha256"] = "sha256:" + "0" * 64
                 execution = content_address(execution, "execution_id")
                 execution_bytes = canonical_json_bytes(execution)
                 execution_path.write_bytes(execution_bytes)
@@ -1930,6 +2145,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1944,6 +2160,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -1957,6 +2174,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=valid_manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(valid_manifest),
@@ -1973,6 +2191,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2003,6 +2222,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2031,6 +2251,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2053,6 +2274,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2077,6 +2299,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2135,6 +2358,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2147,6 +2371,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2161,6 +2386,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             manifest = content_address(manifest, "manifest_id")
             state, _ = evaluate_manifest(
                 repository=self.repository, manifest=manifest, schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate, evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
             )
@@ -2190,6 +2416,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2204,6 +2431,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=manifest,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2219,6 +2447,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=self.verified_decision_ids(manifest),
@@ -2271,6 +2500,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=variant,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=verified,
@@ -2314,6 +2544,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=missing_promotion_manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=frozenset(verified),
@@ -2380,6 +2611,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             repository=self.repository,
             manifest=promoted_manifest,
             schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
             current_candidate=self.candidate,
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_ids=frozenset(
@@ -2595,6 +2827,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 repository=self.repository,
                 manifest=variant,
                 schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
                 current_candidate=self.candidate,
                 evaluated_at="2026-08-26T12:00:00Z",
                 verified_decision_ids=self.verified_decision_ids(variant),

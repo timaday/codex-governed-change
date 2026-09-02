@@ -215,7 +215,7 @@ codex exec
   -
 ```
 
-The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
+The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries are copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use the reviewer's one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
@@ -224,8 +224,11 @@ and post-run context receipts, reviewer output, termination, candidate pre/post
 identity, digest-only argv/stdin identities, Codex thread/CLI versions, workflow
 run/attempt, bounds, materials, primitive supervisor/capture observations,
 direct event-stream references and Codex CLI-reported token usage. Admission
-re-hashes both streams and derives the final result, usage and execution state
-from those observations. No host path or environment value is persisted.
+re-hashes both streams, reconstructs the portable sanitized argv and exact stdin
+from the protected prompt plus canonical permitted inputs, and derives the final
+result, usage and execution state from those observations. Rapid-review
+execution additionally material-binds exactly one risk assessment and charter.
+No host path or environment value is persisted.
 The retained stream bytes are deterministic evidence projections of the
 complete bounded captures. For parsed command-execution events, command text and
 aggregated output are replaced wholesale with fixed omission tokens while item
@@ -333,6 +336,11 @@ result end, provenance start/end must equal the result, and the manifest must
 not predate any result completion. The reconstructed status must agree with the exit code. Missing or altered raw
 streams, timeouts, signals, incomplete observations and truncation are
 `UNKNOWN`, even when a schema-valid result document claims `PASS`.
+Within one locked command, every digest-bound evidence reference is cached by
+canonical repository root and normalized path. A later use receives the same
+retained bytes, while a conflicting digest or smaller byte bound fails closed;
+policy, qualification, reconstruction and disposition therefore cannot observe
+different pathname generations.
 
 Sandbox admission reconstructs execution identity from the protected provider,
 pinned image, canonical command, provider version and exact process, memory, CPU,
@@ -474,6 +482,13 @@ failure to establish absence is incomplete observation. After process-tree termi
 the trusted supervisor re-identifies the executed copy and packages outputs into the
 write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.
+
+Mutation preparation applies the same rule per operator: it identifies the
+source before copy, identifies the unmodified disposable copy, re-identifies the
+source, and only then derives and applies the expected mutation in that verified
+copy. Recursive file, Git and submodule-tree observations share the mutant's
+absolute deadline; preparation uncertainty is retained as `UNKNOWN` without a
+probe launch.
 
 The curated mutation probe is protected producer code, not candidate harness
 logic. It accepts only a fixed command-template grammar, resolves the protected

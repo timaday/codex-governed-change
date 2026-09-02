@@ -30,6 +30,7 @@ from codex_governance.reviewer import (
     launch_reviewer,
     observe_codex_cli_version,
     prepare_sanitized_harness,
+    reviewer_argv_sha256,
     reviewer_stream_is_portable,
     resolve_reviewer_runtime_read_roots,
     sanitized_invocation_descriptor,
@@ -622,13 +623,22 @@ Path({str(marker)!r}).write_text('\\n'.join(results))
         changed = False
 
         def race(
-            source: Path, destination: Path, *, deadline: float | None = None
+            repository: Path,
+            relative_path: str,
+            destination: Path,
+            *,
+            deadline: float | None = None,
         ) -> None:
             nonlocal changed
-            if source == self.repository / "tracked.txt" and not changed:
-                source.write_text("raced\n", encoding="utf-8")
+            if relative_path == "tracked.txt" and not changed:
+                (repository / relative_path).write_text("raced\n", encoding="utf-8")
                 changed = True
-            original(source, destination, deadline=deadline)
+            original(
+                repository,
+                relative_path,
+                destination,
+                deadline=deadline,
+            )
 
         with patch("codex_governance.reviewer._copy_entry", side_effect=race):
             with self.assertRaisesRegex(ValueError, "snapshot does not match"):
@@ -663,6 +673,55 @@ Path({str(marker)!r}).write_text('\\n'.join(results))
                     evidence_root="evidence",
                     deadline=time.monotonic() + 2,
                 )
+
+    def test_snapshot_copy_and_permissions_share_the_absolute_deadline(self) -> None:
+        from codex_governance import reviewer
+
+        copy_deadlines = []
+        permission_deadlines = []
+        real_copy = reviewer.copy_bounded_repository_entry
+        real_permissions = reviewer.make_tree_read_only_bounded
+
+        def copy_entry(
+            repository, relative_path, destination, *, deadline, max_bytes=None
+        ):
+            copy_deadlines.append(deadline)
+            return real_copy(
+                repository,
+                relative_path,
+                destination,
+                deadline=deadline,
+                max_bytes=max_bytes,
+            )
+
+        def finalize_permissions(root, *, deadline):
+            permission_deadlines.append(deadline)
+            return real_permissions(root, deadline=deadline)
+
+        deadline = time.monotonic() + 10
+        with (
+            patch(
+                "codex_governance.reviewer.copy_bounded_repository_entry",
+                side_effect=copy_entry,
+            ),
+            patch(
+                "codex_governance.reviewer.make_tree_read_only_bounded",
+                side_effect=finalize_permissions,
+            ),
+        ):
+            prepare_sanitized_harness(
+                candidate_repository=self.repository,
+                harness_root=Path(self.temporary.name) / "bounded-copy-harness",
+                fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+                output_schema_path=Path("schemas/reviewer-result.schema.json"),
+                permitted_inputs=self.inputs,
+                expected_candidate=self.candidate,
+                evidence_root="evidence",
+                deadline=deadline,
+            )
+        self.assertTrue(copy_deadlines)
+        self.assertTrue(permission_deadlines)
+        self.assertEqual({deadline}, set(copy_deadlines + permission_deadlines))
 
     def test_protected_evidence_root_is_configurable_and_enforced(self) -> None:
         with self.assertRaisesRegex(ValueError, "protected evidence root"):
@@ -1297,7 +1356,9 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "candidate_before": self.CANDIDATE,
             "candidate_after": self.CANDIDATE,
             "environment_keys": ["PATH"],
-            "argv_sha256": "sha256:" + "b" * 64,
+            "argv_sha256": reviewer_argv_sha256(
+                model="fake-gpt", reasoning_effort="xhigh"
+            ),
             "stdin_sha256": "sha256:" + "c" * 64,
             "thread_id": "fixture-thread",
             "started_at": "2026-08-26T10:00:00Z",
@@ -1360,6 +1421,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 stdout_reference={"path": "evidence/stdout.bin", "sha256": execution["stdout_sha256"]},
                 stderr_reference={"path": "evidence/stderr.bin", "sha256": execution["stderr_sha256"]},
                 execution=execution,
+                permitted_inputs_sha256="sha256:" + "d" * 64,
             )
 
         baseline = statement()["execution_id"]

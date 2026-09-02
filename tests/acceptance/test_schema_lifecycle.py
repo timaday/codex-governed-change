@@ -30,6 +30,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(
             "explicit_required",
+            migration_policy("reviewer-qualification-cases", "3.0.0", "4.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
             migration_policy("reviewer-qualification-corpus", "2.0.0", "3.0.0"),
         )
         self.assertEqual(
@@ -82,6 +86,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             for source, target in (
                 ("1.0.0", "2.0.0"),
                 ("2.0.0", "3.0.0"),
+                ("3.0.0", "4.0.0"),
             )
             if migration_policy(kind, source, target) == "explicit_required"
         }
@@ -106,6 +111,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_reviewer_execution_v2_to_v3,
             migrate_reviewer_qualification_cases_v1_to_v2,
             migrate_reviewer_qualification_cases_v2_to_v3,
+            migrate_reviewer_qualification_cases_v3_to_v4,
             migrate_reviewer_qualification_corpus_v1_to_v2,
             migrate_reviewer_qualification_corpus_v2_to_v3,
             migrate_reviewer_qualification_v1_to_v2,
@@ -218,7 +224,24 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("reviewer-qualification", rebuilt_qualification)
         observed.add(("reviewer-qualification", "1.0.0", "2.0.0"))
 
-        qualification_cases_v3 = example("reviewer-qualification-cases")
+        qualification_cases_v4 = example("reviewer-qualification-cases")
+        invocation_names = {"permitted_inputs"}
+        invocation_references = {
+            item["case_id"]: {
+                name: item[name] for name in invocation_names
+            }
+            for item in qualification_cases_v4["observations"]
+        }
+        qualification_cases_v3 = deepcopy(qualification_cases_v4)
+        for item in qualification_cases_v3["observations"]:
+            for name in invocation_names:
+                item.pop(name)
+        qualification_cases_v3 = addressed(
+            qualification_cases_v3, "3.0.0", "case_evidence_id"
+        )
+        rejected_by_current(
+            "reviewer-qualification-cases", qualification_cases_v3
+        )
         context_names = {
             "context_sources",
             "context_projection",
@@ -252,8 +275,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_cases_v2, context_references=context_references
         )
         self.assertEqual(qualification_cases_v3, rebuilt_cases_v3)
-        current("reviewer-qualification-cases", rebuilt_cases_v3)
         observed.add(("reviewer-qualification-cases", "2.0.0", "3.0.0"))
+        rebuilt_cases_v4 = migrate_reviewer_qualification_cases_v3_to_v4(
+            rebuilt_cases_v3, evidence_references=invocation_references
+        )
+        self.assertEqual(qualification_cases_v4, rebuilt_cases_v4)
+        current("reviewer-qualification-cases", rebuilt_cases_v4)
+        observed.add(("reviewer-qualification-cases", "3.0.0", "4.0.0"))
 
         qualification_corpus_v3 = example("reviewer-qualification-corpus")
         expected_findings = {

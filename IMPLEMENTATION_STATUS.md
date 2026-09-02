@@ -407,5 +407,52 @@ update change the candidate. They require complete deterministic gates, all 63
 causal mutation kills, rollback rehearsal, portability and a new exact-candidate
 fresh review before any release qualification claim.
 
-These observations are invalidated by any later candidate mutation and remain
-working-copy evidence until protected T24 reconstruction is complete.
+The immutable `8ec2b44` successor then passed its local blueprint, 279-test,
+compile, rollback, portability and 63-operator mutation checkpoints. Its fresh
+ChatGPT-authenticated `gpt-5.6-sol` review completed with admissible process
+evidence and returned `BLOCK`. Seven concrete findings were retained:
+
+- candidate and reviewer pathname copies could block or consume a replaced
+  special leaf;
+- reviewer snapshot/evidence copying and permission traversal did not all share
+  a stop-capable absolute deadline;
+- each mutant copy was not re-identified against the source immediately before
+  patching and expected mutation trees could observe the live source;
+- mutation Git/file/tree observations lacked one absolute deadline;
+- admission trusted claimed reviewer argv/stdin and omitted exact
+  permitted-input, risk and charter material reconstruction;
+- portability recognition assumed a small POSIX root set and omitted bare
+  non-loopback IPv6; and
+- evidence evaluation could reopen a referenced policy within one command.
+
+The current working-copy successor addresses those findings with retained
+descriptor copies in killable bounded helpers, deadline-bound permission and
+mutation observations, pre-patch source/copy/source identity checks, portable
+argv plus exact protected-prompt/permitted-input stdin reconstruction, exact
+rapid-review materials and one-to-one execution/charter binding, arbitrary-root
+path plus bare IPv6 recognition, and a command-scoped digest-bound evidence
+reference cache. A follow-on split-checkout audit also found and repaired an
+admission path that rebuilt stdin from the candidate prompt rather than the
+protected authority prompt. That repair is covered by an explicit
+`--authority-root`, a dedicated semantic mutant, and the breaking
+`reviewer-qualification-cases` v4 migration for newly retained invocation
+references. The curated corpus now contains 76 operators with content ID
+`sha256:5c5d1c0c9f74ace0815394e9ba5a3baa65459e892e734d820a34ab0fcb94b74e`.
+
+Before this status mutation, the working-copy checkpoint on 2026-09-02
+observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- the acceptance suite: 200 tests passed;
+- the unit suite: 86 tests passed;
+- `python3 -m compileall -q src tests` and `git diff --check`: `PASS`;
+- the public-portability acceptance tests passed; and
+- the 76-operator mutation run, rollback rehearsal and exact-candidate fresh
+  review remain pending for the immutable successor.
+
+These observations are local working-copy proof, not protected T24 admission
+evidence. This status update invalidates them. Complete deterministic gates,
+all 76 causal mutation kills, rollback rehearsal, portability and a new exact-
+candidate fresh review must be rebound after the successor commit. Any later
+candidate mutation invalidates that evidence again.

@@ -14,6 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import (
+    ArtifactSafetyError,
+    copy_bounded_repository_entry,
+)
 from codex_governance.canonical import (
     content_address,
     normalize_repo_path,
@@ -90,28 +94,25 @@ def _remove_scoped(path: Path, boundary: Path) -> None:
 
 
 def _copy_candidate_entry(
-    source: Path, destination: Path, *, deadline: float | None = None
+    repository: Path,
+    relative_path: str,
+    destination: Path,
+    *,
+    deadline: float | None = None,
 ) -> None:
-    _remaining(deadline)
-    info = source.lstat()
-    destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() or destination.is_symlink():
         _remove_scoped(destination, destination.parent)
-    if stat.S_ISLNK(info.st_mode):
-        destination.symlink_to(os.readlink(source))
-    elif stat.S_ISREG(info.st_mode):
-        shutil.copyfile(source, destination, follow_symlinks=False)
-        destination.chmod(0o755 if info.st_mode & 0o111 else 0o644)
-    elif stat.S_ISDIR(info.st_mode):
-        shutil.copytree(
-            source,
+    try:
+        copy_bounded_repository_entry(
+            repository,
+            relative_path,
             destination,
-            symlinks=True,
-            ignore=shutil.ignore_patterns(".git", ".git/**"),
+            deadline=deadline,
         )
-    else:
-        raise ValueError("unsupported candidate-copy file type")
-    _remaining(deadline)
+    except ArtifactSafetyError as exc:
+        raise CandidatePreparationError(
+            "candidate entry copy was unavailable"
+        ) from exc
 
 
 def _submodule_states(
@@ -297,6 +298,13 @@ def prepare_candidate_copy(
         source, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
         deadline=deadline,
     )
+    deleted_names = {
+        normalize_repo_path(raw.decode("utf-8"))
+        for raw in _run_git(
+            source, "ls-files", "-z", "--deleted", deadline=deadline
+        ).split(b"\x00")
+        if raw
+    }
     evidence_posix = evidence.as_posix()
     for raw in names.split(b"\x00"):
         if not raw:
@@ -309,10 +317,14 @@ def prepare_candidate_copy(
             continue
         if relative in submodule_paths:
             continue
-        source_path = source.joinpath(*relative.split("/"))
         target_path = target.joinpath(*relative.split("/"))
-        if source_path.exists() or source_path.is_symlink():
-            _copy_candidate_entry(source_path, target_path, deadline=deadline)
+        if relative not in deleted_names:
+            _copy_candidate_entry(
+                source,
+                relative,
+                target_path,
+                deadline=deadline,
+            )
         elif target_path.exists() or target_path.is_symlink():
             _remove_scoped(target_path, target)
     for submodule in submodules:

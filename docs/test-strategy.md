@@ -78,7 +78,9 @@ No model confidence statement is an oracle.
   environments omit home, Codex-home, proxy, authentication and injected secret
   variables. Absence or failure of this deployment check remains `UNKNOWN`.
 - Atomic filesystem and symlink/path traversal cases.
-- Fixed clock and deterministic redactor adapters.
+- Fixed clock and deterministic redactor adapters, including arbitrary absolute
+  POSIX roots, Windows/UNC paths, bare IPv4/IPv6 and a benign RFC3339 timestamp
+  that must not be misclassified as IPv6.
 
 ### Integration
 
@@ -177,8 +179,10 @@ chronology, and add limitations. A production-path test runs the separately
 selected rollback producer from an exact-closure read-only protected package
 mount, excludes ignored package files, substitutes a candidate-local
 success-printer, and reconstructs its emitted rollback evidence.
-Reviewer deadline tests stall pre/post identity Git observations and snapshot Git
-helpers. Container
+Reviewer deadline tests stall pre/post identity Git observations, descriptor-bound
+snapshot/evidence copies, snapshot Git helpers and permission finalization. Each
+operation must consume the same absolute deadline and terminate through a
+stop-capable child. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
 Gate deadline tests stall initial clone, checkout and submodule helpers, prove
@@ -196,8 +200,12 @@ Python implementation sources, and require both governance authorization and an
 admission-path LKG promotion with exact proposed-policy and rollback references.
 Reviewer CLI tests place symlinks, FIFOs, oversized leaves and parent swaps at
 permitted-input paths and prove the validated bytes are the same bytes copied to
-the harness. Qualification tests replace or omit every per-case context artifact
-and re-address the outer case record; reconstruction must still reject it.
+the harness. Split-checkout admission tests give the candidate and protected
+authority different prompt bytes and require stdin reconstruction to consume
+only the protected-authority observation. Qualification tests replace or omit
+every per-case context, permitted-input, risk and charter artifact, tamper the
+portable argv or exact stdin digest, and re-address the outer case record;
+reconstruction must still reject it.
 
 Schema lifecycle tests cover every transition advertised by `migration_policy`,
 construct schema-valid legacy documents, prove current schemas reject them,
@@ -325,6 +333,11 @@ gitlink commit fixed, and independently change a tracked byte and add a
 non-ignored untracked file. Both operations must change the recursive tree
 digest. Ignored submodule files remain excluded and must never enter a
 reconstructed candidate copy.
+
+For every mutant, race or substitute the source around copying and require the
+source-before, copy and source-after identities to equal the exact candidate
+before patching. Stall Git and recursive tree observation and require retained
+`UNKNOWN` evidence without launching the selected probe.
 
 Oracle: unsupported states are explicit `UNKNOWN/BLOCK`, not silent defaults.
 

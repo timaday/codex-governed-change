@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import stat
 import subprocess
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import (
+    read_bounded_repository_entry,
+    write_bounded_bytes,
+)
 from codex_governance.canonical import (
     canonical_json_bytes,
     content_address,
@@ -89,6 +95,19 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "untracked-pathname-read",
         "candidate-clone-unbounded",
         "preparation-error-launches",
+        "candidate-entry-pathname-copy",
+        "reviewer-entry-pathname-copy",
+        "reviewer-permission-deadline-omitted",
+        "mutant-copy-identity-omitted",
+        "mutation-git-deadline-omitted",
+        "reviewer-argv-unchecked",
+        "reviewer-stdin-unchecked",
+        "reviewer-permitted-input-unchecked",
+        "rapid-risk-material-unchecked",
+        "rapid-charter-material-unchecked",
+        "authoritative-reference-reopened",
+        "bare-ipv6-unredacted",
+        "admission-candidate-prompt-read",
     }
 )
 
@@ -275,16 +294,32 @@ def evaluate_mutation_record(record: Mapping[str, Any]) -> DispositionState:
     return DispositionState.UNKNOWN
 
 
-def _git(repository: Path, *arguments: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "-C", os.fspath(repository), *arguments],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+def _remaining(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("mutation observation deadline expired")
+    return remaining
+
+
+def _git(
+    repository: Path, *arguments: str, deadline: float | None = None
+) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(repository), *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("Git-visible mutation source observation failed") from exc
     if completed.returncode != 0:
         raise ValueError("Git-visible mutation source observation failed")
+    _remaining(deadline)
     return completed.stdout
 
 
@@ -293,6 +328,7 @@ def git_visible_tree_sha256(
     *,
     evidence_root: str,
     replacements: Mapping[str, bytes] | None = None,
+    deadline: float | None = None,
 ) -> str:
     """Hash every Git-visible source byte in one concrete candidate tree."""
     root = repository.resolve(strict=True)
@@ -306,6 +342,7 @@ def git_visible_tree_sha256(
         evidence_root=evidence,
         replacements=replacement_bytes,
         ancestors=frozenset(),
+        deadline=deadline,
     )
 
 
@@ -315,6 +352,7 @@ def _git_visible_tree_sha256(
     evidence_root: str | None,
     replacements: Mapping[str, bytes],
     ancestors: frozenset[Path],
+    deadline: float | None,
 ) -> str:
     """Recursively frame one repository and all initialized submodule trees."""
     root = root.resolve(strict=True)
@@ -322,7 +360,10 @@ def _git_visible_tree_sha256(
         raise ValueError("recursive submodule cycle is not admissible")
     nested_ancestors = ancestors | {root}
     modes: dict[str, str] = {}
-    for raw in _git(root, "ls-files", "--stage", "-z").split(b"\x00"):
+    _remaining(deadline)
+    for raw in _git(
+        root, "ls-files", "--stage", "-z", deadline=deadline
+    ).split(b"\x00"):
         if not raw:
             continue
         metadata, raw_path = raw.split(b"\t", 1)
@@ -330,8 +371,21 @@ def _git_visible_tree_sha256(
         modes[normalize_repo_path(raw_path.decode("utf-8"))] = mode
     entries: list[dict[str, Any]] = []
     names = _git(
-        root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+        root,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        deadline=deadline,
     )
+    deleted = {
+        normalize_repo_path(raw.decode("utf-8"))
+        for raw in _git(
+            root, "ls-files", "-z", "--deleted", deadline=deadline
+        ).split(b"\x00")
+        if raw
+    }
     seen: set[str] = set()
     for raw in names.split(b"\x00"):
         if not raw:
@@ -352,7 +406,9 @@ def _git_visible_tree_sha256(
             except ValueError as exc:
                 raise ValueError("Git-visible submodule escapes its repository") from exc
             commit = require_git_object(
-                _git(nested_root, "rev-parse", "HEAD").decode("ascii").strip(),
+                _git(
+                    nested_root, "rev-parse", "HEAD", deadline=deadline
+                ).decode("ascii").strip(),
                 name="submodule commit",
             )
             entries.append(
@@ -365,6 +421,7 @@ def _git_visible_tree_sha256(
                         evidence_root=None,
                         replacements={},
                         ancestors=nested_ancestors,
+                        deadline=deadline,
                     ),
                 }
             )
@@ -372,18 +429,20 @@ def _git_visible_tree_sha256(
         if path in replacements:
             data = replacements[path]
             if mode is None:
-                info = absolute.lstat()
+                _, _, info = read_bounded_repository_entry(
+                    root, path, deadline=deadline
+                )
                 mode = "100755" if info.st_mode & 0o111 else "100644"
-        elif not absolute.exists() and not absolute.is_symlink():
+        elif path in deleted:
             entries.append({"path": path, "mode": mode or "missing", "missing": True})
             continue
         else:
-            info = absolute.lstat()
-            if stat.S_ISLNK(info.st_mode):
-                data = os.fsencode(os.readlink(absolute))
+            kind, data, info = read_bounded_repository_entry(
+                root, path, deadline=deadline
+            )
+            if kind == "symlink":
                 mode = "120000"
-            elif stat.S_ISREG(info.st_mode):
-                data = absolute.read_bytes()
+            elif kind == "regular":
                 mode = "100755" if info.st_mode & 0o111 else "100644"
             else:
                 raise ValueError("Git-visible mutation source contains an unsafe type")
@@ -392,26 +451,39 @@ def _git_visible_tree_sha256(
         )
     if set(replacements) - seen:
         raise ValueError("mutation replacement path is not Git-visible")
+    _remaining(deadline)
     return sha256_canonical({"schema_version": "1.0.0", "entries": entries})
 
 
 def expected_mutated_tree_sha256(
-    *, repository: Path, evidence_root: str, mutant: Mapping[str, Any]
+    *,
+    repository: Path,
+    evidence_root: str,
+    mutant: Mapping[str, Any],
+    deadline: float | None = None,
 ) -> str:
     """Compute the concrete tree identity after one protected virtual patch."""
     root = repository.resolve(strict=True)
     relative = normalize_repo_path(mutant.get("path"))
-    target = root.joinpath(*relative.split("/"))
-    if target.is_symlink() or not target.is_file():
+    kind, data, _ = read_bounded_repository_entry(
+        root, relative, deadline=deadline
+    )
+    if kind != "regular":
         raise ValueError("mutant target must be a regular candidate file")
-    text = target.read_text(encoding="utf-8")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("mutant target must be UTF-8 text") from exc
     old = mutant.get("old")
     new = mutant.get("new")
     if not isinstance(old, str) or not isinstance(new, str) or text.count(old) != 1:
         raise ValueError("curated mutant precondition did not match exactly once")
     replaced = text.replace(old, new, 1).encode("utf-8")
     return git_visible_tree_sha256(
-        root, evidence_root=evidence_root, replacements={relative: replaced}
+        root,
+        evidence_root=evidence_root,
+        replacements={relative: replaced},
+        deadline=deadline,
     )
 
 
@@ -509,23 +581,45 @@ def load_curated_corpus(path: Path) -> dict[str, Any]:
     return parse_curated_corpus(data)
 
 
-def apply_curated_mutant(candidate_copy: Path, mutant: Mapping[str, Any]) -> str:
+def apply_curated_mutant(
+    candidate_copy: Path,
+    mutant: Mapping[str, Any],
+    *,
+    deadline: float | None = None,
+) -> str:
     """Apply one exact protected text mutation to a disposable candidate copy."""
     root = candidate_copy.resolve(strict=True)
     relative = normalize_repo_path(mutant.get("path"))
-    target = root.joinpath(*relative.split("/"))
-    if target.is_symlink() or not target.is_file():
+    kind, data, info = read_bounded_repository_entry(
+        root, relative, deadline=deadline
+    )
+    if kind != "regular":
         raise ValueError("mutant target must be a regular candidate file")
-    target.resolve(strict=True).relative_to(root)
     try:
-        text = target.read_text(encoding="utf-8")
+        text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("mutant target must be UTF-8 text") from exc
     old = mutant.get("old")
     new = mutant.get("new")
     if not isinstance(old, str) or not isinstance(new, str) or text.count(old) != 1:
         raise ValueError("curated mutant precondition did not match exactly once")
-    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    target = root.joinpath(*relative.split("/"))
+    temporary = target.with_name(
+        target.name + ".codex-mutant-" + secrets.token_hex(8)
+    )
+    try:
+        write_bounded_bytes(
+            temporary,
+            text.replace(old, new, 1).encode("utf-8"),
+            deadline=deadline,
+            mode=0o755 if info.st_mode & 0o111 else 0o644,
+        )
+        _remaining(deadline)
+        os.replace(temporary, target)
+        _remaining(deadline)
+    finally:
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
     return sha256_canonical(
         {"path": relative, "old": old, "new": new, "operator": mutant.get("operator")}
     )

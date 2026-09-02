@@ -43,6 +43,7 @@ from codex_governance.context import (
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.evidence import (
+    authoritative_reference_session,
     PRODUCER_VERSION,
     assemble_evidence_manifest,
     assemble_gate_manifest,
@@ -61,6 +62,7 @@ from codex_governance.mutation_runner import run_governed_mutation_corpus
 from codex_governance.profiles import validate_task_contract
 from codex_governance.qualification import reviewer_qualification_state
 from codex_governance.reviewer import (
+    PROTECTED_REVIEWER_PROMPT_PATH,
     build_reviewer_command,
     build_reviewer_execution_statement,
     build_reviewer_stdin,
@@ -1181,6 +1183,8 @@ def _review(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
             absolute_deadline=review_deadline,
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
         )
         reviewer_output_bytes = result.pop("output_bytes", b"")
         if not isinstance(reviewer_output_bytes, bytes):
@@ -1257,6 +1261,19 @@ def _review(args: argparse.Namespace) -> int:
             stdout_reference=stdout_reference,
             stderr_reference=stderr_reference,
             execution=result,
+            permitted_inputs_sha256=sha256_bytes(
+                canonical_json_bytes(permitted)
+            ),
+            risk_assessment_sha256=(
+                permitted.get("risk_assessment_sha256")
+                if review_mode == "rapid_review"
+                else None
+            ),
+            review_charter_sha256=(
+                permitted.get("review_charter_sha256")
+                if review_mode == "rapid_review"
+                else None
+            ),
         )
         _write_cli_output(args, "execution_output", execution_statement)
     execution_complete = bool(
@@ -1332,10 +1349,14 @@ def _evaluate(args: argparse.Namespace) -> int:
         effective_policy_sha256=manifest["effective_policy"]["sha256"],
         evidence_root=policy["evidence_root"],
     )
+    protected_prompt_bytes = _read_authority_argument(
+        args.authority_root, args.prompt
+    )
     state, reasons = evaluate_manifest(
         repository=args.repository,
         manifest=manifest,
         schema_root=args.schema_root,
+        protected_prompt_bytes=protected_prompt_bytes,
         current_candidate=candidate,
         evaluated_at=args.evaluated_at,
         verified_decision_ids=frozenset(
@@ -1551,6 +1572,10 @@ def _parser() -> argparse.ArgumentParser:
 
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--repository", type=Path, default=Path.cwd())
+    evaluate.add_argument("--authority-root", type=Path, required=True)
+    evaluate.add_argument(
+        "--prompt", type=Path, default=Path(PROTECTED_REVIEWER_PROMPT_PATH)
+    )
     evaluate.add_argument("--manifest", type=Path, required=True)
     evaluate.add_argument("--candidate", type=Path, required=True)
     evaluate.add_argument("--evaluated-at", required=True)
@@ -1583,7 +1608,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one bounded use case with stable fail-closed exit codes."""
     args = _parser().parse_args(argv)
-    with authoritative_json_session():
+    with authoritative_json_session(), authoritative_reference_session():
         try:
             lock = _pipeline_lock_for(args)
             with lock:

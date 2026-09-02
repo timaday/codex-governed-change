@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,7 +64,9 @@ from codex_governance.qualification import (
 from codex_governance.rapid_review import evaluate_rapid_review
 from codex_governance.reviewer import (
     REVIEWER_ENVIRONMENT_ALLOWLIST,
+    build_reviewer_stdin,
     parse_codex_jsonl_evidence,
+    reviewer_argv_sha256,
     reviewer_observation_facts,
     reviewer_stream_is_portable,
 )
@@ -78,6 +82,19 @@ from codex_governance.locators import resolve_evidence_locator
 
 
 PRODUCER_VERSION = "0.1.0"
+_REFERENCE_BYTES: ContextVar[
+    dict[tuple[str, str], tuple[str, bytes]] | None
+] = ContextVar("authoritative_reference_bytes", default=None)
+
+
+@contextmanager
+def authoritative_reference_session():
+    """Retain each digest-bound repository reference for one CLI command."""
+    token = _REFERENCE_BYTES.set({})
+    try:
+        yield
+    finally:
+        _REFERENCE_BYTES.reset(token)
 
 
 def utc_now() -> str:
@@ -103,11 +120,26 @@ def repository_reference(
 def read_reference(
     *, repository: Path, reference: Mapping[str, Any], max_bytes: int = 8_000_000
 ) -> bytes:
-    data = read_bounded_repository_file(
-        repository, str(reference.get("path")), max_bytes=max_bytes
-    )
-    if sha256_bytes(data) != require_sha256(reference.get("sha256")):
+    if max_bytes < 1:
+        raise ValueError("reference byte bound must be positive")
+    root = repository.resolve(strict=True)
+    relative = normalize_repo_path(reference.get("path"))
+    expected = require_sha256(reference.get("sha256"))
+    cache = _REFERENCE_BYTES.get()
+    key = (str(root), relative)
+    retained = cache.get(key) if cache is not None else None
+    if retained is not None:
+        retained_digest, data = retained
+        if retained_digest != expected:
+            raise ValueError("conflicting evidence reference digest")
+        if len(data) > max_bytes:
+            raise ValueError("evidence reference exceeds the size bound")
+        return data
+    data = read_bounded_repository_file(root, relative, max_bytes=max_bytes)
+    if sha256_bytes(data) != expected:
         raise ValueError("evidence reference digest mismatch")
+    if cache is not None:
+        cache[key] = (expected, data)
     return data
 
 
@@ -299,11 +331,15 @@ def evaluate_manifest(
     repository: Path,
     manifest: Mapping[str, Any],
     schema_root: Path,
+    protected_prompt_bytes: bytes,
     current_candidate: Mapping[str, Any],
     evaluated_at: str,
     verified_decision_ids: frozenset[str] = frozenset(),
 ) -> tuple[DispositionState, list[str]]:
     """Reconstruct all fixed assurance claims from raw typed references."""
+    if not isinstance(protected_prompt_bytes, bytes):
+        return DispositionState.UNKNOWN, ["PROTECTED_REVIEWER_PROMPT_INVALID"]
+    prompt_bytes = protected_prompt_bytes
     repository_id = manifest.get("repository_id")
     if not verify_candidate_identity(current_candidate):
         return DispositionState.UNKNOWN, ["CURRENT_CANDIDATE_IDENTITY_INVALID"]
@@ -470,7 +506,12 @@ def evaluate_manifest(
         return False
 
     def model_usage_reconciles(
-        execution: Mapping[str, Any], context_execution: Mapping[str, Any]
+        execution: Mapping[str, Any],
+        context_execution: Mapping[str, Any],
+        permitted_inputs: Mapping[str, Any],
+        *,
+        risk_sha256: str | None = None,
+        charter_sha256: str | None = None,
     ) -> bool:
         keys = (
             "input_tokens",
@@ -485,6 +526,10 @@ def evaluate_manifest(
             {"name": "effective-policy", "sha256": policy_sha},
             {"name": "candidate", "sha256": current_candidate_id},
             {"name": "reviewer-prompt", "sha256": execution.get("prompt_sha256")},
+            {
+                "name": "permitted-inputs",
+                "sha256": sha256_bytes(canonical_json_bytes(dict(permitted_inputs))),
+            },
             {"name": "output-schema", "sha256": execution.get("output_schema_sha256")},
             {"name": "launcher", "sha256": execution.get("launcher_sha256")},
             {"name": "qualification", "sha256": execution.get("qualification_id")},
@@ -494,6 +539,22 @@ def evaluate_manifest(
             {"name": "prepared-context", "sha256": execution.get("input_context_receipt_sha256")},
             {"name": "post-run-context", "sha256": execution.get("context_execution_receipt_sha256")},
         ]
+        if risk_sha256 is not None or charter_sha256 is not None:
+            try:
+                expected_materials.extend(
+                    [
+                        {
+                            "name": "risk-assessment",
+                            "sha256": require_sha256(risk_sha256),
+                        },
+                        {
+                            "name": "review-charter",
+                            "sha256": require_sha256(charter_sha256),
+                        },
+                    ]
+                )
+            except ValueError:
+                return False
         return bool(
             execution.get("usage_observed") is True
             and context_execution.get("usage_observed") is True
@@ -521,7 +582,10 @@ def evaluate_manifest(
         )
 
     def reviewer_execution_reconstructs(
-        execution: Mapping[str, Any], output_reference: Mapping[str, Any]
+        execution: Mapping[str, Any],
+        output_reference: Mapping[str, Any],
+        permitted_inputs: Mapping[str, Any],
+        prompt_bytes: bytes,
     ) -> bool:
         try:
             stdout = read_reference(repository=repository, reference=execution["stdout"])
@@ -534,6 +598,17 @@ def evaluate_manifest(
             final_message = json.loads(str(parsed_stream["final_message"]))
             primitive = execution["observation"]
             derived = reviewer_observation_facts(primitive)
+            prompt_text = prompt_bytes.decode("utf-8")
+            expected_stdin_sha256 = sha256_bytes(
+                build_reviewer_stdin(
+                    fixed_prompt=prompt_text,
+                    permitted_inputs=permitted_inputs,
+                ).encode("utf-8")
+            )
+            expected_argv_sha256 = reviewer_argv_sha256(
+                model=str(execution["model"]),
+                reasoning_effort=str(execution["reasoning_effort"]),
+            )
         except (KeyError, OSError, TypeError, UnicodeError, ValueError):
             return False
         required_true = (
@@ -568,6 +643,9 @@ def evaluate_manifest(
             and derived["output_truncated"] is False
             and execution.get("return_code") == primitive.get("return_code") == 0
             and execution.get("timed_out") == primitive.get("timed_out") is False
+            and sha256_bytes(prompt_bytes) == execution.get("prompt_sha256")
+            and execution.get("argv_sha256") == expected_argv_sha256
+            and execution.get("stdin_sha256") == expected_stdin_sha256
             and execution.get("usage_observed") is True
             and all(
                 execution.get(key) == parsed_stream.get(key)
@@ -1322,6 +1400,54 @@ def evaluate_manifest(
     if not context_ok:
         defeaters["context_complete"].append("context receipt is stale, incomplete, or budget-insufficient")
 
+    def reconstruct_permitted_inputs(
+        *,
+        review_mode: str,
+        qualification_reference: Mapping[str, Any],
+        qualification_document: Mapping[str, Any],
+        risk_reference: Mapping[str, Any] | None = None,
+        charter_reference: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        inputs = {
+            "task_contract_path": manifest["task_contract"]["path"],
+            "task_contract_sha256": manifest["task_contract"]["sha256"],
+            "repository_id": repository_id,
+            "candidate_id": current_candidate_id,
+            "candidate_path": "candidate",
+            "effective_policy_path": manifest["effective_policy"]["path"],
+            "effective_policy_sha256": manifest["effective_policy"]["sha256"],
+            "gate_manifest_path": manifest["gate_manifest"]["path"],
+            "gate_manifest_sha256": manifest["gate_manifest"]["sha256"],
+            "context_receipt_path": manifest["context_receipt"]["path"],
+            "context_receipt_sha256": manifest["context_receipt"]["sha256"],
+            "context_sources_path": manifest["context_sources"]["path"],
+            "context_sources_sha256": manifest["context_sources"]["sha256"],
+            "context_projection_path": manifest["context_projection"]["path"],
+            "context_projection_sha256": manifest["context_projection"]["sha256"],
+            "context_qualification_path": manifest["context_qualification"]["path"],
+            "context_qualification_sha256": manifest["context_qualification"]["sha256"],
+            "context_qualification_id": context_qualification["qualification_id"],
+            "reviewer_qualification_path": qualification_reference["path"],
+            "reviewer_qualification_sha256": qualification_reference["sha256"],
+            "reviewer_qualification_id": qualification_document["qualification_id"],
+            "evidence_root": policy["evidence_root"],
+            "reviewer_prompt_sha256": qualification_document["prompt_sha256"],
+            "review_mode": review_mode,
+        }
+        if review_mode == "rapid_review":
+            if not isinstance(risk_reference, Mapping) or not isinstance(
+                charter_reference, Mapping
+            ):
+                raise ValueError("rapid-review permitted materials are unavailable")
+            inputs.update(
+                risk_assessment_path=risk_reference["path"],
+                risk_assessment_sha256=risk_reference["sha256"],
+                review_charter_path=charter_reference["path"],
+                review_charter_sha256=charter_reference["sha256"],
+            )
+        build_reviewer_stdin(fixed_prompt="validated", permitted_inputs=inputs)
+        return inputs
+
     try:
         qualification_cases = load(
             manifest["reviewer_qualification_cases"],
@@ -1343,6 +1469,11 @@ def evaluate_manifest(
             field: qualification.get(field)
             for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "model", "reasoning_effort")
         }
+        conformance_permitted_inputs = reconstruct_permitted_inputs(
+            review_mode="conformance",
+            qualification_reference=manifest["reviewer_qualification"],
+            qualification_document=qualification,
+        )
         qualification_ok = qualification_evidence_valid(
             mode="conformance",
             record=qualification,
@@ -1360,6 +1491,7 @@ def evaluate_manifest(
             protected_repository_id=repository_id,
             verified_decision_ids=verified_decision_ids,
             evaluated_at=evaluated_at,
+            prompt_bytes=prompt_bytes,
         ) and reviewer_qualification_state(
             identity,
             qualification,
@@ -1432,9 +1564,16 @@ def evaluate_manifest(
             and reviewer_execution.get("output_valid") is True
             and reviewer_execution.get("bindings_match") is True
             and reviewer_execution.get("output_truncated") is False
-            and model_usage_reconciles(reviewer_execution, context_execution)
+            and model_usage_reconciles(
+                reviewer_execution,
+                context_execution,
+                conformance_permitted_inputs,
+            )
             and reviewer_execution_reconstructs(
-                reviewer_execution, manifest["reviewer_result"]
+                reviewer_execution,
+                manifest["reviewer_result"],
+                conformance_permitted_inputs,
+                prompt_bytes,
             )
         )
         reviewer_verdict = reviewer.get("verdict") if reviewer_exact and qualification_ok else "UNKNOWN"
@@ -1583,6 +1722,7 @@ def evaluate_manifest(
                 protected_repository_id=repository_id,
                 verified_decision_ids=verified_decision_ids,
                 evaluated_at=evaluated_at,
+                prompt_bytes=prompt_bytes,
             ) and reviewer_qualification_state(
                 rapid_identity,
                 rapid_qualification,
@@ -1649,8 +1789,50 @@ def evaluate_manifest(
                     rapid_context_references, rapid_contexts, strict=True
                 )
             }
+            one_execution_per_charter = bool(
+                len(charters) == len(sessions)
+                and len({session.get("charter_id") for session in sessions})
+                == len(sessions)
+                and len(session_reference_by_sha) == len(sessions)
+                and len(context_reference_by_sha) == len(sessions)
+                and {
+                    execution.get("reviewer_output_sha256")
+                    for execution in rapid_executions
+                }
+                == set(session_reference_by_sha)
+                and len(
+                    {
+                        execution.get("context_execution_receipt_sha256")
+                        for execution in rapid_executions
+                    }
+                )
+                == len(rapid_executions)
+            )
+            charter_reference_by_id = {
+                charter["charter_id"]: reference
+                for charter, reference in zip(
+                    charters, charter_references, strict=True
+                )
+            }
+            rapid_permitted_by_output_sha = {
+                reference["sha256"]: reconstruct_permitted_inputs(
+                    review_mode="rapid_review",
+                    qualification_reference=manifest[
+                        "rapid_review_qualification"
+                    ],
+                    qualification_document=rapid_qualification,
+                    risk_reference=risk_ref,
+                    charter_reference=charter_reference_by_id[
+                        session["charter_id"]
+                    ],
+                )
+                for session, reference in zip(
+                    sessions, session_references, strict=True
+                )
+            }
             rapid_execution_ok = (
                 rapid_qualification_ok
+                and one_execution_per_charter
                 and len(rapid_executions) == len(sessions)
                 and len(rapid_contexts) == len(sessions)
                 and all(
@@ -1728,12 +1910,23 @@ def evaluate_manifest(
                         context_reference_by_sha[
                             execution["context_execution_receipt_sha256"]
                         ],
+                        rapid_permitted_by_output_sha[
+                            execution["reviewer_output_sha256"]
+                        ],
+                        risk_sha256=risk_ref["sha256"],
+                        charter_sha256=rapid_permitted_by_output_sha[
+                            execution["reviewer_output_sha256"]
+                        ]["review_charter_sha256"],
                     )
                     and reviewer_execution_reconstructs(
                         execution,
                         session_artifact_reference_by_sha[
                             execution["reviewer_output_sha256"]
                         ],
+                        rapid_permitted_by_output_sha[
+                            execution["reviewer_output_sha256"]
+                        ],
+                        prompt_bytes,
                     )
                     for execution in rapid_executions
                 )
