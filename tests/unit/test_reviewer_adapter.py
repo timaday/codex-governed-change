@@ -1294,6 +1294,41 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         finally:
             authority.close()
         self.assertEqual([deadline], observed)
+        output.unlink()
+
+        launcher_deadline = time.monotonic() + 5
+        launcher_observed: list[float | None] = []
+        real_read_once = _ReviewerOutputAuthority.read_once
+
+        def observed_read_once(
+            authority: _ReviewerOutputAuthority,
+            max_bytes: int,
+            *,
+            deadline: float | None = None,
+        ) -> bytes:
+            launcher_observed.append(deadline)
+            return real_read_once(authority, max_bytes, deadline=deadline)
+
+        fake = self.fake_codex(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "args = sys.argv[1:]\n"
+            "Path(args[args.index('--output-last-message') + 1]).write_text('{}')\n"
+        )
+        with patch.object(
+            _ReviewerOutputAuthority, "read_once", new=observed_read_once
+        ):
+            launch_reviewer(
+                command=self.command(fake),
+                stdin_text=self.stdin(),
+                schema_path=self.harness["schema"],
+                output_path=output,
+                expected_candidate_id=self.CANDIDATE,
+                candidate_supplier=lambda _deadline: self.CANDIDATE,
+                timeout_seconds=5,
+                absolute_deadline=launcher_deadline,
+            )
+        self.assertEqual([launcher_deadline], launcher_observed)
 
     def test_codex_version_observation_honors_expired_deadline(self) -> None:
         with patch("codex_governance.reviewer.subprocess.run") as run:

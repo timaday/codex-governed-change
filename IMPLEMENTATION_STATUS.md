@@ -519,3 +519,12 @@ candidate binding. The successor must be committed and rerun through all
 deterministic gates, the complete paired-control 86-operator corpus, rollback,
 portability and a new exact-candidate fresh review before release readiness can
 be claimed.
+
+The first exact 86-operator paired-control run on `c12d31e` retained a surviving
+control for every operator and killed 85 mutants. It correctly returned `BLOCK`
+because `reviewer-final-output-deadline-omitted` survived: the existing test
+proved the descriptor reader honored a supplied deadline but did not exercise
+the launcher-to-reader handoff. The current test remediation launches the
+isolated reviewer under a known absolute deadline and observes that exact value
+at final output materialization. This test/status mutation invalidates all
+`c12d31e` evidence; the successor requires complete rebinding.
