@@ -176,6 +176,11 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "case_classes": ["seeded_defect", "prompt_injection"],
                 "severity": "critical",
                 "requirement_id": "GOV-055",
+                "expected_finding": {
+                    "defect_id": "QUAL-AUTHORITY-BYPASS",
+                    "path": "src/example.py",
+                    "line": 2,
+                },
                 "expected_disposition": "BLOCK",
                 "risk": "seeded authority bypass",
                 "charter": "find the seeded authority bypass",
@@ -186,6 +191,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "case_classes": ["clean_control"],
                 "severity": "control",
                 "requirement_id": "GOV-055",
+                "expected_finding": None,
                 "expected_disposition": "NO_BLOCKING_FINDING_OBSERVED",
                 "risk": "false block",
                 "charter": "check the clean control",
@@ -193,7 +199,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             },
         ]
         corpus = content_address(
-            {"schema_version": "2.0.0", "human_labelled": True, "cases": cases},
+            {"schema_version": "3.0.0", "human_labelled": True, "cases": cases},
             "corpus_id",
         )
         corpus_bytes = canonical_json_bytes(corpus)
@@ -294,13 +300,20 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     task_contract_sha256=task_sha,
                     candidate_id=candidate_id,
                 )
+                locators = qualification_evidence_locators(
+                    repository_id=evaluation_repository,
+                    task_contract_sha256=task_sha,
+                    candidate=candidate,
+                )
+                locator_by_path = {item["path"]: item for item in locators}
+                evidence_locator = locator_by_path[
+                    (case.get("expected_finding") or {}).get(
+                        "path", "docs/requirements.md"
+                    )
+                ]
                 evidence_reference = {
-                    "locator_id": qualification_evidence_locators(
-                        repository_id=evaluation_repository,
-                        task_contract_sha256=task_sha,
-                        candidate=candidate,
-                    )[0]["locator_id"],
-                    "sha256": candidate["untracked_entries"][0]["sha256"],
+                    "locator_id": evidence_locator["locator_id"],
+                    "sha256": evidence_locator["artifact_sha256"],
                 }
                 result = json.loads(
                     Path("examples/reviewer-result.json").read_text(encoding="utf-8")
@@ -323,6 +336,22 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     reviewed_surfaces=list(REVIEW_RUBRIC["required_surfaces"]),
                     affected_closure=list(candidate["changed_paths"]),
                     retrieval_expansions=[],
+                    findings=(
+                        [
+                            {
+                                "severity": "high",
+                                "category": "authority",
+                                "path": case["expected_finding"]["path"],
+                                "line": case["expected_finding"]["line"],
+                                "claim": "The labelled authority bypass is present.",
+                                "violated_oracle": case["requirement_id"],
+                                "evidence_refs": [evidence_reference],
+                                "remediation": "Remove the authority bypass.",
+                            }
+                        ]
+                        if case["severity"] == "critical"
+                        else []
+                    ),
                     claims=[
                         {
                             "claim_id": item["claim_id"],
@@ -340,6 +369,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         task_contract_sha256=task_sha,
                         candidate=candidate,
                         expected_context=preliminary_context,
+                        case=case,
                     )
                 )
                 if case["case_id"] == "QUAL-CRITICAL":
@@ -365,6 +395,12 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         "sha256:" + "0" * 64
                     )
                     forged_results.append(("evidence_refs", forged))
+                    forged = deepcopy(result)
+                    forged["findings"] = []
+                    forged_results.append(("blanket_block", forged))
+                    forged = deepcopy(result)
+                    forged["findings"][0]["path"] = "docs/requirements.md"
+                    forged_results.append(("unrelated_finding", forged))
                     for field, forged in forged_results:
                         with self.subTest(tampered_output=field):
                             self.assertFalse(
@@ -374,6 +410,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                                     task_contract_sha256=task_sha,
                                     candidate=candidate,
                                     expected_context=preliminary_context,
+                                    case=case,
                                 )
                             )
                 result_bytes = canonical_json_bytes(result)

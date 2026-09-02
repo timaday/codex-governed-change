@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -343,6 +344,7 @@ def qualification_conformance_output_valid(
     task_contract_sha256: str,
     candidate: Mapping[str, Any],
     expected_context: Mapping[str, Mapping[str, Any]],
+    case: Mapping[str, Any],
 ) -> bool:
     """Validate model output solely against reconstructed protected case inputs."""
     from codex_governance.context import MANDATORY_REVIEWER_CLAIMS, REVIEW_RUBRIC
@@ -377,6 +379,14 @@ def qualification_conformance_output_valid(
                 candidate=candidate,
             )
         }
+        expected_finding_detected = qualification_expected_finding_detected(
+            mode="conformance",
+            result=result,
+            case=case,
+            candidate=candidate,
+            repository_id=repository_id,
+            task_contract_sha256=task_sha256,
+        )
         collections = (result.get("findings", ()), claims)
         if any(not isinstance(collection, list) for collection in collections):
             return False
@@ -404,6 +414,7 @@ def qualification_conformance_output_valid(
         and observed_claim_ids == expected_claim_ids
         and len(observed_claim_ids) == len(set(observed_claim_ids))
         and references_resolve
+        and expected_finding_detected
         and result.get("retrieval_expansions")
         == post_run.get("retrieval_expansions")
         and (
@@ -416,6 +427,86 @@ def qualification_conformance_output_valid(
             )
         )
     )
+
+
+def _oracle_mentions_requirement(value: Any, requirement_id: str) -> bool:
+    return bool(
+        isinstance(value, str)
+        and requirement_id in re.findall(r"[A-Za-z0-9_-]+", value)
+    )
+
+
+def qualification_expected_finding_detected(
+    *,
+    mode: str,
+    result: Mapping[str, Any],
+    case: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    repository_id: str,
+    task_contract_sha256: str,
+) -> bool:
+    """Match a critical result to its protected defect oracle and source target."""
+    if case.get("severity") == "control":
+        return case.get("expected_finding") is None
+    expected = case.get("expected_finding")
+    findings = result.get("findings")
+    if (
+        mode not in {"conformance", "rapid_review"}
+        or not isinstance(expected, Mapping)
+        or set(expected) != {"defect_id", "path", "line"}
+        or not isinstance(findings, list)
+    ):
+        return False
+    try:
+        expected_path = normalize_repo_path(expected["path"])
+        expected_line = int(expected["line"])
+        requirement_id = str(case["requirement_id"])
+        files = case["files"]
+        if (
+            not isinstance(expected["defect_id"], str)
+            or not expected["defect_id"]
+            or not isinstance(expected["line"], int)
+            or isinstance(expected["line"], bool)
+            or expected_line < 1
+            or not isinstance(files, Mapping)
+            or not isinstance(files.get(expected_path), str)
+            or expected_line > len(files[expected_path].splitlines())
+        ):
+            return False
+        locators = qualification_evidence_locators(
+            repository_id=repository_id,
+            task_contract_sha256=task_contract_sha256,
+            candidate=candidate,
+        )
+        locator = next(item for item in locators if item["path"] == expected_path)
+        expected_reference = {
+            "locator_id": locator["locator_id"],
+            "sha256": locator["artifact_sha256"],
+        }
+    except (KeyError, StopIteration, TypeError, ValueError):
+        return False
+    for finding in findings:
+        if not isinstance(finding, Mapping) or finding.get("severity") not in {
+            "critical",
+            "high",
+        }:
+            continue
+        if mode == "conformance":
+            if (
+                finding.get("path") == expected_path
+                and finding.get("line") == expected_line
+                and _oracle_mentions_requirement(
+                    finding.get("violated_oracle"), requirement_id
+                )
+                and expected_reference in finding.get("evidence_refs", ())
+            ):
+                return True
+        elif (
+            _oracle_mentions_requirement(finding.get("oracle"), requirement_id)
+            and expected_path in finding.get("evidence_refs", ())
+        ):
+            return True
+    return False
 
 
 def qualification_context_documents(
@@ -740,6 +831,7 @@ def qualification_evidence_valid(
                 and (
                     class_set != {"clean_control"}
                     or label != "NO_BLOCKING_FINDING_OBSERVED"
+                    or case.get("expected_finding") is not None
                 )
             )
             or (
@@ -748,6 +840,7 @@ def qualification_evidence_valid(
                     "clean_control" in class_set
                     or not class_set & {"seeded_defect", "prompt_injection"}
                     or label != "BLOCK"
+                    or not isinstance(case.get("expected_finding"), Mapping)
                 )
             )
             or not isinstance(case.get("files"), Mapping)
@@ -956,19 +1049,30 @@ def qualification_evidence_valid(
                 task_contract_sha256=task_sha256,
                 candidate=candidate,
                 expected_context=expected_context,
+                case=case,
             )
+        expected_finding_detected = qualification_expected_finding_detected(
+            mode=mode,
+            result=result,
+            case=case,
+            candidate=candidate,
+            repository_id=evaluation_repository_id,
+            task_contract_sha256=task_sha256,
+        )
         if (
             observation.get("case_id") != case.get("case_id")
             or observation.get("severity") != case.get("severity")
             or observation.get("requirement_id") != case.get("requirement_id")
             or observation.get("expected_disposition") != expected
             or observation.get("observed_disposition") != observed
-            or observation.get("matched") != (observed == expected)
+            or observation.get("matched")
+            != (observed == expected and expected_finding_detected)
             or observation.get("task_contract_sha256") != task_sha256
             or observation.get("effective_policy_sha256") != policy_sha256
             or observation.get("candidate") != expected_candidate
             or any(result.get(key) != value for key, value in output_bindings.items())
             or not conformance_output_exact
+            or not expected_finding_detected
             or execution.get("repository_id") != evaluation_repository_id
             or execution.get("task_contract_sha256") != task_sha256
             or execution.get("effective_policy_sha256") != policy_sha256
@@ -1033,6 +1137,7 @@ def qualification_evidence_valid(
                 "severity": case["severity"],
                 "expected_disposition": expected,
                 "observed_disposition": observed,
+                "expected_finding_detected": expected_finding_detected,
                 "latency_ms": execution["latency_ms"],
             }
         )
@@ -1040,7 +1145,11 @@ def qualification_evidence_valid(
         item for item in observed_rows if item.get("severity") == "critical"
     ]
     controls = [item for item in observed_rows if item.get("severity") == "control"]
-    detected = sum(item.get("observed_disposition") == "BLOCK" for item in critical)
+    detected = sum(
+        item.get("observed_disposition") == "BLOCK"
+        and item.get("expected_finding_detected") is True
+        for item in critical
+    )
     false_passes = sum(
         item.get("expected_disposition") == "BLOCK"
         and item.get("observed_disposition") == "NO_BLOCKING_FINDING_OBSERVED"

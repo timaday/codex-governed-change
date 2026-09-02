@@ -112,6 +112,34 @@ class TrustedAuthorityAcceptanceTest(unittest.TestCase):
             )
         )
 
+    def test_every_authenticated_decision_expires_at_the_exclusive_boundary(self) -> None:
+        from codex_governance.authority import decision_applies
+
+        for decision_type in (
+            "task_approval",
+            "governance_authorization",
+            "risk_reduction",
+            "waiver_issuance",
+            "waiver_consumption",
+            "lkg_policy_authorization",
+            "lkg_promotion",
+        ):
+            decision = self.decision(decision_type)
+            with self.subTest(decision_type=decision_type):
+                self.assertFalse(
+                    decision_applies(
+                        decision=decision,
+                        repository_id=self.REPOSITORY,
+                        candidate_id=self.CANDIDATE,
+                        task_contract_sha256=self.TASK,
+                        policy_sha256=self.POLICY,
+                        required_type=decision_type,
+                        required_scope=["schemas/"],
+                        now=datetime(2026, 8, 27, 10, tzinfo=timezone.utc),
+                        source_verified=True,
+                    )
+                )
+
     def test_task_may_increase_but_not_reduce_protected_obligations(self) -> None:
         from codex_governance.authority import resolve_protected_obligations
 

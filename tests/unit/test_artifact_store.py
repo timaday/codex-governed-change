@@ -28,6 +28,36 @@ class ArtifactStoreTest(unittest.TestCase):
             max_bytes=max_bytes,
         )
 
+    def fdopen_replacing_leaf_after_read(
+        self, *, target: Path, replacement: Path
+    ):
+        real_fdopen = os.fdopen
+        swapped = False
+
+        class ReplacingReadStream:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.stream.close()
+
+            def read(self, size=-1):
+                nonlocal swapped
+                data = self.stream.read(size)
+                if not swapped:
+                    os.replace(replacement, target)
+                    swapped = True
+                return data
+
+        def replacing_fdopen(descriptor, mode="r", *args, **kwargs):
+            stream = real_fdopen(descriptor, mode, *args, **kwargs)
+            return ReplacingReadStream(stream) if mode == "rb" else stream
+
+        return replacing_fdopen
+
     def test_atomic_immutable_write_read_and_rehash(self) -> None:
         store = self.store()
         digest = store.write_bytes("candidate/result.json", b"{}")
@@ -90,6 +120,56 @@ class ArtifactStoreTest(unittest.TestCase):
         with self.assertRaises(ArtifactSafetyError):
             store.write_bytes("fifo", b"{}")
         self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_existing_leaf_replacement_after_open_blocks_idempotent_write(self) -> None:
+        store = self.store()
+        target = self.repository / "evidence/result.json"
+        target.parent.mkdir()
+        target.write_bytes(b"trusted")
+        replacement = self.repository / "replacement-existing"
+        replacement.write_bytes(b"conflict")
+        with patch(
+            "codex_governance.artifacts.os.fdopen",
+            side_effect=self.fdopen_replacing_leaf_after_read(
+                target=target, replacement=replacement
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "leaf binding changed"):
+                store.write_bytes("result.json", b"trusted")
+        self.assertEqual(b"conflict", target.read_bytes())
+
+    def test_published_leaf_replacement_during_readback_blocks_publication(self) -> None:
+        store = self.store()
+        target = self.repository / "evidence/result.json"
+        target.parent.mkdir()
+        replacement = self.repository / "replacement-publication"
+        replacement.write_bytes(b"conflict")
+        with patch(
+            "codex_governance.artifacts.os.fdopen",
+            side_effect=self.fdopen_replacing_leaf_after_read(
+                target=target, replacement=replacement
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "leaf binding changed"):
+                store.write_bytes("result.json", b"trusted")
+        self.assertEqual(b"conflict", target.read_bytes())
+
+    def test_leaf_replacement_after_open_blocks_direct_readback(self) -> None:
+        store = self.store()
+        target = self.repository / "evidence/result.json"
+        target.parent.mkdir()
+        target.write_bytes(b"trusted")
+        replacement = self.repository / "replacement-read"
+        replacement.write_bytes(b"conflict")
+        with patch(
+            "codex_governance.artifacts.os.fdopen",
+            side_effect=self.fdopen_replacing_leaf_after_read(
+                target=target, replacement=replacement
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "leaf binding changed"):
+                store.read_bytes("result.json")
+        self.assertEqual(b"conflict", target.read_bytes())
 
     def test_parent_replacement_cannot_redirect_publication(self) -> None:
         if not FilesystemArtifactStore._secure_dir_fd_available():

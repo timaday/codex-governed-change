@@ -64,6 +64,12 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "submodule-head-only",
         "raw-stderr-source-literal",
         "qualification-output-unchecked",
+        "artifact-leaf-rebind",
+        "fcntl-signal-escape",
+        "qualification-blanket-block",
+        "mutant-subject-confusion",
+        "provenance-prompt-unchecked",
+        "provenance-materials-unchecked",
     }
 )
 
@@ -191,8 +197,6 @@ def mutation_probe_outcome(stdout: bytes, exit_code: int | None) -> str:
     ):
         return "UNKNOWN"
     tests_run, failures, errors, skipped, expected_failures, unexpected = counts
-    if sum(counts[1:]) > tests_run:
-        return "UNKNOWN"
     outcome = payload.get("outcome")
     if (
         outcome == "KILLED"

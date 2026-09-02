@@ -656,8 +656,10 @@ template and replaces only its fixed probe-source and mutated-path sentinels,
 producing an isolated structured-probe argv. The expanded argv recorded in the
 mutant record MUST exactly equal the gate result, sandbox capability and actual
 execution argv. Only that exact protected probe showing that at least one
-selected test ran and terminated solely with an assertion failure kills a valid
-non-equivalent mutant. The trusted probe emits an exact machine-readable terminal
+selected test ran, produced one or more assertion-failure records, and produced
+zero errors, skips, expected failures, or unexpected successes kills a valid
+non-equivalent mutant. Multiple failing subtests from one selected test remain
+valid assertion-failure proof. The trusted probe emits an exact machine-readable terminal
 marker and distinct exit code; admission
 re-reads the bounded raw stream and reconstructs both rather than trusting the
 mutant-record label. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
@@ -668,7 +670,10 @@ adapter; aggregate percentage alone is not an oracle.
 
 Every admitted mutant record MUST bind the protected corpus, repository, task,
 policy and original candidate; a distinct mutated-source identity that includes
-the complete concrete Git-visible mutated tree; the exact
+the complete concrete Git-visible mutated tree; gate/provenance execution
+subjects and pre/post observations equal to that mutated-source identity while
+the repository subject and exact ordered candidate material retain the original
+candidate; the exact
 selected command and execution identity; a validated disposable-sandbox
 capability; the corresponding in-toto-shaped provenance statement; the bounded
 execution result; and resolvable causal evidence. Mutation commands MUST use the
@@ -744,8 +749,12 @@ source inventory, closure, signal/profile decision, inclusion choices, digests
 and metrics. A self-consistent or content-addressed summary alone is not proof.
 
 Context variants require representative seeded-defect/governance qualification.
-They are promoted only if critical recall, evidence traceability and disposition
-correctness do not materially regress; efficiency metrics are secondary. The MVP
+Every critical case carries a human-approved defect ID and concrete
+requirement/path/line target. A critical defect is detected only when a blocking
+finding matches that target and its resolved corpus-file evidence; a blanket
+`BLOCK`, empty findings, or an unrelated finding has zero recall for that case.
+They are promoted only if this defect-specific critical recall, evidence
+traceability and disposition correctness do not materially regress; efficiency metrics are secondary. The MVP
 uses Git metadata, repository search, import/test mapping and content-addressed
 manifests, not embeddings or a vector database.
 
@@ -756,8 +765,8 @@ evidence additions are breaking: `effective-policy` is `3.0.0` with the
 protected mutation-corpus digest; `reviewer-qualification`, `context-receipt`,
 `sandbox-capability`, and `provenance-statement` are `2.0.0`;
 `evidence-manifest` is `3.0.0`; `reviewer-qualification-cases` is `3.0.0`
-with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `2.0.0` with
-mandatory typed case classes; and `reviewer-execution` is `3.0.0` with primitive
+with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `3.0.0` with
+mandatory typed case classes and human-labelled critical expected-finding targets; and `reviewer-execution` is `3.0.0` with primitive
 observation plus direct stream references. Every transition advertised by the
 lifecycle policy has an executable explicit migration; missing legacy facts must
 come from separately protected inputs and every content address is rebuilt.
@@ -777,7 +786,9 @@ credential or machine-derived configuration/evidence.
 Every authoritative repository/evidence read opens the resolved repository
 directory and each child relative to a retained directory descriptor. Leaf opens
 use no-follow and nonblocking flags, then `fstat` proves a bounded regular file
-before bytes are read through that descriptor. Pathname validation followed by a
+before bytes are read through that descriptor. After bounded readback the leaf
+name is re-stated relative to the retained parent and must still name the same
+regular-file device/inode. Pathname validation followed by a
 later pathname read is not an admissible fallback; unavailable descriptor-bound
 access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
 materializing permitted evidence into the reviewer harness. The reviewer CLI

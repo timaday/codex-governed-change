@@ -272,5 +272,38 @@ capability; they are never skipped or converted to success. Protected
 deterministic qualification must run those tests in its declared signal-capable
 runner before the separate read-only model lane begins.
 
+The fresh read-only audit of immutable commit `7d6b4d3` was candidate-bound and
+emitted a `BLOCK` payload, but its formal process disposition was `UNKNOWN`:
+reviewer-initiated test execution exposed a machine-shaped temporary path that
+required ambiguous redaction, so capture completeness was not established. Its
+six concrete source findings are retained. Mutation evidence confused the
+original repository candidate with the distinct mutated execution subject;
+critical qualification recall counted any blocking disposition rather than the
+human-labelled defect; the seccomp fallback allowed asynchronous `fcntl`
+configuration capable of signalling the supervisor; gate provenance did not
+require the exact protected prompt and ordered material set; an artifact leaf
+was not re-stated after descriptor read; and authenticated decisions remained
+valid at their nominal expiration instant. Every `7d6b4d3` result is stale for
+the current successor.
+
+The remediation working-copy checkpoint on 2026-09-02 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 260 tests passed
+  with no skips or expected failures, including focused regressions for all six
+  retained findings and the public-portability checks;
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
+  all 44 curated mutants `KILLED` for corpus
+  `sha256:9c2fc3a47064da3d7618f861b1c791a6e68272f12fed4742e20f7ecdf69c709e`;
+- `PYTHONPATH=src python3 scripts/rehearse_rollback.py 5393338571f8ed5de5192613dcdd6131044932dc`:
+  `PASS`;
+- `git diff --check` and the focused public-portability suite: `PASS`.
+
+These are local deterministic observations, not protected T24 admission
+evidence. This status mutation changes the candidate, so the final immutable
+successor requires a complete gate rebind and a new exact-candidate fresh
+review.
+
 These observations are invalidated by any later candidate mutation and remain
 working-copy evidence until protected T24 reconstruction is complete.

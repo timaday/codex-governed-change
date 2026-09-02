@@ -69,7 +69,7 @@ def decision_applies(
         expires = parse_rfc3339(str(decision["expires_at"]))
     except (KeyError, ValueError):
         return False
-    return issued <= now <= expires and issued < expires
+    return issued <= now < expires
 
 
 def authorize_governance_change(

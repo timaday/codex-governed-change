@@ -73,6 +73,9 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "unframed-rollback-package", "rollback-sibling-sitecustomize",
             "noncausal-mutation-kill", "submodule-head-only",
             "raw-stderr-source-literal", "qualification-output-unchecked",
+            "artifact-leaf-rebind", "fcntl-signal-escape",
+            "qualification-blanket-block", "mutant-subject-confusion",
+            "provenance-prompt-unchecked", "provenance-materials-unchecked",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
@@ -238,6 +241,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             MUTATION_INVALID_EXIT,
             MUTATION_KILLED_EXIT,
             MUTATION_PATH_SENTINEL,
+            MUTATION_PROBE_PREFIX,
             MUTATION_PROBE_SENTINEL,
             MUTATION_PROBE_SOURCE,
             MUTATION_UNKNOWN_EXIT,
@@ -288,6 +292,26 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
                     expected,
                     mutation_probe_outcome(completed.stdout, completed.returncode),
                 )
+
+        multiple_subtest_failures = {
+            "schema_version": "1.0.0",
+            "outcome": "KILLED",
+            "tests_run": 1,
+            "failures": 2,
+            "errors": 0,
+            "skipped": 0,
+            "expected_failures": 0,
+            "unexpected_successes": 0,
+        }
+        self.assertEqual(
+            "KILLED",
+            mutation_probe_outcome(
+                MUTATION_PROBE_PREFIX
+                + canonical_json_bytes(multiple_subtest_failures)
+                + b"\n",
+                MUTATION_KILLED_EXIT,
+            ),
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

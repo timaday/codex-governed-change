@@ -15,7 +15,11 @@ The protected decision source must authenticate the exact label-decision ID.
 Each case references stored normalized stdout and stderr captures, reviewer output and a
 content-addressed reviewer-execution statement. Admission re-hashes those bytes,
 validates the mode-specific output and execution schemas, checks exact case and
-reviewer-identity bindings, then recomputes all qualification metrics.
+reviewer-identity bindings, then recomputes all qualification metrics. Every
+critical corpus case also carries a human-labelled defect ID and concrete
+requirement/path/line target. Critical recall counts only a blocking finding
+that matches that target and its corpus-derived evidence; a disposition alone
+does not detect a defect.
 The trusted launcher replaces only supervisor runtime paths and allowlisted
 parent-environment values with `<REVIEWER_RUNTIME>` before parsing, hashing or
 retention so public evidence remains machine-neutral.
@@ -23,6 +27,11 @@ retention so public evidence remains machine-neutral.
 Version `effective-policy`, `evidence-manifest`, and `reviewer-qualification` as
 `2.0.0`. Migration from `1.0.0` is explicit and cannot synthesize missing
 authority or execution evidence.
+
+Version `reviewer-qualification-corpus` as `3.0.0` when critical expected-
+finding labels become mandatory. Migration from `2.0.0` requires those labels
+from a separately protected human source and rebuilds the corpus content
+address; they cannot be inferred from an old `BLOCK` label.
 
 ## Consequences
 

@@ -525,6 +525,54 @@ Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
         self.assertTrue(handshake["resource_limit_changes_blocked"])
         self.assertEqual(f"-1:{errno.EPERM}", marker.read_text(encoding="utf-8"))
 
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and platform.machine().lower() in {"aarch64", "x86_64"},
+        "supported Linux seccomp contract",
+    )
+    def test_signal_guard_denies_asynchronous_fcntl_signal_operations(self) -> None:
+        marker = self.harness["root"] / "fcntl-signal-results"
+        handshake_read, handshake_write = os.pipe()
+        os.set_inheritable(handshake_write, True)
+        machine = platform.machine().lower()
+        syscall_number = reviewer_signal_guard.FCNTL_SYSCALLS[machine]
+        commands = (4, 8, 10, 15, 1024, 1026)
+        self.assertEqual(commands, reviewer_signal_guard.DENIED_FCNTL_COMMANDS)
+        probe = f"""import ctypes, errno
+from pathlib import Path
+libc = ctypes.CDLL(None, use_errno=True)
+results = []
+for command in {commands!r}:
+    ctypes.set_errno(0)
+    result = libc.syscall({syscall_number}, 0, command, 0)
+    results.append(f'{{command}}:{{result}}:{{ctypes.get_errno()}}')
+Path({str(marker)!r}).write_text('\\n'.join(results))
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                os.fspath(Path(reviewer_signal_guard.__file__)),
+                str(handshake_write),
+                "--",
+                sys.executable,
+                "-c",
+                probe,
+            ],
+            close_fds=True,
+            pass_fds=(handshake_write,),
+        )
+        os.close(handshake_write)
+        try:
+            handshake = json.loads(os.read(handshake_read, 4096).decode("ascii"))
+        finally:
+            os.close(handshake_read)
+        self.assertEqual(0, process.wait(timeout=5))
+        self.assertTrue(handshake["process_signals_blocked"])
+        self.assertEqual(
+            [f"{command}:-1:{errno.EPERM}" for command in commands],
+            marker.read_text(encoding="utf-8").splitlines(),
+        )
+
     def test_snapshot_is_exact_bounded_data_under_an_outer_git_root(self) -> None:
         candidate = self.harness["candidate"]
         self.assertEqual("working\n", (candidate / "tracked.txt").read_text(encoding="utf-8"))

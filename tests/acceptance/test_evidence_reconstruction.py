@@ -32,6 +32,7 @@ from codex_governance.evidence import (
     PRODUCER_VERSION,
     assemble_gate_manifest,
     evaluate_manifest,
+    provenance_review_inputs_match,
 )
 from codex_governance.mutation import (
     MUTATION_KILLED_EXIT,
@@ -135,6 +136,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         usage_mismatch: str | None = None,
         gate_defect: str | None = None,
         mutation_defect: str | None = None,
+        provenance_defect: str | None = None,
         risk_downgrade: bool = False,
         reviewer_defect: str | None = None,
     ) -> dict:
@@ -148,6 +150,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 ),
                 "severity": "critical",
                 "requirement_id": "GOV-055",
+                "expected_finding": {
+                    "defect_id": f"QUAL-BYPASS-{index}",
+                    "path": "src/example.py",
+                    "line": 1,
+                },
                 "expected_disposition": "BLOCK",
                 "risk": "seeded critical defect",
                 "charter": "detect the seeded critical defect",
@@ -163,6 +170,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "case_classes": ["clean_control"],
                 "severity": "control",
                 "requirement_id": "GOV-055",
+                "expected_finding": None,
                 "expected_disposition": "NO_BLOCKING_FINDING_OBSERVED",
                 "risk": "false positive",
                 "charter": "check the clean control",
@@ -174,7 +182,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         ]
         qualification_corpus = content_address(
             {
-                "schema_version": "2.0.0",
+                "schema_version": "3.0.0",
                 "human_labelled": True,
                 "cases": corpus_cases,
             },
@@ -285,11 +293,19 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         task_contract_sha256=task_sha,
                         candidate_id=candidate_id,
                     )
-                    first_locator = qualification_evidence_locators(
+                    qualification_locators = qualification_evidence_locators(
                         repository_id=evaluation_repository,
                         task_contract_sha256=task_sha,
                         candidate=candidate,
-                    )[0]
+                    )
+                    locator_by_path = {
+                        item["path"]: item for item in qualification_locators
+                    }
+                    first_locator = locator_by_path[
+                        (case.get("expected_finding") or {}).get(
+                            "path", "docs/requirements.md"
+                        )
+                    ]
                     evidence_reference = {
                         "locator_id": first_locator["locator_id"],
                         "sha256": first_locator["artifact_sha256"],
@@ -321,6 +337,22 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         ),
                         affected_closure=list(candidate["changed_paths"]),
                         retrieval_expansions=[],
+                        findings=(
+                            [
+                                {
+                                    "severity": "high",
+                                    "category": "authority",
+                                    "path": case["expected_finding"]["path"],
+                                    "line": case["expected_finding"]["line"],
+                                    "claim": "The labelled bypass is present.",
+                                    "violated_oracle": case["requirement_id"],
+                                    "evidence_refs": [evidence_reference],
+                                    "remediation": "Remove the labelled bypass.",
+                                }
+                            ]
+                            if case["severity"] == "critical"
+                            else []
+                        ),
                         claims=[
                             {
                                 "claim_id": item["claim_id"],
@@ -353,7 +385,24 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         model=identity["model"],
                         status=("blocked" if observed == "BLOCK" else "completed"),
                         findings=(
-                            result["findings"] if observed == "BLOCK" else []
+                            [
+                                {
+                                    "finding_id": case["expected_finding"][
+                                        "defect_id"
+                                    ],
+                                    "claim": "The labelled bypass is present.",
+                                    "impact": "Protected authority can be bypassed.",
+                                    "severity": "high",
+                                    "confidence": "high",
+                                    "oracle": case["requirement_id"],
+                                    "evidence_refs": [
+                                        case["expected_finding"]["path"]
+                                    ],
+                                    "threatened_value": "governed authority",
+                                }
+                            ]
+                            if observed == "BLOCK"
+                            else []
                         ),
                         residual_risks=[
                             {
@@ -771,12 +820,32 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         capability_refs = [capability_ref]
         stdout_ref = self.raw("stdout.bin", b"ok\n")
         stderr_ref = self.raw("stderr.bin", b"")
+        gate_materials = [
+            {"name": "candidate", "sha256": self.CANDIDATE_ID},
+            {"name": "task-contract", "sha256": task_sha},
+            {"name": "effective-policy", "sha256": policy_sha},
+        ]
+        if provenance_defect == "ordinary-material-omission":
+            gate_materials = gate_materials[:-1]
+        elif provenance_defect == "ordinary-material-substitution":
+            gate_materials[-1] = {
+                "name": "effective-policy",
+                "sha256": "sha256:" + "0" * 64,
+            }
+        elif provenance_defect == "ordinary-material-duplication":
+            gate_materials.append(dict(gate_materials[0]))
+        elif provenance_defect == "ordinary-material-reordering":
+            gate_materials.reverse()
         provenance = build_provenance_statement(
             repository_id=self.REPOSITORY_ID, candidate_id=self.CANDIDATE_ID,
             repository_digest=self.CANDIDATE_ID, task_contract_sha256=task_sha,
             effective_policy_sha256=policy_sha,
             gate_definition_sha256=sha256_canonical(policy["gates"][0]),
-            reviewer_prompt_sha256="sha256:" + "f" * 64,
+            reviewer_prompt_sha256=(
+                "sha256:" + "0" * 64
+                if provenance_defect == "ordinary-prompt"
+                else "sha256:" + "f" * 64
+            ),
             producer={"builder_id": "codex-governed-change", "implementation_sha256": gate_implementation_sha256(), "version": PRODUCER_VERSION},
             workflow={"system": "unit", "run_id": "gate-fixture", "attempt": 1},
             tools=[
@@ -788,7 +857,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "execution_identity": capability["execution_identity"],
                 "sandbox_capability_sha256": capability_ref["sha256"],
             },
-            materials=[{"name": "candidate", "sha256": self.CANDIDATE_ID}],
+            materials=gate_materials,
             started_at=(
                 "2026-08-26T09:59:59Z"
                 if gate_defect == "provenance-time-mismatch"
@@ -852,7 +921,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
 
         def mutation_execution(
             name: str, source_identity: str, command: list[str], status: str,
-            exit_code: int,
+            exit_code: int, patch_sha: str | None = None,
         ) -> tuple[dict, dict[str, str], dict[str, str], dict[str, str]]:
             execution_stdout = b"ok\n"
             if name.startswith("mutant-"):
@@ -904,14 +973,31 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "sandbox-capability",
             )
             capability_refs.append(mutation_capability_ref)
+            mutation_materials = [
+                {"name": "candidate", "sha256": self.CANDIDATE_ID},
+                {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
+            ] + (
+                [{"name": "mutation-patch", "sha256": patch_sha}]
+                if patch_sha is not None
+                else []
+            )
+            if provenance_defect == (
+                "mutant-material" if patch_sha is not None else "baseline-material"
+            ):
+                mutation_materials = mutation_materials[:-1]
             mutation_provenance = build_provenance_statement(
-                repository_id=self.REPOSITORY_ID, candidate_id=self.CANDIDATE_ID,
+                repository_id=self.REPOSITORY_ID, candidate_id=source_identity,
                 repository_digest=self.CANDIDATE_ID, task_contract_sha256=task_sha,
                 effective_policy_sha256=policy_sha,
                 gate_definition_sha256=sha256_canonical(
                     {"gate_id": name, "command": command}
                 ),
-                reviewer_prompt_sha256="sha256:" + "f" * 64,
+                reviewer_prompt_sha256=(
+                    "sha256:" + "0" * 64
+                    if provenance_defect
+                    == ("mutant-prompt" if patch_sha is not None else "baseline-prompt")
+                    else "sha256:" + "f" * 64
+                ),
                 producer={"builder_id": "codex-governed-change", "implementation_sha256": mutation_implementation_sha256(), "version": PRODUCER_VERSION},
                 workflow={"system": "unit", "run_id": "mutation-fixture", "attempt": 1},
                 tools=[
@@ -923,10 +1009,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "execution_identity": execution_identity,
                     "sandbox_capability_sha256": mutation_capability_ref["sha256"],
                 },
-                materials=[
-                    {"name": "candidate", "sha256": self.CANDIDATE_ID},
-                    {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
-                ],
+                materials=mutation_materials,
                 started_at=self.AT, ended_at=self.ENDED, result=status,
                 limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60},
                 artifacts=[
@@ -944,7 +1027,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             result = {
                 "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
                 "task_contract_sha256": task_sha, "gate_id": name, "profile": "code",
-                "candidate_before": self.CANDIDATE_ID, "candidate_after": self.CANDIDATE_ID,
+                "candidate_before": source_identity, "candidate_after": source_identity,
                 "source_identity": source_identity, "execution_identity": execution_identity,
                 "sandbox_capability_sha256": mutation_capability_ref["sha256"],
                 "command": command, "started_at": self.AT, "ended_at": self.ENDED,
@@ -1007,6 +1090,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 121
                 if mutation_defect == "launch-failure-as-kill" and index == 1
                 else MUTATION_KILLED_EXIT,
+                patch_sha,
             )
             execution_locator = content_address(
                 {
@@ -1580,6 +1664,14 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             materials=[
                 {"name": "candidate", "sha256": self.CANDIDATE_ID},
                 {
+                    "name": "task-contract",
+                    "sha256": manifest["task_contract"]["sha256"],
+                },
+                {
+                    "name": "effective-policy",
+                    "sha256": manifest["effective_policy"]["sha256"],
+                },
+                {
                     "name": "rollback-target-commit",
                     "sha256": sha256_bytes(target.encode()),
                 },
@@ -1855,6 +1947,75 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             with self.subTest(defect=defect):
                 self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_gate_and_mutation_provenance_prompt_and_materials_are_exact(self) -> None:
+        for defect in (
+            "ordinary-prompt",
+            "ordinary-material-omission",
+            "ordinary-material-substitution",
+            "ordinary-material-duplication",
+            "ordinary-material-reordering",
+            "baseline-prompt",
+            "baseline-material",
+            "mutant-prompt",
+            "mutant-material",
+        ):
+            manifest = self.complete_manifest(provenance_defect=defect)
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_provenance_review_prompt_mismatch_is_rejected(self) -> None:
+        materials = [{"name": "candidate", "sha256": self.CANDIDATE_ID}]
+        predicate = {
+            "reviewer_prompt_sha256": "sha256:" + "1" * 64,
+            "materials": materials,
+        }
+        self.assertTrue(
+            provenance_review_inputs_match(
+                predicate=predicate,
+                expected_reviewer_prompt_sha256="sha256:" + "1" * 64,
+                expected_materials=materials,
+            )
+        )
+        self.assertFalse(
+            provenance_review_inputs_match(
+                predicate=predicate,
+                expected_reviewer_prompt_sha256="sha256:" + "2" * 64,
+                expected_materials=materials,
+            )
+        )
+
+    def test_provenance_review_material_omission_is_rejected(self) -> None:
+        expected_materials = [
+            {"name": "candidate", "sha256": self.CANDIDATE_ID},
+            {"name": "policy", "sha256": "sha256:" + "2" * 64},
+        ]
+        predicate = {
+            "reviewer_prompt_sha256": "sha256:" + "1" * 64,
+            "materials": expected_materials,
+        }
+        self.assertTrue(
+            provenance_review_inputs_match(
+                predicate=predicate,
+                expected_reviewer_prompt_sha256="sha256:" + "1" * 64,
+                expected_materials=expected_materials,
+            )
+        )
+        self.assertFalse(
+            provenance_review_inputs_match(
+                predicate=predicate,
+                expected_reviewer_prompt_sha256="sha256:" + "1" * 64,
+                expected_materials=expected_materials[:-1],
+            )
+        )
 
     def test_launch_failure_cannot_be_admitted_as_a_mutation_kill(self) -> None:
         manifest = self.complete_manifest(mutation_defect="launch-failure-as-kill")

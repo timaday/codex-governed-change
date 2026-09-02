@@ -406,6 +406,43 @@ def migrate_reviewer_qualification_corpus_v1_to_v2(
     )
 
 
+def migrate_reviewer_qualification_corpus_v2_to_v3(
+    document: Mapping[str, Any], *, expected_findings: Mapping[str, Mapping[str, Any] | None]
+) -> dict[str, Any]:
+    migrated = _migration_document(
+        document, from_version="2.0.0", identity_field="corpus_id"
+    )
+    cases = migrated.get("cases")
+    if not isinstance(cases, Sequence) or isinstance(cases, (str, bytes)):
+        raise ValueError("legacy reviewer corpus cases are unavailable")
+    rebuilt = []
+    case_ids = {str(item.get("case_id")) for item in cases if isinstance(item, Mapping)}
+    if set(expected_findings) != case_ids:
+        raise ValueError("expected finding set does not match the corpus")
+    for raw in cases:
+        if not isinstance(raw, Mapping) or "expected_finding" in raw:
+            raise ValueError("legacy reviewer corpus case is invalid")
+        case_id = str(raw.get("case_id"))
+        expected = expected_findings[case_id]
+        if raw.get("severity") == "critical":
+            if not isinstance(expected, Mapping) or set(expected) != {
+                "defect_id",
+                "path",
+                "line",
+            }:
+                raise ValueError("protected critical expected finding is incomplete")
+            value: Mapping[str, Any] | None = dict(expected)
+        elif raw.get("severity") == "control" and expected is None:
+            value = None
+        else:
+            raise ValueError("protected expected finding conflicts with case severity")
+        rebuilt.append({**raw, "expected_finding": value})
+    migrated["cases"] = rebuilt
+    return _finish_migration(
+        migrated, to_version="3.0.0", identity_field="corpus_id"
+    )
+
+
 def migrate_reviewer_result_v1_to_v2(
     document: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -539,6 +576,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-qualification-cases", "1.0.0", "2.0.0"): migrate_reviewer_qualification_cases_v1_to_v2,
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
+    ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
     ("reviewer-result", "1.0.0", "2.0.0"): migrate_reviewer_result_v1_to_v2,
     ("reviewer-result", "2.0.0", "3.0.0"): migrate_reviewer_result_v2_to_v3,
     ("reviewer-execution", "1.0.0", "2.0.0"): migrate_reviewer_execution_v1_to_v2,

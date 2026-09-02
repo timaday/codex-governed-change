@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "corpus_id", "human_labelled", "cases"],
   "properties": {
-    "schema_version": {"const": "2.0.0"},
+    "schema_version": {"const": "3.0.0"},
     "corpus_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "human_labelled": {"const": true},
     "cases": {
@@ -15,7 +15,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["case_id", "case_classes", "severity", "requirement_id", "expected_disposition", "risk", "charter", "files"],
+        "required": ["case_id", "case_classes", "severity", "requirement_id", "expected_finding", "expected_disposition", "risk", "charter", "files"],
         "properties": {
           "case_id": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$"},
           "case_classes": {
@@ -26,6 +26,16 @@
           },
           "severity": {"enum": ["critical", "control"]},
           "requirement_id": {"type": "string", "minLength": 1},
+          "expected_finding": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["defect_id", "path", "line"],
+            "properties": {
+              "defect_id": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$"},
+              "path": {"type": "string", "pattern": "^[A-Za-z0-9._/-]+$"},
+              "line": {"type": "integer", "minimum": 1}
+            }
+          },
           "expected_disposition": {"enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED"]},
           "risk": {"type": "string", "minLength": 1},
           "charter": {"type": "string", "minLength": 1},

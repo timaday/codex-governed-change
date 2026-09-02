@@ -118,6 +118,21 @@ def load_referenced_json(
     return parse_referenced_json(data=data, schema_path=schema_path)
 
 
+def provenance_review_inputs_match(
+    *,
+    predicate: Mapping[str, Any],
+    expected_reviewer_prompt_sha256: str,
+    expected_materials: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Match the exact protected prompt and ordered material sequence."""
+    return bool(
+        predicate.get("reviewer_prompt_sha256")
+        == expected_reviewer_prompt_sha256
+        and predicate.get("materials")
+        == [dict(item) for item in expected_materials]
+    )
+
+
 def parse_referenced_json(*, data: bytes, schema_path: Path) -> dict[str, Any]:
     """Validate already descriptor-read referenced JSON without reopening it."""
     try:
@@ -325,8 +340,15 @@ def evaluate_manifest(
     try:
         task = load(manifest["task_contract"], "task-contract")
         policy = load(manifest["effective_policy"], "effective-policy")
+        qualification = load(
+            manifest["reviewer_qualification"], "reviewer-qualification"
+        )
         task_sha = manifest["task_contract"]["sha256"]
         policy_sha = manifest["effective_policy"]["sha256"]
+        protected_reviewer_prompt_sha256 = require_sha256(
+            qualification.get("prompt_sha256"),
+            name="protected reviewer prompt",
+        )
     except (KeyError, OSError, TypeError, ValueError):
         return DispositionState.UNKNOWN, ["AUTHORITY_REFERENCE_INVALID"]
     if (
@@ -590,6 +612,8 @@ def evaluate_manifest(
         expected_implementation_sha256: str,
         expected_timeout_seconds: int,
         expected_max_output_bytes: int,
+        expected_reviewer_prompt_sha256: str,
+        expected_materials: Sequence[Mapping[str, Any]],
         expected_shell: bool = False,
         expected_stdout: bytes | None = None,
         expected_stdout_validator: Callable[[bytes], bool] | None = None,
@@ -709,13 +733,13 @@ def evaluate_manifest(
             and verify_provenance_statement(
                 statement,
                 repository_id,
-                current_candidate_id,
+                source_identity,
                 current_candidate_id,
             )
             and result.get("repository_id") == repository_id
             and result.get("task_contract_sha256") == task_sha
-            and result.get("candidate_before") == current_candidate_id
-            and result.get("candidate_after") == current_candidate_id
+            and result.get("candidate_before") == source_identity
+            and result.get("candidate_after") == source_identity
             and result.get("gate_id") == expected_gate_id
             and result.get("command") == list(expected_command)
             and result.get("source_identity") == source_identity
@@ -737,6 +761,11 @@ def evaluate_manifest(
             and capability_sha == environment.get("sandbox_capability_sha256")
             and predicate.get("task_contract_sha256") == task_sha
             and predicate.get("effective_policy_sha256") == policy_sha
+            and provenance_review_inputs_match(
+                predicate=predicate,
+                expected_reviewer_prompt_sha256=expected_reviewer_prompt_sha256,
+                expected_materials=expected_materials,
+            )
             and predicate.get("gate_definition_sha256")
             == expected_gate_definition_sha256
             and predicate.get("result") == result.get("status")
@@ -813,6 +842,12 @@ def evaluate_manifest(
                 expected_implementation_sha256=gate_implementation_sha256(),
                 expected_timeout_seconds=int(definition["timeout_seconds"]),
                 expected_max_output_bytes=int(definition["max_output_bytes"]),
+                expected_reviewer_prompt_sha256=protected_reviewer_prompt_sha256,
+                expected_materials=[
+                    {"name": "candidate", "sha256": current_candidate_id},
+                    {"name": "task-contract", "sha256": task_sha},
+                    {"name": "effective-policy", "sha256": policy_sha},
+                ],
                 expected_shell=bool(definition["shell"]),
             ):
                 gate_states.append("UNKNOWN")
@@ -918,6 +953,17 @@ def evaluate_manifest(
                     expected_max_output_bytes=rollback_definition[
                         "max_output_bytes"
                     ],
+                    expected_reviewer_prompt_sha256=protected_reviewer_prompt_sha256,
+                    expected_materials=[
+                        {"name": "candidate", "sha256": current_candidate_id},
+                        {"name": "task-contract", "sha256": task_sha},
+                        {"name": "effective-policy", "sha256": policy_sha},
+                        {
+                            "name": "rollback-target-commit",
+                            "sha256": sha256_bytes(rollback_target.encode("ascii")),
+                        },
+                        {"name": "proposed-policy", "sha256": proposed_sha},
+                    ],
                     expected_shell=bool(rollback_definition["shell"]),
                     expected_stdout=rollback_stdout,
                 )
@@ -995,6 +1041,11 @@ def evaluate_manifest(
                     int(item["timeout_seconds"]) for item in policy["gates"]
                 ),
                 expected_max_output_bytes=mutation_max_output_bytes,
+                expected_reviewer_prompt_sha256=protected_reviewer_prompt_sha256,
+                expected_materials=[
+                    {"name": "candidate", "sha256": current_candidate_id},
+                    {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
+                ],
             )
         )
         mutation_records = [load(reference, "mutant-record") for reference in manifest["mutant_records"]]
@@ -1076,6 +1127,12 @@ def evaluate_manifest(
                         int(item["timeout_seconds"]) for item in policy["gates"]
                     ),
                     expected_max_output_bytes=mutation_max_output_bytes,
+                    expected_reviewer_prompt_sha256=protected_reviewer_prompt_sha256,
+                    expected_materials=[
+                        {"name": "candidate", "sha256": current_candidate_id},
+                        {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
+                        {"name": "mutation-patch", "sha256": expected_patch},
+                    ],
                     expected_stdout_validator=lambda data: mutation_probe_outcome(
                         data, MUTATION_KILLED_EXIT
                     )
@@ -1210,7 +1267,6 @@ def evaluate_manifest(
         defeaters["context_complete"].append("context receipt is stale, incomplete, or budget-insufficient")
 
     try:
-        qualification = load(manifest["reviewer_qualification"], "reviewer-qualification")
         qualification_cases = load(
             manifest["reviewer_qualification_cases"],
             "reviewer-qualification-cases",

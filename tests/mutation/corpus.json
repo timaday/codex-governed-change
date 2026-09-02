@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:77a7b5063c772eb485fd91d41dbad824440385874aa02f5d4668093e9a33e150",
+  "corpus_id": "sha256:9c2fc3a47064da3d7618f861b1c791a6e68272f12fed4742e20f7ecdf69c709e",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -51,20 +51,20 @@
     {
       "mutant_id": "expired-waiver",
       "path": "src/codex_governance/authority.py",
-      "old": "    return issued <= now <= expires and issued < expires",
-      "new": "    return issued <= now and issued < expires",
-      "operator": "accept expired waiver",
-      "requirement_id": "GOV-018",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_waiver_policy"]
+      "old": "    return issued <= now < expires",
+      "new": "    return issued <= now <= expires",
+      "operator": "accept an authenticated decision at its expiration boundary",
+      "requirement_id": "GOV-048",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_trusted_authority"]
     },
     {
       "mutant_id": "artifact-symlink",
       "path": "src/codex_governance/artifacts.py",
-      "old": "        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, \"O_NONBLOCK\", 0)\n        try:\n            descriptor = os.open(leaf, flags, dir_fd=parent)",
-      "new": "        flags = os.O_RDONLY | getattr(os, \"O_NONBLOCK\", 0)\n        try:\n            descriptor = os.open(leaf, flags, dir_fd=parent)",
-      "operator": "allow symlink in evidence path",
+      "old": "        no_follow = os.O_NOFOLLOW",
+      "new": "        no_follow = 0",
+      "operator": "follow a symlink for both opening and authoritative leaf restatement",
       "requirement_id": "GOV-028",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store.ArtifactStoreTest.test_symlink_root_parent_and_leaf_are_rejected"]
     },
     {
       "mutant_id": "reviewer-shell",
@@ -344,6 +344,60 @@
       "operator": "accept a qualification result with a stale gate-manifest binding",
       "requirement_id": "GOV-055",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
+    },
+    {
+      "mutant_id": "artifact-leaf-rebind",
+      "path": "src/codex_governance/artifacts.py",
+      "old": "            if (\n                not stat.S_ISREG(current.st_mode)\n                or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)\n            ):\n                raise ArtifactSafetyError(\"artifact leaf binding changed\")",
+      "new": "            if False:\n                raise ArtifactSafetyError(\"artifact leaf binding changed\")",
+      "operator": "accept bytes from an opened leaf after the authoritative name is replaced",
+      "requirement_id": "GOV-047",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store.ArtifactStoreTest.test_leaf_replacement_after_open_blocks_direct_readback"]
+    },
+    {
+      "mutant_id": "fcntl-signal-escape",
+      "path": "src/codex_governance/reviewer_signal_guard.py",
+      "old": "    8,     # F_SETOWN\n",
+      "new": "    7,     # F_SETLKW\n",
+      "operator": "permit asynchronous descriptor ownership to target the outer supervisor",
+      "requirement_id": "GOV-054",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_signal_guard_denies_asynchronous_fcntl_signal_operations"]
+    },
+    {
+      "mutant_id": "qualification-blanket-block",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        and expected_finding_detected\n        and result.get(\"retrieval_expansions\")",
+      "new": "        and True\n        and result.get(\"retrieval_expansions\")",
+      "operator": "count a blanket BLOCK without the human-labelled defect finding",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
+    },
+    {
+      "mutant_id": "mutant-subject-confusion",
+      "path": "src/codex_governance/evidence.py",
+      "old": "            and result.get(\"candidate_before\") == source_identity",
+      "new": "            and result.get(\"candidate_before\") == current_candidate_id",
+      "operator": "require the original candidate where the producer attests the mutated execution subject",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_only_reconstructable_exact_candidate_manifest_is_ready"]
+    },
+    {
+      "mutant_id": "provenance-prompt-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "        predicate.get(\"reviewer_prompt_sha256\")\n        == expected_reviewer_prompt_sha256",
+      "new": "        True",
+      "operator": "accept gate or mutation provenance addressed to another reviewer prompt",
+      "requirement_id": "GOV-023",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_provenance_review_prompt_mismatch_is_rejected"]
+    },
+    {
+      "mutant_id": "provenance-materials-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "        and predicate.get(\"materials\")\n        == [dict(item) for item in expected_materials]",
+      "new": "        and True",
+      "operator": "accept omitted, substituted, duplicated or reordered gate provenance materials",
+      "requirement_id": "GOV-023",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_provenance_review_material_omission_is_rejected"]
     }
   ]
 }

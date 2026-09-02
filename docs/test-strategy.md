@@ -51,6 +51,9 @@ No model confidence statement is an oracle.
   unsupported architectures or a missing guard handshake MUST fail closed.
 - A seccomp-fallback reviewer that calls `prlimit64` against its known same-UID
   parent MUST receive `EPERM`; the parent and its cleanup boundary MUST survive.
+- A seccomp-fallback reviewer MUST receive `EPERM` for asynchronous `fcntl`
+  owner, signal-selection, asynchronous-status and notification commands, so an
+  inherited descriptor cannot deliver `SIGIO` to the outer supervisor.
 - On x86_64, an x32-tagged `kill(..., 0)` probe MUST receive the guard's `EPERM`
   even when the host kernel would otherwise report that the x32 ABI is absent;
   reaching native or x32 kernel dispatch is a containment failure.
@@ -86,6 +89,9 @@ No model confidence statement is an oracle.
 - Gate artifact reconstruction.
 - Gate and mutation raw-stream deletion, tampering, size mismatch, timeout,
   truncation, incomplete observation and exit/status disagreement.
+- Gate, rollback, baseline and mutant provenance prompt/material omission,
+  substitution, duplication and reordering, plus producer-to-admission tests
+  that distinguish the original candidate from the mutated execution subject.
 - Distinct workflow/run identities for gate, mutation and reviewer producers.
 - CLI output replay with identical bytes, conflicting overwrite and symlink
   targets.
@@ -102,6 +108,9 @@ No model confidence statement is an oracle.
   authoritative artifact reads and writes without using a pathname fallback.
 - FIFO and other non-regular leaves MUST be rejected without blocking read or
   write-once preflight.
+- Deterministic barriers MUST replace an existing leaf after open during
+  idempotent-write preflight, publication readback and direct readback; all
+  three operations must reject the stale descriptor/name binding.
 - Evidence-root replacement after lock acquisition MUST fail the shared
   root-device/inode binding before the handler or publication can proceed.
 - Gate-manifest creation time MUST be at or after every referenced gate result's
@@ -356,11 +365,16 @@ copy and missing-provenance mutants.
 
 Also seed broader-source-root rollback materialization that would copy a sibling
 `sitecustomize.py`, a mutation runner that treats any nonzero exit as killed, and
-submodule tree identity that records only `HEAD`.
+submodule tree identity that records only `HEAD`. Seed leaf-name rebinding after
+descriptor read, asynchronous-`fcntl` signal escape, blanket qualification
+blocking, original-versus-mutated subject confusion, reviewer-prompt omission
+and provenance-material omission mutants.
 
 Run only after a green baseline, in a disposable worktree/sandbox, before the
 final fresh-context review. A mutant is `KILLED` only when an expected test
-causally detects a valid non-equivalent semantic change. `SURVIVED`, `INVALID`,
+causally detects a valid non-equivalent semantic change through one or more
+assertion-failure records and no other unittest outcome; multiple failing
+subtests from one selected test are valid. `SURVIVED`, `INVALID`,
 `TIMEOUT`, `EQUIVALENT_CLAIMED` and `UNKNOWN` remain distinct and block or remain
 unknown. Compiler failure, harness failure or non-execution is not a kill.
 
@@ -446,7 +460,10 @@ to the exact case and qualification identity. For conformance cases, tamper the
 gate-manifest and prepared-context digests, affected closure, required reviewed
 surfaces, mandatory claim IDs and corpus-derived evidence references at the
 protected semantic validator; each variant must be rejected before aggregate
-qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
+qualification. Every critical case must include an approved defect ID and
+requirement/path/line target. Require a blocking finding to match that target
+and its resolved corpus evidence; blanket `BLOCK`, empty findings and unrelated
+findings must produce zero recall and prevent qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
 redaction plus `UNKNOWN`, while the identical literal remains portable only in
 a parsed command-execution event,
 then independently recompute case counts, critical recall, false pass/block,

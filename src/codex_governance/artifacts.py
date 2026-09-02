@@ -249,7 +249,8 @@ class FilesystemArtifactStore:
             raise ArtifactSafetyError("artifact parent binding changed")
 
     def _read_bound_leaf(self, parent: int, leaf: str) -> tuple[bytes, os.stat_result]:
-        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        no_follow = os.O_NOFOLLOW
+        flags = os.O_RDONLY | no_follow | getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(leaf, flags, dir_fd=parent)
         except OSError as exc:
@@ -265,6 +266,17 @@ class FilesystemArtifactStore:
                 data = stream.read(self.max_bytes + 1)
             if len(data) > self.max_bytes:
                 raise ArtifactSafetyError("artifact exceeds configured size bound")
+            try:
+                current = os.stat(
+                    leaf, dir_fd=parent, follow_symlinks=not bool(no_follow)
+                )
+            except OSError as exc:
+                raise ArtifactSafetyError("artifact leaf binding changed") from exc
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)
+            ):
+                raise ArtifactSafetyError("artifact leaf binding changed")
             return data, info
         finally:
             if descriptor >= 0:

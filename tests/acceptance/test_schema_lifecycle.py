@@ -30,6 +30,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(
             "explicit_required",
+            migration_policy("reviewer-qualification-corpus", "2.0.0", "3.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
             migration_policy("evidence-manifest", "2.0.0", "3.0.0"),
         )
         self.assertEqual(
@@ -97,6 +101,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_reviewer_qualification_cases_v1_to_v2,
             migrate_reviewer_qualification_cases_v2_to_v3,
             migrate_reviewer_qualification_corpus_v1_to_v2,
+            migrate_reviewer_qualification_corpus_v2_to_v3,
             migrate_reviewer_qualification_v1_to_v2,
             migrate_reviewer_result_v1_to_v2,
             migrate_reviewer_result_v2_to_v3,
@@ -244,7 +249,20 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("reviewer-qualification-cases", rebuilt_cases_v3)
         observed.add(("reviewer-qualification-cases", "2.0.0", "3.0.0"))
 
-        qualification_corpus_v2 = example("reviewer-qualification-corpus")
+        qualification_corpus_v3 = example("reviewer-qualification-corpus")
+        expected_findings = {
+            item["case_id"]: item["expected_finding"]
+            for item in qualification_corpus_v3["cases"]
+        }
+        qualification_corpus_v2 = deepcopy(qualification_corpus_v3)
+        for item in qualification_corpus_v2["cases"]:
+            item.pop("expected_finding")
+        qualification_corpus_v2 = addressed(
+            qualification_corpus_v2, "2.0.0", "corpus_id"
+        )
+        rejected_by_current(
+            "reviewer-qualification-corpus", qualification_corpus_v2
+        )
         case_classes = {
             item["case_id"]: item["case_classes"]
             for item in qualification_corpus_v2["cases"]
@@ -262,8 +280,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             qualification_corpus_v1, case_classes=case_classes
         )
         self.assertEqual(qualification_corpus_v2, rebuilt_corpus)
-        current("reviewer-qualification-corpus", rebuilt_corpus)
         observed.add(("reviewer-qualification-corpus", "1.0.0", "2.0.0"))
+        rebuilt_corpus_v3 = migrate_reviewer_qualification_corpus_v2_to_v3(
+            rebuilt_corpus, expected_findings=expected_findings
+        )
+        self.assertEqual(qualification_corpus_v3, rebuilt_corpus_v3)
+        current("reviewer-qualification-corpus", rebuilt_corpus_v3)
+        observed.add(("reviewer-qualification-corpus", "2.0.0", "3.0.0"))
 
         reviewer_result_v3 = example("reviewer-result")
         claim_ids = [item["claim_id"] for item in reviewer_result_v3["claims"]]
