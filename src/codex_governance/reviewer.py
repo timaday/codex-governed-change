@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from codex_governance.artifacts import (
+    ArtifactSafetyError,
     copy_bounded_repository_entry,
     make_tree_read_only_bounded,
+    read_bounded_descriptor,
     read_bounded_path_file,
     read_bounded_repository_file,
     write_bounded_bytes,
@@ -471,12 +473,18 @@ def _normalize_reviewer_stream(
     for value in sorted(replacements, key=len, reverse=True):
         normalized = normalized.replace(value, b"<REVIEWER_RUNTIME>")
     redactions: list[str] = []
-    for pattern in REVIEWER_AMBIGUOUS_PATTERNS:
-        def replace(match: re.Match[bytes]) -> bytes:
-            redactions.append("ambiguous_machine_or_credential_value")
-            return b"<REVIEWER_REDACTED>"
+    for _pass in range(2):
+        changed = False
+        for pattern in REVIEWER_AMBIGUOUS_PATTERNS:
+            def replace(match: re.Match[bytes]) -> bytes:
+                nonlocal changed
+                changed = True
+                redactions.append("ambiguous_machine_or_credential_value")
+                return b"<REVIEWER_REDACTED>"
 
-        normalized = pattern.sub(replace, normalized)
+            normalized = pattern.sub(replace, normalized)
+        if not changed:
+            break
     return normalized, sorted(set(redactions))
 
 
@@ -543,9 +551,15 @@ def _normalize_reviewer_jsonl(
 
 
 def observe_codex_cli_version(
-    executable: str, *, environment: Mapping[str, str] | None = None
+    executable: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+    deadline: float | None = None,
 ) -> str:
     """Observe a portable Codex CLI version without persisting its host path."""
+    remaining = None if deadline is None else deadline - time.monotonic()
+    if remaining is not None and remaining <= 0:
+        raise RuntimeError("Codex CLI version deadline expired")
     try:
         completed = subprocess.run(
             [executable, "--version"],
@@ -553,7 +567,7 @@ def observe_codex_cli_version(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=build_reviewer_environment(environment or os.environ),
-            timeout=10,
+            timeout=min(10.0, remaining) if remaining is not None else 10.0,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -565,6 +579,8 @@ def observe_codex_cli_version(
         or re.fullmatch(r"codex-cli [0-9][0-9A-Za-z._+-]{0,63}", value) is None
     ):
         raise RuntimeError("Codex CLI version is unavailable")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise RuntimeError("Codex CLI version deadline expired")
     return value
 
 
@@ -1480,7 +1496,7 @@ class _ReviewerOutputAuthority:
         ):
             raise ValueError("reviewer output parent binding changed")
 
-    def read_once(self, max_bytes: int) -> bytes:
+    def read_once(self, max_bytes: int, *, deadline: float | None = None) -> bytes:
         """Open one bound regular leaf and retain its exact bytes once."""
         self.assert_parent_binding()
         try:
@@ -1519,24 +1535,16 @@ class _ReviewerOutputAuthority:
                     present=True,
                     regular=stat.S_ISREG(opened.st_mode),
                 )
-            chunks: list[bytes] = []
-            observed_bytes = 0
-            while observed_bytes <= max_bytes:
-                chunk = os.read(
-                    descriptor,
-                    min(65_536, max_bytes + 1 - observed_bytes),
+            try:
+                data = read_bounded_descriptor(
+                    descriptor, deadline=deadline, max_bytes=max_bytes
                 )
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                observed_bytes += len(chunk)
-            if observed_bytes > max_bytes:
+            except ArtifactSafetyError as exc:
                 raise _ReviewerOutputReadError(
-                    "reviewer output exceeds configured size bound",
+                    "reviewer output read was unavailable",
                     present=True,
                     regular=True,
-                    truncated=True,
-                )
+                ) from exc
             opened_after = os.fstat(descriptor)
         finally:
             os.close(descriptor)
@@ -1569,7 +1577,6 @@ class _ReviewerOutputAuthority:
             entry_after.st_mtime_ns,
             entry_after.st_ctime_ns,
         )
-        data = b"".join(chunks)
         if (
             identity_before != identity_after
             or identity_after != entry_identity
@@ -1854,7 +1861,9 @@ def launch_reviewer(
     bindings_match = False
     payload: Mapping[str, Any] | None = None
     try:
-        output_bytes = output_authority.read_once(max_output_bytes)
+        output_bytes = output_authority.read_once(
+            max_output_bytes, deadline=deadline
+        )
         output_present = True
         output_regular = True
         parsed = parse_json_bytes(output_bytes)

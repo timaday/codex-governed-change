@@ -376,6 +376,26 @@ class GateRunnerTest(unittest.TestCase):
             any(item["category"] == "credential" for item in result["redactions"])
         )
 
+    def test_complete_authorization_field_is_removed(self) -> None:
+        authorization = "Authorization" + ": " + "Bearer" + " " + "opaque-" + "A" * 24
+        result = self.observe(f"print({authorization!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(authorization.encode(), output)
+        self.assertNotIn(("opaque-" + "A" * 24).encode(), output)
+
+    def test_colon_delimited_absolute_path_is_removed(self) -> None:
+        host_path = "cache:" + "/" + "/".join(("srv", "worker", "state.bin"))
+        result = self.observe(f"print({host_path!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(host_path.encode(), output)
+        self.assertIn(b"<REDACTED_HOST_PATH>", output)
+
     def test_hostname_lookup_failure_does_not_bypass_normalization(self) -> None:
         token = "sk-" + "B" * 32
         with patch("codex_governance.gate.socket.gethostname", side_effect=OSError):

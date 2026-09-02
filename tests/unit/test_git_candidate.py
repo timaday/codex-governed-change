@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -166,6 +167,33 @@ class GitCandidateAdapterTest(unittest.TestCase):
         self.assertEqual(before, self.identify()["candidate_id"])
         (self.repository / "evidence-adjacent").write_bytes(b"candidate")
         self.assertNotEqual(before, self.identify()["candidate_id"])
+
+    def test_untracked_content_read_receives_adapter_deadline(self) -> None:
+        (self.repository / "untracked.txt").write_bytes(b"candidate")
+        deadline = time.monotonic() + 10
+        adapter = GitCliRepositoryAdapter(self.repository, deadline=deadline)
+        from codex_governance import candidate as candidate_module
+
+        real_read = candidate_module.read_bounded_repository_entry
+        observed = []
+
+        def bounded_read(repository, path, **kwargs):
+            observed.append(kwargs.get("deadline"))
+            return real_read(repository, path, **kwargs)
+
+        with patch.object(
+            candidate_module,
+            "read_bounded_repository_entry",
+            side_effect=bounded_read,
+        ):
+            adapter.identify(
+                repository_id=self.REPOSITORY_ID,
+                mode="working_tree",
+                base_commit=self.base,
+                effective_policy_sha256=self.POLICY,
+                evidence_root="evidence",
+            )
+        self.assertEqual([deadline], observed)
 
     def test_commit_mode_requires_clean_checkout(self) -> None:
         result = self.adapter.identify(

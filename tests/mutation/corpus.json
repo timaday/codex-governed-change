@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:0f2d063b3bcfb6393d227b8a786ebcfbd716bb43afea6e49cc4ec03480eda191",
+  "corpus_id": "sha256:668ff1ede4febfd21588cc999f2c84dadc4b3950ff073296e8d8e7bc1f39213f",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -240,11 +240,11 @@
     {
       "mutant_id": "gate-copy-source-identity",
       "path": "src/codex_governance/cli.py",
-      "old": "                def copied_candidate_id(\n                    adapter: GitCliRepositoryAdapter = copy_adapter,\n                ) -> str:",
-      "new": "                def copied_candidate_id(\n                    adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                        args.repository, deadline=gate_deadline\n                    ),\n                ) -> str:",
+      "old": "        if source_id != expected_candidate_id or copied_id != expected_candidate_id:",
+      "new": "        if copied_id != expected_candidate_id:",
       "operator": "observe the original repository instead of the executed gate copy",
       "requirement_id": "GOV-003",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_gate_candidate_supplier_rejects_source_or_copy_drift"]
     },
     {
       "mutant_id": "mutation-copy-source-identity",
@@ -501,8 +501,8 @@
     {
       "mutant_id": "shared-host-root-truncated",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~:/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "recognize only user-profile prefixes instead of complete host-root families",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -546,7 +546,7 @@
     {
       "mutant_id": "untracked-pathname-read",
       "path": "src/codex_governance/candidate.py",
-      "old": "            kind, content, info = read_bounded_repository_entry(\n                self.repository, path, max_bytes=64_000_000\n            )",
+      "old": "            kind, content, info = read_bounded_repository_entry(\n                self.repository,\n                path,\n                max_bytes=64_000_000,\n                deadline=self.deadline,\n            )",
       "new": "            absolute = self.repository.joinpath(*path.split(\"/\"))\n            info = absolute.lstat()\n            kind = \"symlink\" if info.st_mode & 0o170000 == 0o120000 else \"regular\"\n            content = os.fsencode(os.readlink(absolute)) if kind == \"symlink\" else absolute.read_bytes()",
       "operator": "hash an untracked pathname after a separate lstat",
       "requirement_id": "GOV-003",
@@ -677,6 +677,87 @@
       "operator": "rebuild reviewer stdin from a candidate-owned prompt",
       "requirement_id": "GOV-052",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_admission_reconstructs_stdin_from_protected_authority_prompt"]
+    },
+    {
+      "mutant_id": "mutation-control-credit-without-survival",
+      "path": "src/codex_governance/mutation.py",
+      "old": "    if control_outcome != \"SURVIVED\":\n        return \"UNKNOWN\"",
+      "new": "    if False:\n        return \"UNKNOWN\"",
+      "operator": "credit a mutant kill without a surviving unmodified control",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutation_kill_requires_matching_surviving_control"]
+    },
+    {
+      "mutant_id": "mutation-control-admission-omitted",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and control_exact",
+      "new": "                and True",
+      "operator": "admit a mutation kill whose unmodified control cannot reconstruct",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_mutation_kill_without_its_unmodified_control_is_unknown"]
+    },
+    {
+      "mutant_id": "review-deadline-start-delayed",
+      "path": "src/codex_governance/cli.py",
+      "old": "    if args.command == \"review\":\n        args._review_deadline = time.monotonic() + args.timeout_seconds",
+      "new": "    if False:\n        args._review_deadline = time.monotonic() + args.timeout_seconds",
+      "operator": "delay the review deadline until after lock and policy selection",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_review_deadline_exists_before_pipeline_lock_selection"]
+    },
+    {
+      "mutant_id": "untracked-read-deadline-omitted",
+      "path": "src/codex_governance/candidate.py",
+      "old": "                deadline=self.deadline,",
+      "new": "                deadline=None,",
+      "operator": "remove the candidate deadline from retained untracked entry reads",
+      "requirement_id": "GOV-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_git_candidate.GitCandidateAdapterTest.test_untracked_content_read_receives_adapter_deadline"]
+    },
+    {
+      "mutant_id": "reviewer-final-output-deadline-omitted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "            max_output_bytes, deadline=deadline\n        )",
+      "new": "            max_output_bytes, deadline=None\n        )",
+      "operator": "remove the absolute deadline from final reviewer output materialization",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_final_output_read_receives_the_absolute_deadline"]
+    },
+    {
+      "mutant_id": "authorization-tail-truncated",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"(?i)\\b(?:api[_-]?key|token|secret|password|passwd|authorization)\"\n            rb\"\\b[\\\"']?\\s*[:=]\\s*[^\\r\\n,;)}\\]]+\"",
+      "new": "            rb\"(?i)\\b(?:api[_-]?key|token|secret|password|passwd|authorization)\"\n            rb\"\\b[\\\"']?\\s*[:=]\\s*\" + _VALUE_TAIL",
+      "operator": "redact only the authorization scheme and retain its credential value",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_authorization_field_is_removed"]
+    },
+    {
+      "mutant_id": "colon-delimited-posix-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "operator": "retain an absolute POSIX host path after an ordinary colon delimiter",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed"]
+    },
+    {
+      "mutant_id": "unqualified-finding-confirmed",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                \"BLOCK\" if reviewer_exact and qualification_ok else \"UNKNOWN\"",
+      "new": "                \"BLOCK\"",
+      "operator": "promote a stale or unqualified reviewer finding to confirmed block",
+      "requirement_id": "GOV-026",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_unqualified_finding_remains_unknown_not_confirmed_block"]
+    },
+    {
+      "mutant_id": "reviewer-version-deadline-omitted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    remaining = None if deadline is None else deadline - time.monotonic()",
+      "new": "    remaining = None",
+      "operator": "remove the absolute review deadline from Codex CLI version observation",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_codex_version_observation_honors_expired_deadline"]
     },
     {
       "mutant_id": "preparation-error-launches",

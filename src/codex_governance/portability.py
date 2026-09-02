@@ -20,7 +20,7 @@ SHAPED_VALUE_PATTERNS: tuple[tuple[re.Pattern[bytes], str], ...] = (
     (
         re.compile(
             rb"(?i)\b(?:api[_-]?key|token|secret|password|passwd|authorization)"
-            rb"\s*[:=]\s*[^\s,;]+"
+            rb"\b[\"']?\s*[:=]\s*[^\r\n,;)}\]]+"
         ),
         "credential",
     ),
@@ -29,7 +29,7 @@ SHAPED_VALUE_PATTERNS: tuple[tuple[re.Pattern[bytes], str], ...] = (
     (re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), "credential"),
     (
         re.compile(
-            rb"(?<![A-Za-z0-9._~:/-])/(?!/)[^\s\"'<>|,;)}\]]+"
+            rb"(?<![A-Za-z0-9._~/-])/(?!/)[^\s\"'<>|,;)}\]]+"
         ),
         "generic_host_path",
     ),

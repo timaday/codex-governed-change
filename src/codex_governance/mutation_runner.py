@@ -27,6 +27,7 @@ from codex_governance.gate import run_gate
 from codex_governance.mutation import (
     apply_curated_mutant,
     build_mutation_probe_command,
+    causal_mutation_pair_outcome,
     classify_mutation_execution,
     expected_mutated_tree_sha256,
     git_visible_tree_sha256,
@@ -213,6 +214,58 @@ def run_governed_mutation_corpus(
         provenance.append(provenance_ref)
         return result, result_ref, capability_ref, provenance_ref
 
+    def retain_locator(
+        *, prefix: str, result_ref: Mapping[str, str]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        locator = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": policy["repository_id"],
+                "task_contract_sha256": task_contract_sha256,
+                "candidate_id": candidate["candidate_id"],
+                "kind": "artifact",
+                "path": result_ref["path"],
+                "artifact_sha256": result_ref["sha256"],
+                "media_type": "application/json",
+            },
+            "locator_id",
+        )
+        locator_relative = f"{prefix}/execution-locator.json"
+        locator_sha = store.write_bytes(
+            locator_relative, canonical_json_bytes(locator)
+        )
+        locator_reference = _reference(
+            evidence_root, locator_relative, locator_sha
+        )
+        locators.append(locator_reference)
+        return locator, locator_reference
+
+    def classified_outcome(result: Mapping[str, Any]) -> str:
+        termination = result["termination"]
+        exit_code = termination.get("exit_code")
+        try:
+            stdout_artifact = next(
+                item
+                for item in result["artifacts"]
+                if item.get("stream") == "stdout"
+            )
+            stdout_path = str(stdout_artifact["path"])
+            root_prefix = evidence_root + "/"
+            if not stdout_path.startswith(root_prefix):
+                raise ValueError("mutation stdout is outside the evidence root")
+            stdout = store.read_bytes(
+                stdout_path.removeprefix(root_prefix),
+                expected_sha256=str(stdout_artifact["sha256"]),
+            )
+            return classify_mutation_execution(
+                status=str(result["status"]),
+                termination_kind=str(termination.get("kind")),
+                exit_code=exit_code if isinstance(exit_code, int) else None,
+                stdout=stdout,
+            )
+        except (KeyError, OSError, StopIteration, TypeError, ValueError):
+            return "UNKNOWN"
+
     with tempfile.TemporaryDirectory(prefix="codex-governance-mutation-") as temporary:
         supervisor = Path(temporary).resolve()
         identity_arguments = {
@@ -301,6 +354,96 @@ def run_governed_mutation_corpus(
             selected = list(mutant["selected_command"])
             command = build_mutation_probe_command(relative, selected)
             prefix = f"{run_prefix}/mutants/{mutant['mutant_id']}"
+            control_prefix = f"{prefix}/control"
+            control_started_at = datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            )
+            control_started_ns = time.monotonic_ns()
+            control_deadline = time.monotonic() + limits["timeout_seconds"]
+            control_copy = supervisor / f"control-{index}"
+            control_preparation_error: str | None = None
+            try:
+                control_source_before = identify_original(
+                    repository, control_deadline
+                )
+                if control_source_before != candidate["candidate_id"]:
+                    raise CandidatePreparationError(
+                        "mutation control source identity mismatch before copy"
+                    )
+                prepare_candidate_copy(
+                    repository=repository,
+                    destination=control_copy,
+                    evidence_root=evidence_root,
+                    deadline=control_deadline,
+                )
+                control_copied = identify_original(control_copy, control_deadline)
+                control_source_after = identify_original(
+                    repository, control_deadline
+                )
+                if not original_candidate_copy_is_exact(
+                    source_before=control_source_before,
+                    copied_candidate=control_copied,
+                    source_after=control_source_after,
+                    expected_candidate=candidate["candidate_id"],
+                ):
+                    raise CandidatePreparationError(
+                        "mutation control source or copy identity mismatch"
+                    )
+
+                def current_control_source(
+                    *, copy: Path = control_copy, deadline: float = control_deadline
+                ) -> str:
+                    source_id = identify_original(repository, deadline)
+                    copied_id = identify_original(copy, deadline)
+                    if (
+                        source_id != candidate["candidate_id"]
+                        or copied_id != candidate["candidate_id"]
+                    ):
+                        raise ValueError(
+                            "mutation control source and copy diverged"
+                        )
+                    return copied_id
+
+            except (OSError, RuntimeError, ValueError) as exc:
+                control_preparation_error = exc.__class__.__name__
+                control_copy = repository
+
+                def current_control_source() -> str:
+                    return candidate["candidate_id"]
+
+            control_result, control_ref, _, _ = invoke(
+                candidate_copy=control_copy,
+                source_identity=candidate["candidate_id"],
+                command=command,
+                candidate_supplier=current_control_source,
+                gate_id=f"control-{mutant['mutant_id']}",
+                prefix=control_prefix,
+                materials=[
+                    {"name": "candidate", "sha256": candidate["candidate_id"]},
+                    {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
+                ],
+                absolute_deadline=control_deadline,
+                observation_started_at=control_started_at,
+                observation_started_ns=control_started_ns,
+                preparation_error=control_preparation_error,
+            )
+            control_locator, _ = retain_locator(
+                prefix=control_prefix, result_ref=control_ref
+            )
+            control_outcome = classified_outcome(control_result)
+            if control_outcome != "SURVIVED":
+                return {
+                    "state": "UNKNOWN",
+                    "corpus": corpus_reference,
+                    "baseline": baseline_ref,
+                    "control_failure": control_ref,
+                    "mutant_records": records,
+                    "evidence_locators": locators,
+                    "sandbox_capabilities": capabilities,
+                    "provenance_statements": provenance,
+                }
+
+            mutant_prefix = f"{prefix}/mutant"
             mutant_started_at = datetime.now(timezone.utc).isoformat().replace(
                 "+00:00", "Z"
             )
@@ -359,7 +502,7 @@ def run_governed_mutation_corpus(
                     command=command,
                     candidate_supplier=lambda: candidate["candidate_id"],
                     gate_id=f"mutant-{mutant['mutant_id']}",
-                    prefix=prefix,
+                    prefix=mutant_prefix,
                     materials=[
                         {"name": "candidate", "sha256": candidate["candidate_id"]},
                         {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
@@ -393,6 +536,11 @@ def run_governed_mutation_corpus(
                 mutant_id: str = mutant["mutant_id"],
                 patch: str = patch_sha,
             ) -> str:
+                if (
+                    identify_original(repository, mutant_deadline)
+                    != candidate["candidate_id"]
+                ):
+                    raise ValueError("mutation source changed during execution")
                 return mutated_source_identity(
                     candidate_id=candidate["candidate_id"],
                     corpus_id=corpus["corpus_id"],
@@ -410,7 +558,7 @@ def run_governed_mutation_corpus(
                 command=command,
                 candidate_supplier=current_mutant_source,
                 gate_id=f"mutant-{mutant['mutant_id']}",
-                prefix=prefix,
+                prefix=mutant_prefix,
                 materials=[
                     {"name": "candidate", "sha256": candidate["candidate_id"]},
                     {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
@@ -420,51 +568,12 @@ def run_governed_mutation_corpus(
                 observation_started_at=mutant_started_at,
                 observation_started_ns=mutant_started_ns,
             )
-            termination = result["termination"]
-            exit_code = termination.get("exit_code")
-            try:
-                stdout_artifact = next(
-                    item
-                    for item in result["artifacts"]
-                    if item.get("stream") == "stdout"
-                )
-                stdout_path = str(stdout_artifact["path"])
-                root_prefix = evidence_root + "/"
-                if not stdout_path.startswith(root_prefix):
-                    raise ValueError("mutation stdout is outside the evidence root")
-                stdout = store.read_bytes(
-                    stdout_path.removeprefix(root_prefix),
-                    expected_sha256=str(stdout_artifact["sha256"]),
-                )
-                outcome = classify_mutation_execution(
-                    status=str(result["status"]),
-                    termination_kind=str(termination.get("kind")),
-                    exit_code=exit_code if isinstance(exit_code, int) else None,
-                    stdout=stdout,
-                )
-            except (KeyError, OSError, StopIteration, TypeError, ValueError):
-                outcome = "UNKNOWN"
-            locator = content_address(
-                {
-                    "schema_version": "1.0.0",
-                    "repository_id": policy["repository_id"],
-                    "task_contract_sha256": task_contract_sha256,
-                    "candidate_id": candidate["candidate_id"],
-                    "kind": "artifact",
-                    "path": result_ref["path"],
-                    "artifact_sha256": result_ref["sha256"],
-                    "media_type": "application/json",
-                },
-                "locator_id",
+            outcome = causal_mutation_pair_outcome(
+                control_outcome, classified_outcome(result)
             )
-            locator_relative = f"{prefix}/execution-locator.json"
-            locator_sha = store.write_bytes(
-                locator_relative, canonical_json_bytes(locator)
+            locator, _ = retain_locator(
+                prefix=mutant_prefix, result_ref=result_ref
             )
-            locator_reference = _reference(
-                evidence_root, locator_relative, locator_sha
-            )
-            locators.append(locator_reference)
             selected_tests = selected_mutation_tests(selected)
             record = mutation_record_id(
                 {
@@ -490,7 +599,16 @@ def run_governed_mutation_corpus(
                     "selected_tests": selected_tests,
                     "outcome": outcome,
                     "causal_evidence": (
-                        [{"locator_id": locator["locator_id"], "sha256": result_ref["sha256"]}]
+                        [
+                            {
+                                "locator_id": control_locator["locator_id"],
+                                "sha256": control_ref["sha256"],
+                            },
+                            {
+                                "locator_id": locator["locator_id"],
+                                "sha256": result_ref["sha256"],
+                            },
+                        ]
                         if outcome == "KILLED"
                         else []
                     ),

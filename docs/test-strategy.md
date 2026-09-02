@@ -91,10 +91,10 @@ No model confidence statement is an oracle.
 - Gate artifact reconstruction.
 - Gate and mutation raw-stream deletion, tampering, size mismatch, timeout,
   truncation, incomplete observation and exit/status disagreement.
-- The protected mutation probe identifies its active target so a selected test's
-  synthetic candidate fixture can retain the immutable pre-mutation target byte;
-  otherwise the mutant could invalidate the fixture before the targeted oracle
-  runs and be misclassified as a survivor or harness error.
+- Synthetic candidate fixtures retain their immutable committed source bytes
+  without probe metadata. Every selected probe first runs unchanged against a
+  distinct control copy with identical argv/environment and must survive; a test
+  branching on probe-only state therefore cannot create false kill credit.
 - Gate, rollback, baseline and mutant provenance prompt/material omission,
   substitution, duplication and reordering, plus producer-to-admission tests
   that distinguish the original candidate from the mutated execution subject.
@@ -183,10 +183,12 @@ chronology, and add limitations. A production-path test runs the separately
 selected rollback producer from an exact-closure read-only protected package
 mount, excludes ignored package files, substitutes a candidate-local
 success-printer, and reconstructs its emitted rollback evidence.
-Reviewer deadline tests stall pre/post identity Git observations, descriptor-bound
-snapshot/evidence copies, snapshot Git helpers and permission finalization. Each
-operation must consume the same absolute deadline and terminate through a
-stop-capable child. Container
+Reviewer deadline tests stall initial candidate/authority/policy/schema/prompt and
+evidence reads, CLI-version observation, pre/post identity Git observations,
+descriptor-bound snapshot/evidence copies, snapshot Git helpers, permission
+finalization and final output materialization. Each operation must consume the
+same absolute deadline and every potentially blocking read/copy must terminate
+through a stop-capable child. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
 Gate deadline tests stall initial clone, checkout and submodule helpers, prove
@@ -454,7 +456,9 @@ making evidence stale must never improve disposition. Resolve every typed
 artifact and line/excerpt locator; a nonexistent or digest-mismatched locator is
 unknown. For each reviewer finding, substitute a missing path, out-of-range
 line and unrelated or non-covering locator and require `UNKNOWN` even when every
-substituted reference is otherwise digest-valid.
+substituted reference is otherwise digest-valid. A valid-looking finding from a
+stale execution or unqualified reviewer remains `UNKNOWN`, never confirmed
+`BLOCK`.
 
 ## Context compiler and reviewer qualification
 

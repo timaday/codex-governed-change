@@ -209,6 +209,15 @@ def _read_descriptor(
     return output
 
 
+def read_bounded_descriptor(
+    source: int, *, deadline: float | None, max_bytes: int
+) -> bytes:
+    """Read an already opened descriptor through the stop-capable helper."""
+    if not isinstance(source, int) or source < 0 or max_bytes < 1:
+        raise ArtifactSafetyError("authoritative descriptor read is invalid")
+    return _read_descriptor(source, deadline=deadline, max_bytes=max_bytes)
+
+
 def write_bounded_bytes(
     destination: Path,
     data: bytes,

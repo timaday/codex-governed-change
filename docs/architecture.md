@@ -215,7 +215,7 @@ codex exec
   -
 ```
 
-The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries are copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use the reviewer's one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
+The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. One reviewer deadline begins before lock/policy selection and governs all candidate/authority reads, CLI-version observation, preparation, execution, cleanup, identity and final output. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries plus the final output are read or copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use that one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
@@ -479,19 +479,25 @@ name and ID file; the immutable ID and name are validated before an attached
 start. On normal exit, timeout, interruption, or provider-CLI failure the
 supervisor forcibly removes that exact ID and proves both ID and name absent;
 failure to establish absence is incomplete observation. After process-tree termination,
-the trusted supervisor re-identifies the executed copy and packages outputs into the
+the trusted supervisor's composite observer re-identifies both the live source
+and executed copy and packages outputs into the
 write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.
 
-Mutation preparation applies the same rule per operator: it identifies the
-source before copy, identifies the unmodified disposable copy, re-identifies the
-source, and only then derives and applies the expected mutation in that verified
-copy. Recursive file, Git and submodule-tree observations share the mutant's
-absolute deadline; preparation uncertainty is retained as `UNKNOWN` without a
-probe launch.
+Mutation preparation applies the same rule per operator: an exact-command
+unmodified control copy must survive first; the producer then identifies the
+source before a distinct mutant copy, identifies that unmodified copy,
+re-identifies the source, and only then derives and applies the expected mutation
+in that verified copy. Control and mutant execution each have a bounded absolute
+deadline. Recursive file, Git and submodule-tree observations share the relevant
+deadline; preparation or control uncertainty is retained as `UNKNOWN` without
+mutation kill credit.
 
 The curated mutation probe is protected producer code, not candidate harness
-logic. It accepts only a fixed command-template grammar, resolves the protected
+logic. Every mutant has a separately verified unmodified control run with the
+identical expanded argv and sanitized environment; it must produce `SURVIVED`
+before mutation. No probe target or control/mutant metadata is exposed to
+candidate tests. It accepts only a fixed command-template grammar, resolves the protected
 probe-source and mutated-path sentinels, compiles the mutated Python target,
 invokes the selected tests with site initialization isolated, and emits one
 terminal structured observation. The expanded command is the selected command:

@@ -679,6 +679,54 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source and copied snapshot"):
             supplier(1.0)
 
+    def test_gate_candidate_supplier_rejects_source_or_copy_drift(self) -> None:
+        from codex_governance.cli import _composite_gate_candidate_supplier
+
+        source = Path("source")
+        copied = Path("copy")
+        expected = "sha256:" + "a" * 64
+        identities = {source: expected, copied: expected}
+        supplier = _composite_gate_candidate_supplier(
+            source_repository=source,
+            copied_repository=copied,
+            expected_candidate_id=expected,
+            identify=lambda repository, _deadline: identities[repository],
+            deadline=1.0,
+        )
+        self.assertEqual(expected, supplier())
+        for drifted in (source, copied):
+            identities[drifted] = "sha256:" + "b" * 64
+            with self.subTest(drifted=drifted), self.assertRaisesRegex(
+                ValueError, "source and copied gate candidate"
+            ):
+                supplier()
+            identities[drifted] = expected
+
+    def test_review_deadline_exists_before_pipeline_lock_selection(self) -> None:
+        from codex_governance import cli
+
+        args = Namespace(
+            command="review",
+            timeout_seconds=10.0,
+            handler=lambda _args: 0,
+        )
+        parser = Mock()
+        parser.parse_args.return_value = args
+        observed: list[float] = []
+
+        def lock_for(received: Namespace):
+            observed.append(received._review_deadline)
+            return cli.nullcontext()
+
+        with (
+            patch.object(cli, "_parser", return_value=parser),
+            patch.object(cli, "_pipeline_lock_for", side_effect=lock_for),
+            patch.object(cli, "_preflight_cli_outputs"),
+        ):
+            self.assertEqual(0, cli.main([]))
+        self.assertEqual(1, len(observed))
+        self.assertGreater(observed[0], time.monotonic())
+
     def test_evaluate_accepts_nonempty_verified_decision_ids(self) -> None:
         from codex_governance import cli
 

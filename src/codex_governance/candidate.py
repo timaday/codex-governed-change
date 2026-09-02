@@ -214,7 +214,10 @@ class GitCliRepositoryAdapter:
             if not self._outside_evidence(path, evidence_root):
                 continue
             kind, content, info = read_bounded_repository_entry(
-                self.repository, path, max_bytes=64_000_000
+                self.repository,
+                path,
+                max_bytes=64_000_000,
+                deadline=self.deadline,
             )
             if kind == "symlink":
                 mode = "120000"

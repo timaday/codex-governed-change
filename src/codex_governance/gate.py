@@ -153,25 +153,30 @@ def _redact_runtime_paths(
                     "occurrences": occurrences,
                 }
             )
-    for pattern, category in SHAPED_VALUE_PATTERNS:
-        replacement = (
-            b"<REDACTED_HOST_PATH>"
-            if category == "generic_host_path"
-            else (
-                b"<REDACTED_ENDPOINT>"
-                if category == "endpoint"
-                else b"<REDACTED_CREDENTIAL>"
+    for _pass in range(2):
+        changed = False
+        for pattern, category in SHAPED_VALUE_PATTERNS:
+            replacement = (
+                b"<REDACTED_HOST_PATH>"
+                if category == "generic_host_path"
+                else (
+                    b"<REDACTED_ENDPOINT>"
+                    if category == "endpoint"
+                    else b"<REDACTED_CREDENTIAL>"
+                )
             )
-        )
-        result, occurrences = pattern.subn(replacement, result)
-        if occurrences:
-            redactions.append(
-                {
-                    "category": category,
-                    "replacement": replacement.decode("ascii"),
-                    "occurrences": occurrences,
-                }
-            )
+            result, occurrences = pattern.subn(replacement, result)
+            if occurrences:
+                changed = True
+                redactions.append(
+                    {
+                        "category": category,
+                        "replacement": replacement.decode("ascii"),
+                        "occurrences": occurrences,
+                    }
+                )
+        if not changed:
+            break
     return result, redactions
 
 

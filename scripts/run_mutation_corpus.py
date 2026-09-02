@@ -20,6 +20,7 @@ from codex_governance.canonical import canonical_json_bytes
 from codex_governance.mutation import (
     apply_curated_mutant,
     build_mutation_probe_command,
+    causal_mutation_pair_outcome,
     classify_mutation_execution,
     load_curated_corpus,
 )
@@ -78,9 +79,36 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="codex-governance-mutation-") as directory:
         root = Path(directory).resolve()
         for index, mutant in enumerate(corpus["mutants"], 1):
+            command = build_mutation_probe_command(
+                mutant["path"], mutant["selected_command"]
+            )
+            control = prepare_candidate_copy(
+                repository=repository,
+                destination=root / f"control-{index}",
+                evidence_root=args.evidence_root,
+            )
+            control_observed, control_exit, control_stdout, control_termination = run(
+                command, control, args.timeout
+            )
+            control_outcome = classify_mutation_execution(
+                status=control_observed,
+                termination_kind=control_termination,
+                exit_code=control_exit,
+                stdout=control_stdout,
+            )
+            if control_outcome != "SURVIVED":
+                results.append(
+                    {
+                        "mutant_id": mutant["mutant_id"],
+                        "outcome": "UNKNOWN",
+                        "control_outcome": control_outcome,
+                        "control_exit": control_exit,
+                    }
+                )
+                continue
             candidate = prepare_candidate_copy(
                 repository=repository,
-                destination=root / f"candidate-{index}",
+                destination=root / f"mutant-{index}",
                 evidence_root=args.evidence_root,
             )
             try:
@@ -88,21 +116,23 @@ def main() -> int:
             except (OSError, ValueError):
                 results.append({"mutant_id": mutant["mutant_id"], "outcome": "INVALID"})
                 continue
-            command = build_mutation_probe_command(
-                mutant["path"], mutant["selected_command"]
-            )
             observed, exit_code, stdout, termination = run(
                 command, candidate, args.timeout
             )
-            outcome = classify_mutation_execution(
-                status=observed,
-                termination_kind=termination,
-                exit_code=exit_code,
-                stdout=stdout,
+            outcome = causal_mutation_pair_outcome(
+                control_outcome,
+                classify_mutation_execution(
+                    status=observed,
+                    termination_kind=termination,
+                    exit_code=exit_code,
+                    stdout=stdout,
+                ),
             )
             results.append({
                 "mutant_id": mutant["mutant_id"],
                 "outcome": outcome,
+                "control_outcome": control_outcome,
+                "control_exit": control_exit,
                 "patch_sha256": patch_sha256,
                 "selected_exit": exit_code,
             })

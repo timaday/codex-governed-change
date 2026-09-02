@@ -108,6 +108,15 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "authoritative-reference-reopened",
         "bare-ipv6-unredacted",
         "admission-candidate-prompt-read",
+        "mutation-control-credit-without-survival",
+        "mutation-control-admission-omitted",
+        "review-deadline-start-delayed",
+        "untracked-read-deadline-omitted",
+        "reviewer-final-output-deadline-omitted",
+        "authorization-tail-truncated",
+        "colon-delimited-posix-unredacted",
+        "unqualified-finding-confirmed",
+        "reviewer-version-deadline-omitted",
     }
 )
 
@@ -135,7 +144,6 @@ def emit(outcome, counts=None):
     payload = {'schema_version': '1.0.0', 'outcome': outcome, **values}
     print(PREFIX + json.dumps(payload, sort_keys=True, separators=(',', ':')), flush=True)
 path, names = sys.argv[1], sys.argv[2:]
-os.environ['CODEX_MUTATION_PROBE_TARGET'] = path
 if path.endswith('.py'):
     try:
         py_compile.compile(path, doraise=True)
@@ -269,6 +277,15 @@ def classify_mutation_execution(
     if status == "FAIL" and observed in {"KILLED", "INVALID"}:
         return observed
     return "UNKNOWN"
+
+
+def causal_mutation_pair_outcome(
+    control_outcome: str, mutant_outcome: str
+) -> str:
+    """Credit a mutant outcome only after its identical control survived."""
+    if control_outcome != "SURVIVED":
+        return "UNKNOWN"
+    return mutant_outcome if mutant_outcome in {"KILLED", "SURVIVED"} else "UNKNOWN"
 
 
 def evaluate_mutation_record(record: Mapping[str, Any]) -> DispositionState:

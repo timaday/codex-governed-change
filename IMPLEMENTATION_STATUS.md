@@ -481,3 +481,39 @@ now has content ID
 This remediation and status record invalidate the preceding evidence; complete
 deterministic gates, all 76 mutation kills, rollback, portability and a fresh
 exact-candidate review remain required after the successor is committed.
+
+The immutable `be91b6f` successor subsequently passed blueprint integrity,
+the 200-test acceptance suite, the 86-test unit suite, compilation, rollback,
+public-portability checks and all 76 protected semantic mutants. Its exact
+fresh-context `gpt-5.6-sol` review reconstructed successfully but returned
+`BLOCK` with eight admissible findings: mutation probes disclosed target
+metadata and lacked an unmodified paired control; gate suppliers did not
+recheck the live source; the reviewer deadline began after lock/policy work and
+did not cover untracked input, CLI-version or final-output reads; complete
+multi-token authorization fields and colon-delimited absolute POSIX paths could
+survive normalization; and stale or unqualified findings could be promoted to
+a confirmed block instead of remaining `UNKNOWN`.
+
+The current working-copy remediation updates the authoritative contracts first,
+then requires separately verified unmodified control and mutant copies with the
+same structured-probe command and sandbox execution identity, retains both
+results through causal locators, reconstructs control survival and chronological
+execution before granting kill credit, and exposes no target metadata. Gate
+suppliers now bind live source plus executed copy. The absolute review deadline
+now begins before lock selection and is passed through policy, authority,
+candidate, schema, prompt, evidence, CLI-version and final-output observations.
+Shared stream normalization removes complete authorization fields and ordinary
+colon-delimited POSIX paths, then rescans. Unqualified findings remain
+`UNKNOWN`. The protected corpus now contains 85 exact semantic operators with
+content ID
+`sha256:668ff1ede4febfd21588cc999f2c84dadc4b3950ff073296e8d8e7bc1f39213f`
+and protected byte digest
+`sha256:c0bb2346c250abdb26db42428f83ac21d505d5a459dcdf231f3390574655cddf`.
+
+Working-copy checks after this remediation observed blueprint integrity, 205
+acceptance tests, 91 unit tests, compilation and diff hygiene passing. These are
+local development observations only and this status mutation invalidates their
+candidate binding. The successor must be committed and rerun through all
+deterministic gates, the complete paired-control 85-operator corpus, rollback,
+portability and a new exact-candidate fresh review before release readiness can
+be claimed.

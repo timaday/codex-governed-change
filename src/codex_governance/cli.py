@@ -277,22 +277,32 @@ def _authority_argument_path(authority_root: Path, path: Path) -> str:
 
 
 def _read_repository_argument(
-    repository: Path, path: Path, *, max_bytes: int = 8_000_000
+    repository: Path,
+    path: Path,
+    *,
+    max_bytes: int = 8_000_000,
+    deadline: float | None = None,
 ) -> bytes:
     return read_bounded_repository_file(
         repository,
         _repository_argument_path(repository, path),
         max_bytes=max_bytes,
+        deadline=deadline,
     )
 
 
 def _read_authority_argument(
-    authority_root: Path, path: Path, *, max_bytes: int = 8_000_000
+    authority_root: Path,
+    path: Path,
+    *,
+    max_bytes: int = 8_000_000,
+    deadline: float | None = None,
 ) -> bytes:
     return read_bounded_repository_file(
         authority_root,
         _authority_argument_path(authority_root, path),
         max_bytes=max_bytes,
+        deadline=deadline,
     )
 
 
@@ -301,10 +311,14 @@ def _review_policy(args: argparse.Namespace) -> dict[str, Any]:
     cached = getattr(args, "_review_policy_document", None)
     if isinstance(cached, dict):
         return cached
-    policy_bytes = _read_repository_argument(args.repository, args.policy)
+    deadline = getattr(args, "_review_deadline", None)
+    policy_bytes = _read_repository_argument(
+        args.repository, args.policy, deadline=deadline
+    )
     schema_bytes = _read_authority_argument(
         args.authority_root,
         args.schema_root / "effective-policy.schema.json",
+        deadline=deadline,
     )
     try:
         policy = json.loads(policy_bytes.decode("utf-8"))
@@ -375,6 +389,26 @@ def _identify(args: argparse.Namespace) -> int:
         _write_cli_output(args, "output", candidate)
     _emit(candidate)
     return EXIT_READY
+
+
+def _composite_gate_candidate_supplier(
+    *,
+    source_repository: Path,
+    copied_repository: Path,
+    expected_candidate_id: str,
+    identify: Any,
+    deadline: float,
+) -> Any:
+    """Bind every gate identity observation to both source and copied tree."""
+
+    def current_candidate() -> str:
+        source_id = identify(source_repository, deadline)
+        copied_id = identify(copied_repository, deadline)
+        if source_id != expected_candidate_id or copied_id != expected_candidate_id:
+            raise ValueError("source and copied gate candidate diverged")
+        return copied_id
+
+    return current_candidate
 
 
 def _run_gates(args: argparse.Namespace) -> int:
@@ -463,32 +497,12 @@ def _run_gates(args: argparse.Namespace) -> int:
             candidate_copy = supervisor / "gate-candidates" / gate_id
             preparation_error: str | None = None
             try:
-                prepare_candidate_copy(
-                    repository=args.repository,
-                    destination=candidate_copy,
-                    evidence_root=policy["evidence_root"],
-                    deadline=gate_deadline,
-                )
-                copy_adapter = GitCliRepositoryAdapter(
-                    candidate_copy, deadline=gate_deadline
-                )
-                copied_candidate = copy_adapter.identify(
-                    repository_id=policy["repository_id"],
-                    mode=candidate["mode"],
-                    base_commit=candidate["base_commit"],
-                    head_commit=candidate.get("head_commit"),
-                    effective_policy_sha256=policy_sha,
-                    evidence_root=policy["evidence_root"],
-                )
-                if copied_candidate["candidate_id"] != candidate["candidate_id"]:
-                    raise CandidatePreparationError(
-                        "fresh gate candidate copy identity mismatch"
-                    )
-
-                def copied_candidate_id(
-                    adapter: GitCliRepositoryAdapter = copy_adapter,
+                def identify_gate_candidate(
+                    repository: Path, deadline: float
                 ) -> str:
-                    return adapter.identify(
+                    return GitCliRepositoryAdapter(
+                        repository, deadline=deadline
+                    ).identify(
                         repository_id=policy["repository_id"],
                         mode=candidate["mode"],
                         base_commit=candidate["base_commit"],
@@ -496,6 +510,28 @@ def _run_gates(args: argparse.Namespace) -> int:
                         effective_policy_sha256=policy_sha,
                         evidence_root=policy["evidence_root"],
                     )["candidate_id"]
+
+                if (
+                    identify_gate_candidate(args.repository, gate_deadline)
+                    != candidate["candidate_id"]
+                ):
+                    raise CandidatePreparationError(
+                        "gate source identity mismatch before copy"
+                    )
+                prepare_candidate_copy(
+                    repository=args.repository,
+                    destination=candidate_copy,
+                    evidence_root=policy["evidence_root"],
+                    deadline=gate_deadline,
+                )
+                copied_candidate_id = _composite_gate_candidate_supplier(
+                    source_repository=args.repository,
+                    copied_repository=candidate_copy,
+                    expected_candidate_id=candidate["candidate_id"],
+                    identify=identify_gate_candidate,
+                    deadline=gate_deadline,
+                )
+                copied_candidate_id()
 
             except (OSError, RuntimeError, ValueError) as exc:
                 preparation_error = exc.__class__.__name__
@@ -920,7 +956,12 @@ def _composite_review_candidate_supplier(
 
 
 def _review(args: argparse.Namespace) -> int:
-    review_deadline = time.monotonic() + args.timeout_seconds
+    review_deadline = getattr(args, "_review_deadline", None)
+    if not isinstance(review_deadline, float):
+        review_deadline = time.monotonic() + args.timeout_seconds
+        args._review_deadline = review_deadline
+    if time.monotonic() >= review_deadline:
+        raise TimeoutError("review deadline expired before input reconstruction")
     schema_cache: dict[str, Mapping[str, Any]] = dict(
         getattr(args, "_review_schema_cache", {})
     )
@@ -935,6 +976,7 @@ def _review(args: argparse.Namespace) -> int:
             schema_bytes = _read_authority_argument(
                 args.authority_root,
                 args.schema_root / f"{name}.schema.json",
+                deadline=review_deadline,
             )
             try:
                 loaded_schema = json.loads(schema_bytes.decode("utf-8"))
@@ -951,11 +993,14 @@ def _review(args: argparse.Namespace) -> int:
         return value
 
     candidate = validated_bytes(
-        _read_repository_argument(args.repository, args.candidate), "candidate"
+        _read_repository_argument(
+            args.repository, args.candidate, deadline=review_deadline
+        ),
+        "candidate",
     )
     policy = _review_policy(args)
     permitted_bytes = _read_repository_argument(
-        args.repository, args.permitted_inputs
+        args.repository, args.permitted_inputs, deadline=review_deadline
     )
     try:
         permitted = json.loads(permitted_bytes.decode("utf-8"))
@@ -967,9 +1012,11 @@ def _review(args: argparse.Namespace) -> int:
     if review_mode not in {"conformance", "rapid_review"}:
         raise ValueError("review mode is unavailable")
     policy_sha = sha256_canonical(policy)
-    prompt_bytes = _read_authority_argument(args.authority_root, args.prompt)
+    prompt_bytes = _read_authority_argument(
+        args.authority_root, args.prompt, deadline=review_deadline
+    )
     output_schema_bytes = _read_authority_argument(
-        args.authority_root, args.output_schema
+        args.authority_root, args.output_schema, deadline=review_deadline
     )
     prompt_sha = sha256_bytes(prompt_bytes)
     schema_sha = sha256_bytes(output_schema_bytes)
@@ -993,7 +1040,10 @@ def _review(args: argparse.Namespace) -> int:
             args._review_policy_bytes
             if schema_name == "effective-policy" and relative == policy_relative
             else read_bounded_repository_file(
-                args.repository, relative, max_bytes=8_000_000
+                args.repository,
+                relative,
+                max_bytes=8_000_000,
+                deadline=review_deadline,
             )
         )
         if sha256_bytes(data) != permitted.get(digest_key):
@@ -1019,7 +1069,9 @@ def _review(args: argparse.Namespace) -> int:
     qualification = evidence_document(
         "reviewer_qualification_path", "reviewer-qualification"
     )
-    codex_cli_version = observe_codex_cli_version(args.codex)
+    codex_cli_version = observe_codex_cli_version(
+        args.codex, deadline=review_deadline
+    )
     identity = {
         "prompt_sha256": prompt_sha,
         "schema_sha256": schema_sha,
@@ -1121,7 +1173,10 @@ def _review(args: argparse.Namespace) -> int:
             continue
         digest_key = key.removesuffix("_path") + "_sha256"
         data = read_bounded_repository_file(
-            args.repository, relative, max_bytes=8_000_000
+            args.repository,
+            relative,
+            max_bytes=8_000_000,
+            deadline=review_deadline,
         )
         if sha256_bytes(data) != permitted.get(digest_key):
             raise ValueError("reviewer evidence digest mismatch")
@@ -1221,6 +1276,7 @@ def _review(args: argparse.Namespace) -> int:
                 args.repository,
                 normalize_repo_path(reference),
                 max_bytes=8_000_000,
+                deadline=review_deadline,
             ),
             usage_observed=result["usage_observed"],
             actual_input_tokens=result["input_tokens"],
@@ -1608,10 +1664,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one bounded use case with stable fail-closed exit codes."""
     args = _parser().parse_args(argv)
+    if args.command == "review":
+        args._review_deadline = time.monotonic() + args.timeout_seconds
     with authoritative_json_session(), authoritative_reference_session():
         try:
+            _require_review_budget(args, "pipeline lock selection")
             lock = _pipeline_lock_for(args)
             with lock:
+                _require_review_budget(args, "pipeline lock acquisition")
                 expected_authority = None
                 assert_binding = getattr(lock, "assert_binding", None)
                 if callable(assert_binding):
@@ -1628,6 +1688,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _preflight_cli_outputs(
                     args, expected_authority=expected_authority
                 )
+                _require_review_budget(args, "output preflight")
                 return int(args.handler(args))
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             _emit(
@@ -1638,6 +1699,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return EXIT_UNKNOWN
+
+
+def _require_review_budget(args: argparse.Namespace, operation: str) -> None:
+    """Fail closed when pre-launch review orchestration exhausts its bound."""
+    deadline = getattr(args, "_review_deadline", None)
+    if args.command == "review" and (
+        not isinstance(deadline, float) or time.monotonic() >= deadline
+    ):
+        raise TimeoutError(f"review deadline expired during {operation}")
 
 
 def _pipeline_lock_for(args: argparse.Namespace):

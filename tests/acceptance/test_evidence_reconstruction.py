@@ -88,19 +88,30 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         mutation_corpus = json.loads(
             (self.ROOT / "tests/mutation/corpus.json").read_text(encoding="utf-8")
         )
-        mutation_probe_target = os.environ.get("CODEX_MUTATION_PROBE_TARGET")
         for relative in sorted({item["path"] for item in mutation_corpus["mutants"]}):
             source = self.ROOT / relative
             target = self.repository / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            if relative == mutation_probe_target:
-                target.write_bytes(
-                    subprocess.check_output(
-                        ["git", "-C", str(self.ROOT), "show", f"HEAD:{relative}"]
-                    )
+            working = source.read_bytes()
+            committed = subprocess.check_output(
+                ["git", "-C", str(self.ROOT), "show", f"HEAD:{relative}"]
+            )
+            definitions = [
+                item for item in mutation_corpus["mutants"]
+                if item["path"] == relative
+            ]
+            active_mutants = [
+                item
+                for item in definitions
+                if committed.count(item["old"].encode("utf-8")) == 1
+                and working
+                == committed.replace(
+                    item["old"].encode("utf-8"),
+                    item["new"].encode("utf-8"),
+                    1,
                 )
-            else:
-                shutil.copyfile(source, target)
+            ]
+            target.write_bytes(committed if len(active_mutants) == 1 else working)
         environment = dict(os.environ)
         environment.update(
             GIT_AUTHOR_NAME="fixture",
@@ -1054,14 +1065,24 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             name: str, source_identity: str, command: list[str], status: str,
             exit_code: int, patch_sha: str | None = None,
         ) -> tuple[dict, dict[str, str], dict[str, str], dict[str, str]]:
+            started_at, ended_at = self.AT, "2026-08-26T10:00:00.100Z"
+            if name.startswith("control-"):
+                started_at, ended_at = (
+                    "2026-08-26T10:00:00.200Z",
+                    "2026-08-26T10:00:00.300Z",
+                )
+            elif name.startswith("mutant-"):
+                started_at, ended_at = "2026-08-26T10:00:00.400Z", self.ENDED
             execution_stdout = b"ok\n"
-            if name.startswith("mutant-"):
+            if name.startswith(("control-", "mutant-")):
                 execution_stdout = MUTATION_PROBE_PREFIX + canonical_json_bytes(
                     {
                         "schema_version": "1.0.0",
-                        "outcome": "KILLED",
+                        "outcome": (
+                            "KILLED" if name.startswith("mutant-") else "SURVIVED"
+                        ),
                         "tests_run": 1,
-                        "failures": 1,
+                        "failures": 1 if name.startswith("mutant-") else 0,
                         "errors": 0,
                         "skipped": 0,
                         "expected_failures": 0,
@@ -1141,7 +1162,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "sandbox_capability_sha256": mutation_capability_ref["sha256"],
                 },
                 materials=mutation_materials,
-                started_at=self.AT, ended_at=self.ENDED, result=status,
+                started_at=started_at, ended_at=ended_at, result=status,
                 limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60},
                 artifacts=[
                     {"name": "stdout", "sha256": execution_stdout_ref["sha256"]},
@@ -1161,7 +1182,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "candidate_before": source_identity, "candidate_after": source_identity,
                 "source_identity": source_identity, "execution_identity": execution_identity,
                 "sandbox_capability_sha256": mutation_capability_ref["sha256"],
-                "command": command, "started_at": self.AT, "ended_at": self.ENDED,
+                "command": command, "started_at": started_at, "ended_at": ended_at,
                 "duration_ms": 1000, "termination": {"kind": "exited", "exit_code": exit_code},
                 "artifacts": [
                     {"stream": "stdout", "path": execution_stdout_ref["path"], "bytes": len(execution_stdout), "sha256": execution_stdout_ref["sha256"], "truncated": False},
@@ -1215,6 +1236,25 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             selected_command = list(definition["selected_command"])
             command = build_mutation_probe_command(definition["path"], selected_command)
+            control_name = f"control-{mutant}"
+            _, control_ref, _, _ = mutation_execution(
+                control_name, self.CANDIDATE_ID, command, "PASS", 0
+            )
+            control_locator = content_address(
+                {
+                    "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
+                    "task_contract_sha256": task_sha, "candidate_id": self.CANDIDATE_ID,
+                    "kind": "artifact", "path": control_ref["path"],
+                    "artifact_sha256": control_ref["sha256"],
+                    "media_type": "application/json",
+                },
+                "locator_id",
+            )
+            control_locator_ref = self.write(
+                f"mutation/{control_name}/locator.json", control_locator,
+                "evidence-locator",
+            )
+            locator_refs.append(control_locator_ref)
             gate_name = f"mutant-{mutant}"
             mutation_result, execution_ref, mutation_capability_ref, mutation_provenance_ref = mutation_execution(
                 gate_name, source_identity, command, "FAIL",
@@ -1261,7 +1301,27 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         item for item in selected_command if item.startswith("tests")
                     ],
                     "outcome": "KILLED",
-                    "causal_evidence": [{"locator_id": execution_locator["locator_id"], "sha256": execution_ref["sha256"]}],
+                    "causal_evidence": (
+                        [
+                            {
+                                "locator_id": control_locator["locator_id"],
+                                "sha256": control_ref["sha256"],
+                            },
+                            {
+                                "locator_id": execution_locator["locator_id"],
+                                "sha256": execution_ref["sha256"],
+                            },
+                        ]
+                        if not (
+                            mutation_defect == "missing-control" and index == 1
+                        )
+                        else [
+                            {
+                                "locator_id": execution_locator["locator_id"],
+                                "sha256": execution_ref["sha256"],
+                            }
+                        ]
+                    ),
                     "triage": {"identity": "", "rationale": "causal fixture", "human_reviewed": False},
                     "started_at": self.AT, "ended_at": self.ENDED,
                     "limitations": ["fixture mutant"],
@@ -2207,6 +2267,28 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             with self.subTest(defect=defect):
                 self.assertEqual(DispositionState.UNKNOWN, state)
 
+    def test_unqualified_finding_remains_unknown_not_confirmed_block(self) -> None:
+        manifest = self.complete_manifest(reviewer_defect="valid-finding")
+        reference = manifest["reviewer_execution"]
+        path = self.repository / reference["path"]
+        execution = json.loads(path.read_text(encoding="utf-8"))
+        execution["execution_valid"] = False
+        execution = content_address(execution, "execution_id")
+        data = canonical_json_bytes(execution)
+        path.write_bytes(data)
+        reference["sha256"] = sha256_bytes(data)
+        manifest = content_address(manifest, "manifest_id")
+        state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.UNKNOWN, state)
+
     def test_assurance_admission_rejects_omission_duplication_and_rule_swap(self) -> None:
         for defect in ("omission", "duplication", "rule-swap"):
             manifest = self.complete_manifest()
@@ -2372,6 +2454,19 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             verified_decision_ids=self.verified_decision_ids(manifest),
         )
         self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_mutation_kill_without_its_unmodified_control_is_unknown(self) -> None:
+        manifest = self.complete_manifest(mutation_defect="missing-control")
+        state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.UNKNOWN, state)
 
     def test_candidate_risk_assessment_cannot_downgrade_protected_floor(self) -> None:
         manifest = self.complete_manifest(risk_downgrade=True)

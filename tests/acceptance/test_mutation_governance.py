@@ -132,6 +132,15 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "rapid-charter-material-unchecked",
             "authoritative-reference-reopened", "bare-ipv6-unredacted",
             "admission-candidate-prompt-read",
+            "mutation-control-credit-without-survival",
+            "mutation-control-admission-omitted",
+            "review-deadline-start-delayed",
+            "untracked-read-deadline-omitted",
+            "reviewer-final-output-deadline-omitted",
+            "authorization-tail-truncated",
+            "colon-delimited-posix-unredacted",
+            "unqualified-finding-confirmed",
+            "reviewer-version-deadline-omitted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
@@ -402,6 +411,62 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             self.assertEqual(
                 "UNKNOWN", mutation_probe_outcome(completed.stdout, completed.returncode)
             )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests/__init__.py").write_text("", encoding="utf-8")
+            (root / "tests/test_metadata.py").write_text(
+                "import os, unittest\n"
+                "class MetadataTest(unittest.TestCase):\n"
+                "    def test_selected(self):\n"
+                "        self.assertNotIn('CODEX_MUTATION_PROBE_TARGET', os.environ)\n",
+                encoding="utf-8",
+            )
+            command = build_mutation_probe_command(
+                "module.py",
+                template(
+                    "tests.test_metadata.MetadataTest.test_selected"
+                ),
+            )
+            completed = subprocess.run(
+                command, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            self.assertEqual(0, completed.returncode)
+            self.assertEqual(
+                "SURVIVED",
+                mutation_probe_outcome(completed.stdout, completed.returncode),
+            )
+
+    def test_mutation_kill_requires_matching_surviving_control(self) -> None:
+        from codex_governance.mutation import (
+            MUTATION_PATH_SENTINEL,
+            MUTATION_PROBE_SENTINEL,
+            MUTATION_UNKNOWN_EXIT,
+            build_mutation_probe_command,
+            causal_mutation_pair_outcome,
+            mutation_probe_outcome,
+        )
+
+        def template(test: str) -> list[str]:
+            return [
+                "python3", "-I", "-S", "-c", MUTATION_PROBE_SENTINEL,
+                MUTATION_PATH_SENTINEL, test,
+            ]
+
+        self.assertEqual(
+            "KILLED", causal_mutation_pair_outcome("SURVIVED", "KILLED")
+        )
+        for control in ("KILLED", "UNKNOWN", "INVALID", "TIMEOUT"):
+            with self.subTest(control=control):
+                self.assertEqual(
+                    "UNKNOWN", causal_mutation_pair_outcome(control, "KILLED")
+                )
+        self.assertEqual(
+            "SURVIVED", causal_mutation_pair_outcome("SURVIVED", "SURVIVED")
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

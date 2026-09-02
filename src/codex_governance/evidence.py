@@ -1221,8 +1221,92 @@ def evaluate_manifest(
                 and termination.get("kind") == "exited"
                 and termination.get("exit_code") == MUTATION_KILLED_EXIT
             )
+            causal_references = record.get("causal_evidence", ())
+            control_exact = False
+            if (
+                isinstance(causal_references, Sequence)
+                and not isinstance(causal_references, (str, bytes))
+                and len(causal_references) == 2
+                and references_resolve(causal_references)
+            ):
+                mutant_references = [
+                    reference
+                    for reference in causal_references
+                    if isinstance(reference, Mapping)
+                    and reference.get("sha256")
+                    == record["execution_result"]["sha256"]
+                ]
+                control_references = [
+                    reference
+                    for reference in causal_references
+                    if isinstance(reference, Mapping)
+                    and reference.get("sha256")
+                    != record["execution_result"]["sha256"]
+                ]
+                if len(mutant_references) == 1 and len(control_references) == 1:
+                    control_locator = locator_by_id.get(
+                        str(control_references[0].get("locator_id"))
+                    )
+                    if isinstance(control_locator, Mapping):
+                        control_execution = load(
+                            {
+                                "path": control_locator.get("path"),
+                                "sha256": control_locator.get("artifact_sha256"),
+                            },
+                            "gate-result",
+                        )
+                        control_exact = execution_evidence_valid(
+                            control_execution,
+                            source_identity=current_candidate_id,
+                            expected_command=expected_command,
+                            expected_gate_id=f"control-{definition['mutant_id']}",
+                            expected_gate_definition_sha256=sha256_canonical(
+                                {
+                                    "gate_id": f"control-{definition['mutant_id']}",
+                                    "command": expected_command,
+                                }
+                            ),
+                            expected_implementation_sha256=mutation_implementation_sha256(),
+                            expected_timeout_seconds=max(
+                                int(item["timeout_seconds"])
+                                for item in policy["gates"]
+                            ),
+                            expected_max_output_bytes=mutation_max_output_bytes,
+                            expected_reviewer_prompt_sha256=protected_reviewer_prompt_sha256,
+                            expected_materials=[
+                                {
+                                    "name": "candidate",
+                                    "sha256": current_candidate_id,
+                                },
+                                {
+                                    "name": "mutation-corpus",
+                                    "sha256": corpus["corpus_id"],
+                                },
+                            ],
+                            expected_stdout_validator=lambda data: mutation_probe_outcome(
+                                data, 0
+                            )
+                            == "SURVIVED",
+                        )
+                        try:
+                            control_exact = bool(
+                                control_exact
+                                and control_execution.get("execution_identity")
+                                == execution.get("execution_identity")
+                                and parse_rfc3339(str(baseline.get("ended_at")))
+                                <= parse_rfc3339(
+                                    str(control_execution.get("started_at"))
+                                )
+                                and parse_rfc3339(
+                                    str(control_execution.get("ended_at"))
+                                )
+                                <= parse_rfc3339(str(execution.get("started_at")))
+                            )
+                        except (TypeError, ValueError):
+                            control_exact = False
             exact = (
                 baseline_ok
+                and control_exact
                 and record.get("repository_id") == repository_id
                 and record.get("task_contract_sha256") == task_sha
                 and record.get("effective_policy_sha256") == policy_sha
@@ -1239,12 +1323,6 @@ def evaluate_manifest(
                 and record.get("sandbox_capability")
                 == capability_reference_by_sha.get(execution.get("sandbox_capability_sha256"))
                 and record.get("provenance_statement") == execution.get("provenance_statement")
-                and any(
-                    reference.get("sha256") == record["execution_result"]["sha256"]
-                    for reference in record.get("causal_evidence", ())
-                    if isinstance(reference, Mapping)
-                )
-                and references_resolve(record.get("causal_evidence", ()))
                 and execution_evidence_valid(
                     execution,
                     source_identity=expected_source,
@@ -1609,8 +1687,12 @@ def evaluate_manifest(
             or any(not isinstance(claim, Mapping) for claim in claims)
         ):
             reviewer_verdict = "UNKNOWN"
-        if reviewer.get("missing_evidence") or reviewer.get("findings"):
-            reviewer_verdict = "BLOCK" if reviewer.get("findings") else "UNKNOWN"
+        if reviewer.get("findings"):
+            reviewer_verdict = (
+                "BLOCK" if reviewer_exact and qualification_ok else "UNKNOWN"
+            )
+        elif reviewer.get("missing_evidence"):
+            reviewer_verdict = "UNKNOWN"
         reviewer_finding_references = [
             reference
             for finding in reviewer.get("findings", ())

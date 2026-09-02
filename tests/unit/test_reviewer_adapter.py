@@ -1270,6 +1270,39 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertFalse(post["observation_complete"])
         self.assertFalse(post["execution_valid"])
 
+    def test_final_output_read_receives_the_absolute_deadline(self) -> None:
+        output = self.harness["output"]
+        deadline = time.monotonic() + 10
+        observed = []
+        from codex_governance import reviewer as reviewer_module
+
+        real_read = reviewer_module.read_bounded_descriptor
+
+        def bounded_read(descriptor, *, deadline, max_bytes):
+            observed.append(deadline)
+            return real_read(descriptor, deadline=deadline, max_bytes=max_bytes)
+
+        authority = _ReviewerOutputAuthority(output)
+        output.write_bytes(b"{}")
+        try:
+            with patch.object(
+                reviewer_module, "read_bounded_descriptor", side_effect=bounded_read
+            ):
+                self.assertEqual(
+                    b"{}", authority.read_once(100, deadline=deadline)
+                )
+        finally:
+            authority.close()
+        self.assertEqual([deadline], observed)
+
+    def test_codex_version_observation_honors_expired_deadline(self) -> None:
+        with patch("codex_governance.reviewer.subprocess.run") as run:
+            with self.assertRaises(RuntimeError):
+                observe_codex_cli_version(
+                    "codex", deadline=time.monotonic() - 1
+                )
+        run.assert_not_called()
+
     def test_broken_reviewer_stdin_retains_process_handle_for_cleanup(self) -> None:
         closes_stdin = self.fake_codex(
             "import os, time\nos.close(0)\ntime.sleep(30)\n"

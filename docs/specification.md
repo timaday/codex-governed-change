@@ -183,6 +183,9 @@ the immutable candidate and cites at least one repository-file or repository-
 excerpt locator covering that exact path and line. A valid but unrelated
 locator, missing path, out-of-range line or swapped excerpt makes review evidence
 `UNKNOWN` rather than confirming a finding.
+Likewise, a finding from a stale, incomplete or unqualified reviewer execution
+is retained as advisory evidence under `UNKNOWN`; it cannot establish a
+confirmed `BLOCK` until execution and qualification independently reconstruct.
 
 ### 5.5 Evidence manifest and disposition
 
@@ -282,6 +285,10 @@ The launcher MUST:
   (`gpt-5.6-sol`) and reasoning effort; API-key authentication is outside the
   MVP reviewer identity;
 - require `--output-schema`, `--json` event output and a dedicated final-output path;
+- establish one absolute monotonic deadline before review lock/policy selection
+  and pass its remaining budget through every candidate/authority input read,
+  schema/prompt/evidence materialization, CLI-version observation, snapshot,
+  process, cleanup, final identity and stop-capable descriptor-bound output read;
 - start Codex in a sanitized harness Git root, with the immutable candidate checkout nested beneath it as read-only evidence, so candidate-owned `.codex` configuration, hooks, skills and execpolicy are inspectable files but not active reviewer configuration;
 - expose no author chat, plan, self-review, persisted/hidden reasoning,
   connector, unrelated MCP tool, host filesystem outside the bounded read
@@ -691,8 +698,13 @@ The mandatory mutation gate is a curated semantic corpus for fail-closed
 governance invariants. The previous-LKG policy binds the complete corpus byte
 digest, and the producer reads those exact bytes from the protected governance
 checkout, copies them into write-once evidence, and rejects a candidate-local or
-digest-mismatched substitute. It runs in a disposable candidate after a green
-baseline and before final review. Before applying each operator, the producer
+digest-mismatched substitute. It runs in disposable candidates after a green
+baseline and before final review. For each operator, the producer first executes
+the exact selected structured-probe command and sanitized environment against a
+separately verified unmodified control copy and requires `SURVIVED`; candidate
+tests receive no mutation target or control/mutant metadata. The retained control
+result, capability, provenance and raw stream are part of causal evidence and
+admission independently reconstructs them. Before applying each operator, the producer
 re-identifies the source and fresh unmodified copy as the exact candidate and
 derives the expected mutation tree from that verified copy. The mutant's one
 absolute deadline applies to every recursive Git, file and tree observation;
@@ -706,7 +718,8 @@ execution argv. Only that exact protected probe showing that at least one
 selected test ran, produced one or more assertion-failure records, and produced
 zero errors, skips, expected failures, or unexpected successes kills a valid
 non-equivalent mutant. Multiple failing subtests from one selected test remain
-valid assertion-failure proof. The trusted probe emits an exact machine-readable terminal
+valid assertion-failure proof, but only after the identical control command has
+survived. The trusted probe emits an exact machine-readable terminal
 marker and distinct exit code; admission
 re-reads the bounded raw stream and reconstructs both rather than trusting the
 mutant-record label. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
