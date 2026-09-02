@@ -72,6 +72,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "incomplete-migration-registry", "ignored-submodule-copy",
             "unframed-rollback-package", "rollback-sibling-sitecustomize",
             "noncausal-mutation-kill", "submodule-head-only",
+            "raw-stderr-source-literal", "qualification-output-unchecked",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

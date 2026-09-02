@@ -19,6 +19,8 @@ from codex_governance.canonical import (
     sha256_canonical,
 )
 from codex_governance.context import (
+    MANDATORY_REVIEWER_CLAIMS,
+    REVIEW_RUBRIC,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
@@ -45,6 +47,8 @@ from codex_governance.qualification import (
     qualification_candidate_document,
     qualification_charter_document,
     qualification_context_documents,
+    qualification_evidence_locators,
+    qualification_gate_documents,
     qualification_policy_document,
     qualification_task_document,
 )
@@ -254,7 +258,42 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     effective_policy_sha256=policy_sha,
                 )
                 candidate_id = candidate["candidate_id"]
+                context_execution_facts = {
+                    "model": identity["model"],
+                    "reasoning_effort": identity["reasoning_effort"],
+                    "usage_observed": True,
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_output_tokens": 1,
+                    "latency_ms": 1,
+                    "ended_at": self.ENDED,
+                    "limitations": [],
+                }
+                preliminary_context = qualification_context_documents(
+                    mode=mode,
+                    case=case,
+                    task=task,
+                    policy=policy,
+                    candidate=candidate,
+                    reviewer_output_sha256="sha256:" + "0" * 64,
+                    execution=context_execution_facts,
+                )
                 if mode == "conformance":
+                    _gate, gate_manifest = qualification_gate_documents(
+                        repository_id=evaluation_repository,
+                        task_contract_sha256=task_sha,
+                        candidate_id=candidate_id,
+                    )
+                    first_locator = qualification_evidence_locators(
+                        repository_id=evaluation_repository,
+                        task_contract_sha256=task_sha,
+                        candidate=candidate,
+                    )[0]
+                    evidence_reference = {
+                        "locator_id": first_locator["locator_id"],
+                        "sha256": first_locator["artifact_sha256"],
+                    }
                     result = deepcopy(
                         json.loads(
                             (self.ROOT / "examples/reviewer-result.json").read_text()
@@ -265,10 +304,32 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         candidate_id=candidate_id,
                         task_contract_sha256=task_sha,
                         effective_policy_sha256=policy_sha,
+                        gate_manifest_sha256=sha256_bytes(
+                            canonical_json_bytes(gate_manifest)
+                        ),
+                        context_receipt_sha256=sha256_bytes(
+                            canonical_json_bytes(
+                                preliminary_context["context_receipt"]
+                            )
+                        ),
                         reviewer_prompt_sha256=identity["prompt_sha256"],
                         qualification_id=bootstrap["qualification_id"],
                         model=identity["model"],
                         verdict=observed,
+                        reviewed_surfaces=list(
+                            REVIEW_RUBRIC["required_surfaces"]
+                        ),
+                        affected_closure=list(candidate["changed_paths"]),
+                        retrieval_expansions=[],
+                        claims=[
+                            {
+                                "claim_id": item["claim_id"],
+                                "claim": item["claim"],
+                                "classification": "VERIFIED_WITHIN_SCOPE",
+                                "evidence_refs": [evidence_reference],
+                            }
+                            for item in MANDATORY_REVIEWER_CLAIMS
+                        ],
                     )
                 else:
                     charter = qualification_charter_document(
@@ -343,18 +404,6 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True},
                     "process_cleanup_complete": True,
                     "output": {"present": True, "regular": True, "bytes": len(result_bytes), "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
-                }
-                context_execution_facts = {
-                    "model": identity["model"],
-                    "reasoning_effort": identity["reasoning_effort"],
-                    "usage_observed": True,
-                    "input_tokens": 1,
-                    "cached_input_tokens": 0,
-                    "output_tokens": 1,
-                    "reasoning_output_tokens": 1,
-                    "latency_ms": 1,
-                    "ended_at": self.ENDED,
-                    "limitations": [],
                 }
                 context_documents = qualification_context_documents(
                     mode=mode,

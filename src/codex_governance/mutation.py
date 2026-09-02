@@ -62,6 +62,8 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "rollback-sibling-sitecustomize",
         "noncausal-mutation-kill",
         "submodule-head-only",
+        "raw-stderr-source-literal",
+        "qualification-output-unchecked",
     }
 )
 

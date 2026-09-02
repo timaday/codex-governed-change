@@ -153,10 +153,17 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             bootstrap_qualification_record,
             qualification_candidate_document,
             qualification_charter_document,
+            qualification_conformance_output_valid,
             qualification_context_documents,
+            qualification_evidence_locators,
             qualification_evidence_valid,
+            qualification_gate_documents,
             qualification_policy_document,
             qualification_task_document,
+        )
+        from codex_governance.context import (
+            MANDATORY_REVIEWER_CLAIMS,
+            REVIEW_RUBRIC,
         )
         from codex_governance.reviewer import (
             build_reviewer_execution_statement,
@@ -262,6 +269,39 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     effective_policy_sha256=policy_sha,
                 )
                 candidate_id = candidate["candidate_id"]
+                preliminary_context = qualification_context_documents(
+                    mode="conformance",
+                    case=case,
+                    task=task,
+                    policy=policy,
+                    candidate=candidate,
+                    reviewer_output_sha256="sha256:" + "0" * 64,
+                    execution={
+                        "model": identity["model"],
+                        "reasoning_effort": identity["reasoning_effort"],
+                        "usage_observed": True,
+                        "input_tokens": 0,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_output_tokens": 0,
+                        "latency_ms": 0,
+                        "ended_at": "2026-08-26T10:00:00Z",
+                        "limitations": [],
+                    },
+                )
+                _gate, gate_manifest = qualification_gate_documents(
+                    repository_id=evaluation_repository,
+                    task_contract_sha256=task_sha,
+                    candidate_id=candidate_id,
+                )
+                evidence_reference = {
+                    "locator_id": qualification_evidence_locators(
+                        repository_id=evaluation_repository,
+                        task_contract_sha256=task_sha,
+                        candidate=candidate,
+                    )[0]["locator_id"],
+                    "sha256": candidate["untracked_entries"][0]["sha256"],
+                }
                 result = json.loads(
                     Path("examples/reviewer-result.json").read_text(encoding="utf-8")
                 )
@@ -270,11 +310,72 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     candidate_id=candidate_id,
                     task_contract_sha256=task_sha,
                     effective_policy_sha256=policy_sha,
+                    gate_manifest_sha256=sha256_bytes(
+                        canonical_json_bytes(gate_manifest)
+                    ),
+                    context_receipt_sha256=sha256_bytes(
+                        canonical_json_bytes(preliminary_context["context_receipt"])
+                    ),
                     reviewer_prompt_sha256=identity["prompt_sha256"],
                     qualification_id=bootstrap["qualification_id"],
                     model=identity["model"],
                     verdict=case["expected_disposition"],
+                    reviewed_surfaces=list(REVIEW_RUBRIC["required_surfaces"]),
+                    affected_closure=list(candidate["changed_paths"]),
+                    retrieval_expansions=[],
+                    claims=[
+                        {
+                            "claim_id": item["claim_id"],
+                            "claim": item["claim"],
+                            "classification": "VERIFIED_WITHIN_SCOPE",
+                            "evidence_refs": [evidence_reference],
+                        }
+                        for item in MANDATORY_REVIEWER_CLAIMS
+                    ],
                 )
+                self.assertTrue(
+                    qualification_conformance_output_valid(
+                        result=result,
+                        repository_id=evaluation_repository,
+                        task_contract_sha256=task_sha,
+                        candidate=candidate,
+                        expected_context=preliminary_context,
+                    )
+                )
+                if case["case_id"] == "QUAL-CRITICAL":
+                    forged_results = []
+                    for field in (
+                        "gate_manifest_sha256",
+                        "context_receipt_sha256",
+                    ):
+                        forged = deepcopy(result)
+                        forged[field] = "sha256:" + "0" * 64
+                        forged_results.append((field, forged))
+                    forged = deepcopy(result)
+                    forged["affected_closure"] = forged["affected_closure"][:-1]
+                    forged_results.append(("affected_closure", forged))
+                    forged = deepcopy(result)
+                    forged["reviewed_surfaces"] = forged["reviewed_surfaces"][:-1]
+                    forged_results.append(("reviewed_surfaces", forged))
+                    forged = deepcopy(result)
+                    forged["claims"] = forged["claims"][:-1]
+                    forged_results.append(("claims", forged))
+                    forged = deepcopy(result)
+                    forged["claims"][0]["evidence_refs"][0]["sha256"] = (
+                        "sha256:" + "0" * 64
+                    )
+                    forged_results.append(("evidence_refs", forged))
+                    for field, forged in forged_results:
+                        with self.subTest(tampered_output=field):
+                            self.assertFalse(
+                                qualification_conformance_output_valid(
+                                    result=forged,
+                                    repository_id=evaluation_repository,
+                                    task_contract_sha256=task_sha,
+                                    candidate=candidate,
+                                    expected_context=preliminary_context,
+                                )
+                            )
                 result_bytes = canonical_json_bytes(result)
                 prefix = case["case_id"].lower()
                 payload_path = root / (prefix + "-payload.json")
@@ -317,6 +418,10 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     candidate=candidate,
                     reviewer_output_sha256=sha256_bytes(result_bytes),
                     execution=context_execution_facts,
+                )
+                self.assertEqual(
+                    preliminary_context["context_receipt"],
+                    context_documents["context_receipt"],
                 )
                 context_references = {
                     name: store(

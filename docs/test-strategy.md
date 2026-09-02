@@ -442,7 +442,13 @@ verify fixed runtime-value redaction and absence of machine values, parse and
 reconcile the final Codex JSONL message/thread/usage, validate the mode-specific
 result schema and content-addressed reviewer-execution statement, independently
 derive capture/cleanup/binding state from primitive observations, and bind them
-to the exact case and qualification identity,
+to the exact case and qualification identity. For conformance cases, tamper the
+gate-manifest and prepared-context digests, affected closure, required reviewed
+surfaces, mandatory claim IDs and corpus-derived evidence references at the
+protected semantic validator; each variant must be rejected before aggregate
+qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
+redaction plus `UNKNOWN`, while the identical literal remains portable only in
+a parsed command-execution event,
 then independently recompute case counts, critical recall, false pass/block,
 unknown, latency and the qualified flag. Reject missing, substituted,
 expired-only, self-asserted or internally inconsistent qualification evidence. Compare

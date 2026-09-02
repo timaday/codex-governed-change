@@ -866,11 +866,13 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
   'input_tokens': 1, 'cached_input_tokens': 0,
   'output_tokens': 1, 'reasoning_output_tokens': 0
 }}))
+print(%r, file=sys.stderr)
 """
             % (
                 self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
                 self.inputs["context_receipt_sha256"], self.PROMPT,
                 self.inputs["reviewer_qualification_id"], source_literal,
+                source_literal,
             )
         )
         literals = reviewer_portable_source_literals(
@@ -896,11 +898,15 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             timeout_seconds=2,
             portable_source_literals=literals,
         )
-        self.assertTrue(result["execution_valid"])
+        self.assertFalse(result["execution_valid"])
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
         self.assertTrue(result["usage_observed"])
         self.assertFalse(result["observation"]["stdout"]["ambiguous_redaction"])
+        self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
         self.assertNotIn(source_literal.encode("utf-8"), result["stdout_bytes"])
+        self.assertNotIn(source_literal.encode("utf-8"), result["stderr_bytes"])
         self.assertIn(b"<REVIEWER_SOURCE_LITERAL>", result["stdout_bytes"])
+        self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
         for line in result["stdout_bytes"].splitlines():
             json.loads(line)
 

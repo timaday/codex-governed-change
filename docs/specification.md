@@ -338,8 +338,11 @@ tokens remain ambiguous. The exception does not apply to credential values or
 the final agent message. Other recognized shaped values are replaced before
 persistence, and that ambiguous transformation permanently forces `UNKNOWN`.
 JSONL normalization MUST parse and re-serialize complete events so replacement
-cannot corrupt escaping. Truncation, retained machine values or malformed JSONL
-block.
+cannot corrupt escaping. The portable-source exception is confined to values
+inside a successfully parsed Codex command-execution event. Raw stderr,
+malformed JSONL fallback, final agent messages and every other unstructured
+stream are normalized without source-literal exemptions. Truncation, retained
+machine values or malformed JSONL block.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
@@ -365,9 +368,14 @@ normalized stdout/stderr capture streams; parse the final Codex JSONL agent
 message, thread and usage; schema-validate that message against the retained
 reviewer output; derive capture, cleanup, binding and execution validity from
 primitive supervisor observations; bind the execution to the exact case plus
-prompt/schema/model/launcher/Codex identity; and independently recompute every
-aggregate. Self-reported execution booleans, supplied digest-shaped candidate
-IDs or unverified issuer prose are not execution or human authority.
+prompt/schema/model/launcher/Codex identity; for conformance, reconstruct and
+require the exact gate-manifest and prepared-context bindings, affected closure,
+required reviewed surfaces and complete mandatory claim-ID set, then resolve
+every finding and claim reference against corpus-derived immutable file
+evidence; and independently recompute every aggregate. Self-reported execution
+booleans, supplied digest-shaped candidate or context IDs, internally consistent
+but stale output bindings, unresolved references or unverified issuer prose are
+not execution or human authority.
 A typed coverage-class field identifies seeded-defect, prompt-injection and
 clean-control cases. Every exact identity and review mode MUST exercise all three
 classes; one deliberately injected seeded-defect case may cover both of the first

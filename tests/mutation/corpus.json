@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:135f386af061062fcb6ec2eb3c6c5b553361326302b741ecc75df663a92a4b95",
+  "corpus_id": "sha256:77a7b5063c772eb485fd91d41dbad824440385874aa02f5d4668093e9a33e150",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -326,6 +326,24 @@
       "operator": "bind only the submodule HEAD instead of its concrete Git-visible bytes",
       "requirement_id": "GOV-003",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_concrete_tree_recursively_binds_dirty_submodule_bytes"]
+    },
+    {
+      "mutant_id": "raw-stderr-source-literal",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    stderr_bytes, stderr_redactions = _normalize_reviewer_stream(\n        bytes(stderr_capture.data),\n        command=actual_command,\n        schema_path=schema_path,\n        output_path=output_path,\n        environment=sanitized_environment,\n        portable_source_literals=frozenset(),\n    )",
+      "new": "    stderr_bytes, stderr_redactions = _normalize_reviewer_stream(\n        bytes(stderr_capture.data),\n        command=actual_command,\n        schema_path=schema_path,\n        output_path=output_path,\n        environment=sanitized_environment,\n        portable_source_literals=portable_source_literals,\n    )",
+      "operator": "apply the parsed-command source-literal exception to raw reviewer stderr",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl"]
+    },
+    {
+      "mutant_id": "qualification-output-unchecked",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        result.get(\"gate_manifest_sha256\") == sha256_canonical(gate_manifest)",
+      "new": "        True",
+      "operator": "accept a qualification result with a stale gate-manifest binding",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
     }
   ]
 }

@@ -250,6 +250,21 @@ These are local deterministic observations, not protected T24 admission
 evidence. This status mutation requires one final gate rebind before the
 successor is committed and independently reviewed.
 
+The fresh read-only audit of immutable commit `16d1df4` was bound to the exact
+candidate and declared `BLOCK`, but its formal process disposition was
+`UNKNOWN`: an ambiguous shaped stream value was redacted and capture-thread
+completion was not established. Its two concrete findings are retained. Raw
+reviewer stderr incorrectly received the parsed command-event source-literal
+allowlist, and conformance qualification accepted model output without
+reconstructing its gate/context bindings, exact closure, required surfaces,
+mandatory claims or evidence references. The current working-copy successor
+confines the source-literal exception to successfully parsed command events and
+reconstructs deterministic qualification gate manifests plus corpus-file
+locators before validating those output semantics. Two new curated mutants
+cover the reported bypasses. Every result for `16d1df4`, including its otherwise
+valid model findings, is stale after these changes; all deterministic gates,
+mutation, rollback, portability and a new exact-candidate review must be rerun.
+
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
 to signal their fixtures fail closed because the outer boundary removes that

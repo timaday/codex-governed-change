@@ -447,7 +447,7 @@ def _normalize_reviewer_jsonl(
             schema_path=schema_path,
             output_path=output_path,
             environment=environment,
-            portable_source_literals=portable_source_literals,
+            portable_source_literals=frozenset(),
         )
     normalized = b"\n".join(normalized_lines)
     if data.endswith((b"\n", b"\r")) and normalized_lines:
@@ -1683,7 +1683,7 @@ def launch_reviewer(
         schema_path=schema_path,
         output_path=output_path,
         environment=sanitized_environment,
-        portable_source_literals=portable_source_literals,
+        portable_source_literals=frozenset(),
     )
     primitive_observation = {
         "parent_exit_observed": parent_exit_observed,
