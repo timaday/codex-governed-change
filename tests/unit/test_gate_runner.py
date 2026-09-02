@@ -202,7 +202,10 @@ class GateRunnerTest(unittest.TestCase):
                 sandbox_invocation=invocation,
                 timeout_seconds=0.05,
             )
-        cleanup.assert_called_once_with(invocation, container_id)
+        cleanup.assert_called_once()
+        self.assertEqual((invocation, container_id), cleanup.call_args.args)
+        self.assertGreaterEqual(cleanup.call_args.kwargs["timeout_seconds"], 0.0)
+        self.assertLessEqual(cleanup.call_args.kwargs["timeout_seconds"], 0.05)
         self.assertEqual("timeout", timed_out["termination"]["kind"])
         with (
             patch("codex_governance.gate.create_container", return_value=container_id),
@@ -269,6 +272,40 @@ class GateRunnerTest(unittest.TestCase):
             },
         )
         self.assertTrue(any("ambiguous" in item for item in result["limitations"]))
+
+    def test_complete_host_paths_and_named_endpoints_are_ambiguous(self) -> None:
+        values = (
+            "/var/lib/runner/cache/result.json",
+            "C:" + "\\" + "Users\\runner\\workspace\\result.json",
+            "\\" * 2 + "build-host\\workspace\\cache\\result.json",
+            "https://runner.internal.invalid/api/status",
+        )
+        result = self.observe(
+            "print(" + repr(" ".join(values)) + ")", max_output_bytes=1024
+        )
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        for value in values:
+            self.assertNotIn(value.encode(), output)
+        self.assertIn(b"<REDACTED_HOST_PATH>", output)
+        self.assertIn(b"<REDACTED_ENDPOINT>", output)
+
+    def test_incomplete_preparation_is_retained_unknown_without_launch(self) -> None:
+        marker = self.repository / "preparation-must-not-launch"
+        result = self.observe(
+            f"from pathlib import Path; Path({marker.name!r}).write_text('bad')",
+            sandbox_invocation=None,
+            preparation_error="CandidatePreparationError",
+            absolute_deadline=time.monotonic() - 1,
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertEqual(
+            "candidate_preparation_incomplete", result["termination"]["detail"]
+        )
+        self.assertIn("candidate preparation was incomplete", result["limitations"])
+        self.assertFalse(marker.exists())
 
     def test_exact_host_value_redaction_is_reported_without_hiding_exit(self) -> None:
         hostname = "fixture-host-value"

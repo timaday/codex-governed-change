@@ -35,6 +35,7 @@ from codex_governance.gate import (
     _posix_process_group_exited,
     _terminate_process_tree,
 )
+from codex_governance.portability import SHAPED_VALUE_PATTERNS
 from codex_governance.schema import (
     SchemaValidationError,
     parse_json_bytes,
@@ -542,30 +543,8 @@ def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
     }
 
 
-REVIEWER_AMBIGUOUS_PATTERNS = (
-    re.compile(
-        rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
-        rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
-        re.DOTALL,
-    ),
-    re.compile(
-        rb"(?i)\b(?:api[_-]?key|token|secret|password|passwd|authorization)"
-        rb"\s*[:=]\s*[^\s,;]+"
-    ),
-    re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{16,}\b"),
-    re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"),
-    re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
-    re.compile(
-        rb"(?:/" + rb"home" + rb"/|/" + rb"Users" + rb"/|/var/|/private/|/mnt/|/run/)"
-        rb"[^\s\"']+|[A-Za-z]:\\" + rb"Users" + rb"\\[^\s\"']+"
-    ),
-    re.compile(
-        rb"(?i)\b(?:local" + rb"host|127(?:\.[0-9]{1,3}){3}|"
-        rb"10(?:\.[0-9]{1,3}){3}|192\.168(?:\.[0-9]{1,3}){2}|"
-        rb"172\.(?:1[6-9]|2[0-9]|3[01])(?:\.[0-9]{1,3}){2}|\[?::1\]?)"
-        rb"(?::[0-9]{1,5})?\b"
-    ),
-    re.compile(rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b"),
+REVIEWER_AMBIGUOUS_PATTERNS = tuple(
+    pattern for pattern, _category in SHAPED_VALUE_PATTERNS
 )
 def reviewer_stream_is_portable(data: bytes) -> bool:
     """Reject retained secrets, machine endpoints, and absolute host locations."""
@@ -958,6 +937,7 @@ REVIEWER_LAUNCHER_FILES = (
     "locators.py",
     "mutation.py",
     "mutation_runner.py",
+    "portability.py",
     "profiles.py",
     "qualification.py",
     "rapid_review.py",

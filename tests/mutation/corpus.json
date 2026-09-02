@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:269ad19603b0a33e7402798b6eb75434056ee7e0929615d111a3169ff6fce45a",
+  "corpus_id": "sha256:73701b1a19aaf810189bf4c3ffea9a9a843208d0d6bf9058081aa0ef112528a8",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -240,8 +240,8 @@
     {
       "mutant_id": "gate-copy-source-identity",
       "path": "src/codex_governance/cli.py",
-      "old": "            def copied_candidate_id(\n                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                    candidate_copy\n                ),\n            ) -> str:",
-      "new": "            def copied_candidate_id(\n                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                    args.repository\n                ),\n            ) -> str:",
+      "old": "                def copied_candidate_id(\n                    adapter: GitCliRepositoryAdapter = copy_adapter,\n                ) -> str:",
+      "new": "                def copied_candidate_id(\n                    adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                        args.repository, deadline=gate_deadline\n                    ),\n                ) -> str:",
       "operator": "observe the original repository instead of the executed gate copy",
       "requirement_id": "GOV-003",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence"]
@@ -285,8 +285,8 @@
     {
       "mutant_id": "ignored-submodule-copy",
       "path": "src/codex_governance/sandbox.py",
-      "old": "        _copy_submodule(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            submodule[\"commit\"],\n            target,\n        )",
-      "new": "        _copy_candidate_entry(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n        )",
+      "old": "        _copy_submodule(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            submodule[\"commit\"],\n            target,\n            deadline=deadline,\n        )",
+      "new": "        _copy_candidate_entry(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            deadline=deadline,\n        )",
       "operator": "copy ignored machine-local files from a submodule working tree",
       "requirement_id": "GOV-062",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_submodule_copy_is_reconstructed_without_ignored_worktree_files"]
@@ -455,9 +455,9 @@
     },
     {
       "mutant_id": "gate-endpoint-unredacted",
-      "path": "src/codex_governance/gate.py",
-      "old": "                rb\"\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\"\n                rb\"(?::[0-9]{1,5})?\\b\"",
-      "new": "                rb\"\\b(?:[0-9]{4}\\.){3}[0-9]{4}\"\n                rb\"(?::[0-9]{1,5})?\\b\"",
+      "path": "src/codex_governance/portability.py",
+      "old": "        re.compile(rb\"\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\\b\"),",
+      "new": "        re.compile(rb\"\\b(?:[0-9]{4}\\.){3}[0-9]{4}(?::[0-9]{1,5})?\\b\"),",
       "operator": "retain an address-shaped endpoint in gate evidence",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_address_shaped_endpoint_is_ambiguous_and_not_retained"]
@@ -497,6 +497,78 @@
       "operator": "accept a reviewer finding whose path line and locator do not bind",
       "requirement_id": "GOV-052",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_reviewer_findings_require_concrete_digest_bound_locations"]
+    },
+    {
+      "mutant_id": "shared-host-root-truncated",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"/(?:home|Users|root|var|private|mnt|run|tmp|opt|srv)/\"",
+      "new": "            rb\"/(?:home|Users)/\"",
+      "operator": "recognize only user-profile prefixes instead of complete host-root families",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+    },
+    {
+      "mutant_id": "named-endpoint-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"(?i)\\b(?:https?|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp)://\"",
+      "new": "            rb\"(?i)\\b(?:ftp|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp)://\"",
+      "operator": "retain a scheme-qualified named endpoint",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+    },
+    {
+      "mutant_id": "ioctl-signal-escape",
+      "path": "src/codex_governance/reviewer_signal_guard.py",
+      "old": "    0x5452,  # FIOASYNC",
+      "new": "    0x541B,  # FIONREAD",
+      "operator": "allow asynchronous ioctl status while denying an unrelated request",
+      "requirement_id": "GOV-054",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_signal_guard_denies_asynchronous_ioctl_operations"]
+    },
+    {
+      "mutant_id": "authoritative-json-pathname-read",
+      "path": "src/codex_governance/schema.py",
+      "old": "        data = read_bounded_path_file(path, max_bytes=max_bytes)",
+      "new": "        data = path.read_bytes()",
+      "operator": "follow an authoritative JSON pathname without a descriptor-bound read",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_authoritative_json_rejects_symlink_fifo_and_oversize"]
+    },
+    {
+      "mutant_id": "authoritative-json-reopened",
+      "path": "src/codex_governance/schema.py",
+      "old": "    data = cache.get(key) if cache is not None else None",
+      "new": "    data = None",
+      "operator": "reopen an authoritative JSON pathname within one command",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_authoritative_json_session_reuses_one_byte_observation"]
+    },
+    {
+      "mutant_id": "untracked-pathname-read",
+      "path": "src/codex_governance/candidate.py",
+      "old": "            kind, content, info = read_bounded_repository_entry(\n                self.repository, path, max_bytes=64_000_000\n            )",
+      "new": "            absolute = self.repository.joinpath(*path.split(\"/\"))\n            info = absolute.lstat()\n            kind = \"symlink\" if info.st_mode & 0o170000 == 0o120000 else \"regular\"\n            content = os.fsencode(os.readlink(absolute)) if kind == \"symlink\" else absolute.read_bytes()",
+      "operator": "hash an untracked pathname after a separate lstat",
+      "requirement_id": "GOV-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_git_candidate.GitCandidateAdapterTest.test_untracked_leaf_replacement_fails_closed"]
+    },
+    {
+      "mutant_id": "candidate-clone-unbounded",
+      "path": "src/codex_governance/sandbox.py",
+      "old": "            timeout=_remaining(deadline),\n            check=False,\n        )\n    except (OSError, subprocess.TimeoutExpired) as exc:\n        raise CandidatePreparationError(\"disposable candidate clone unavailable\") from exc",
+      "new": "            check=False,\n        )\n    except (OSError, subprocess.TimeoutExpired) as exc:\n        raise CandidatePreparationError(\"disposable candidate clone unavailable\") from exc",
+      "operator": "remove the candidate-clone timeout",
+      "requirement_id": "GOV-044",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_candidate_copy_git_helpers_receive_one_absolute_deadline"]
+    },
+    {
+      "mutant_id": "preparation-error-launches",
+      "path": "src/codex_governance/gate.py",
+      "old": "    if preparation_error is not None:\n        termination = {\n            \"kind\": \"launch_error\",\n            \"detail\": \"candidate_preparation_incomplete\",\n        }",
+      "new": "    if False:\n        termination = {\n            \"kind\": \"launch_error\",\n            \"detail\": \"candidate_preparation_incomplete\",\n        }",
+      "operator": "discard incomplete candidate preparation before gate launch",
+      "requirement_id": "GOV-044",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_incomplete_preparation_is_retained_unknown_without_launch"]
     }
   ]
 }

@@ -197,6 +197,9 @@ Requirements: GOV-004, GOV-026 through GOV-028, GOV-044, GOV-046, GOV-061
 - Replace direct host candidate execution with a disposable sandbox provider.
 - Default to no network and no secrets; bound time, process tree, resources and
   output; expose a deterministic capability report.
+- Start one absolute per-gate deadline before candidate reconstruction, pass its
+  remaining budget to every Git/container/execution helper and retain an
+  `UNKNOWN` gate record when preparation is incomplete.
 - Keep protected governance, supervisor, reviewer harness and authoritative
   evidence unwritable and package observations in a later trusted phase.
 
@@ -235,6 +238,8 @@ GOV-038, GOV-052, GOV-054 through GOV-056
 
 - Retain the fresh ephemeral read-only lane and remove independence overclaims.
 - Enforce tool/config/credential/context isolation and verified evidence locators.
+- Share complete host-path and named-endpoint recognition with gate streams;
+  deny asynchronous descriptor signalling through both `fcntl` and `ioctl`.
 - Qualify each mode-specific prompt, schema, model, Codex CLI version and launcher identity against
   the labelled defect/injection corpus; expose disagreement and high-risk escalation.
 - Emit a reconstructable reviewer-execution statement and reject a stored result
@@ -300,6 +305,8 @@ Requirements: all
   content-addressed evidence chain.
 - Update status no further than the deterministic result; human disposition is
   separate.
+- Re-observe authoritative JSON and untracked candidate inputs through retained
+  no-follow descriptors and keep one exact byte observation per command.
 
 Exit: the immutable candidate has reconstructable evidence or remains honestly
 `UNKNOWN/BLOCK` with exact missing proof.

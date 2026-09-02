@@ -1,5 +1,8 @@
 import json
 import math
+import os
+import tempfile
+import time
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -7,6 +10,7 @@ from pathlib import Path
 from codex_governance.schema import (
     JsonRepresentationAdapter,
     SchemaValidationError,
+    authoritative_json_session,
     load_json,
     validate_instance,
     validate_semantics,
@@ -41,6 +45,37 @@ class SchemaAdapterTest(unittest.TestCase):
         schema["format"] = "custom"
         self.assertTrue(any("unsupported keyword" in item for item in validate_instance({}, schema)))
         self.assertFalse(math.isfinite(float("nan")))
+
+    def test_authoritative_json_rejects_symlink_fifo_and_oversize(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "document.json"
+            document.write_bytes(b"{}")
+            link = root / "link.json"
+            link.symlink_to(document)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                load_json(link)
+            with self.assertRaisesRegex(ValueError, "size bound"):
+                load_json(document, max_bytes=1)
+            if hasattr(os, "mkfifo"):
+                fifo = root / "input.json"
+                os.mkfifo(fifo)
+                started = time.monotonic()
+                with self.assertRaisesRegex(ValueError, "regular file"):
+                    load_json(fifo)
+                self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_authoritative_json_session_reuses_one_byte_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = Path(directory) / "document.json"
+            document.write_bytes(b'{"value":"first"}')
+            with authoritative_json_session():
+                first = load_json(document)
+                document.write_bytes(b'{"value":"second"}')
+                second = load_json(document)
+            self.assertEqual({"value": "first"}, first)
+            self.assertEqual(first, second)
+            self.assertEqual({"value": "second"}, load_json(document))
 
     def test_union_types_accept_null_and_still_enforce_each_concrete_type(self) -> None:
         reviewer_schema = load_json(Path("schemas/reviewer-result.schema.json"))

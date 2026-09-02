@@ -2,6 +2,7 @@ import unittest
 import tempfile
 import subprocess
 import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -538,6 +539,39 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual("mutated-by-first", (first / "source.txt").read_text())
             self.assertEqual("original", (second / "source.txt").read_text())
+
+    def test_candidate_copy_git_helpers_receive_one_absolute_deadline(self) -> None:
+        from codex_governance.sandbox import (
+            CandidatePreparationError,
+            prepare_candidate_copy,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            observed_timeouts = []
+
+            def stalled_run(*args, **kwargs):
+                observed_timeouts.append(kwargs.get("timeout"))
+                raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout"))
+
+            with patch(
+                "codex_governance.sandbox.subprocess.run", side_effect=stalled_run
+            ):
+                with self.assertRaises(CandidatePreparationError):
+                    prepare_candidate_copy(
+                        repository=repository,
+                        destination=root / "candidate",
+                        evidence_root="artifacts/governance",
+                        deadline=time.monotonic() + 0.25,
+                    )
+            self.assertEqual(1, len(observed_timeouts))
+            observed_timeout = observed_timeouts[0]
+            self.assertIsNotNone(observed_timeout)
+            assert observed_timeout is not None
+            self.assertGreater(observed_timeout, 0)
+            self.assertLessEqual(observed_timeout, 0.25)
 
     def test_submodule_copy_is_reconstructed_without_ignored_worktree_files(self) -> None:
         from codex_governance.sandbox import prepare_candidate_copy

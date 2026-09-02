@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,7 @@ from codex_governance.mutation import (
     selected_mutation_tests,
 )
 from codex_governance.sandbox import (
+    CandidatePreparationError,
     build_container_invocation,
     observe_container_provider,
     prepare_candidate_copy,
@@ -117,9 +120,13 @@ def run_governed_mutation_corpus(
         *, candidate_copy: Path, source_identity: str, command: list[str],
         candidate_supplier: Callable[[], str], gate_id: str, prefix: str,
         materials: list[dict[str, str]],
+        absolute_deadline: float,
+        observation_started_at: str,
+        observation_started_ns: int,
+        preparation_error: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, str], dict[str, str], dict[str, str]]:
         invocation = None
-        if provider_version is not None:
+        if provider_version is not None and preparation_error is None:
             invocation = build_container_invocation(
                 executable=policy["sandbox"]["provider"],
                 provider_version=provider_version,
@@ -172,6 +179,10 @@ def run_governed_mutation_corpus(
             artifact_prefix=prefix,
             timeout_seconds=limits["timeout_seconds"],
             max_output_bytes=limits["output_bytes"],
+            absolute_deadline=absolute_deadline,
+            observation_started_at=observation_started_at,
+            observation_started_ns=observation_started_ns,
+            preparation_error=preparation_error,
         )
         result_ref = _result_reference(evidence_root, prefix, result)
         capability_ref = _reference(
@@ -186,29 +197,49 @@ def run_governed_mutation_corpus(
 
     with tempfile.TemporaryDirectory(prefix="codex-governance-mutation-") as temporary:
         supervisor = Path(temporary).resolve()
-        baseline_copy = prepare_candidate_copy(
-            repository=repository,
-            destination=supervisor / "baseline",
-            evidence_root=evidence_root,
-        )
-        baseline_adapter = GitCliRepositoryAdapter(baseline_copy)
-
-        def baseline_candidate() -> str:
-            return baseline_adapter.identify(
-                repository_id=policy["repository_id"],
-                mode=candidate["mode"],
-                base_commit=candidate["base_commit"],
-                head_commit=candidate.get("head_commit"),
-                effective_policy_sha256=effective_policy_sha256,
-                evidence_root=evidence_root,
-            )["candidate_id"]
-
-        if baseline_candidate() != candidate["candidate_id"]:
-            raise RuntimeError("mutation baseline copy identity mismatch")
         baseline_command = [
             "/usr/bin/env", "PYTHONPATH=src", *corpus["baseline_command"]
         ]
         baseline_prefix = f"{run_prefix}/baseline"
+        baseline_started_at = datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
+        baseline_started_ns = time.monotonic_ns()
+        baseline_deadline = time.monotonic() + limits["timeout_seconds"]
+        baseline_copy = supervisor / "baseline"
+        baseline_preparation_error: str | None = None
+        try:
+            prepare_candidate_copy(
+                repository=repository,
+                destination=baseline_copy,
+                evidence_root=evidence_root,
+                deadline=baseline_deadline,
+            )
+            baseline_adapter = GitCliRepositoryAdapter(
+                baseline_copy, deadline=baseline_deadline
+            )
+
+            def baseline_candidate() -> str:
+                return baseline_adapter.identify(
+                    repository_id=policy["repository_id"],
+                    mode=candidate["mode"],
+                    base_commit=candidate["base_commit"],
+                    head_commit=candidate.get("head_commit"),
+                    effective_policy_sha256=effective_policy_sha256,
+                    evidence_root=evidence_root,
+                )["candidate_id"]
+
+            if baseline_candidate() != candidate["candidate_id"]:
+                raise CandidatePreparationError(
+                    "mutation baseline copy identity mismatch"
+                )
+        except (OSError, RuntimeError, ValueError) as exc:
+            baseline_preparation_error = exc.__class__.__name__
+            baseline_copy = repository
+
+            def baseline_candidate() -> str:
+                return candidate["candidate_id"]
+
         baseline, baseline_ref, _, _ = invoke(
             candidate_copy=baseline_copy,
             source_identity=candidate["candidate_id"],
@@ -220,6 +251,10 @@ def run_governed_mutation_corpus(
                 {"name": "candidate", "sha256": candidate["candidate_id"]},
                 {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
             ],
+            absolute_deadline=baseline_deadline,
+            observation_started_at=baseline_started_at,
+            observation_started_ns=baseline_started_ns,
+            preparation_error=baseline_preparation_error,
         )
         if baseline["status"] != "PASS":
             return {
@@ -233,12 +268,50 @@ def run_governed_mutation_corpus(
             }
 
         for index, mutant in enumerate(corpus["mutants"], 1):
-            mutant_copy = prepare_candidate_copy(
-                repository=repository,
-                destination=supervisor / f"mutant-{index}",
-                evidence_root=evidence_root,
-            )
             relative = normalize_repo_path(mutant["path"])
+            selected = list(mutant["selected_command"])
+            command = build_mutation_probe_command(relative, selected)
+            prefix = f"{run_prefix}/mutants/{mutant['mutant_id']}"
+            mutant_started_at = datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            )
+            mutant_started_ns = time.monotonic_ns()
+            mutant_deadline = time.monotonic() + limits["timeout_seconds"]
+            mutant_copy = supervisor / f"mutant-{index}"
+            try:
+                prepare_candidate_copy(
+                    repository=repository,
+                    destination=mutant_copy,
+                    evidence_root=evidence_root,
+                    deadline=mutant_deadline,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                _, failed_ref, _, _ = invoke(
+                    candidate_copy=repository,
+                    source_identity=candidate["candidate_id"],
+                    command=command,
+                    candidate_supplier=lambda: candidate["candidate_id"],
+                    gate_id=f"mutant-{mutant['mutant_id']}",
+                    prefix=prefix,
+                    materials=[
+                        {"name": "candidate", "sha256": candidate["candidate_id"]},
+                        {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
+                    ],
+                    absolute_deadline=mutant_deadline,
+                    observation_started_at=mutant_started_at,
+                    observation_started_ns=mutant_started_ns,
+                    preparation_error=exc.__class__.__name__,
+                )
+                return {
+                    "state": "UNKNOWN",
+                    "corpus": corpus_reference,
+                    "baseline": baseline_ref,
+                    "preparation_failure": failed_ref,
+                    "mutant_records": records,
+                    "evidence_locators": locators,
+                    "sandbox_capabilities": capabilities,
+                    "provenance_statements": provenance,
+                }
             original = mutant_copy.joinpath(*relative.split("/")).read_text(
                 encoding="utf-8"
             )
@@ -277,9 +350,6 @@ def run_governed_mutation_corpus(
                         copy, evidence_root=evidence_root
                     ),
                 )
-            selected = list(mutant["selected_command"])
-            command = build_mutation_probe_command(relative, selected)
-            prefix = f"{run_prefix}/mutants/{mutant['mutant_id']}"
             result, result_ref, capability_ref, provenance_ref = invoke(
                 candidate_copy=mutant_copy,
                 source_identity=source_identity,
@@ -292,6 +362,9 @@ def run_governed_mutation_corpus(
                     {"name": "mutation-corpus", "sha256": corpus["corpus_id"]},
                     {"name": "mutation-patch", "sha256": patch_sha},
                 ],
+                absolute_deadline=mutant_deadline,
+                observation_started_at=mutant_started_at,
+                observation_started_ns=mutant_started_ns,
             )
             termination = result["termination"]
             exit_code = termination.get("exit_code")

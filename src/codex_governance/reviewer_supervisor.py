@@ -230,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         return 126
     signal.signal(signal.SIGTERM, _set_stop_requested)
     signal.signal(signal.SIGINT, _set_stop_requested)
+    for async_signal in (signal.SIGIO, signal.SIGURG):
+        signal.signal(async_signal, signal.SIG_IGN)
     handshake_read: int | None = None
     handshake_write: int | None = None
     try:

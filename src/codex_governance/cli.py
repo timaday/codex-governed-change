@@ -11,11 +11,13 @@ import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NoReturn
 
 from codex_governance.artifacts import (
     FilesystemArtifactStore,
+    read_bounded_path_file,
     read_bounded_repository_file,
 )
 from codex_governance.attestation import (
@@ -70,12 +72,14 @@ from codex_governance.reviewer import (
 )
 from codex_governance.rollback import protected_rollback_command
 from codex_governance.sandbox import (
+    CandidatePreparationError,
     build_container_invocation,
-    iter_fresh_gate_copies,
     observe_container_provider,
+    prepare_candidate_copy,
     prepare_protected_package_copy,
 )
 from codex_governance.schema import (
+    authoritative_json_session,
     load_and_validate,
     load_json,
     validate_instance,
@@ -443,43 +447,66 @@ def _run_gates(args: argparse.Namespace) -> int:
         rollback_result_reference: dict[str, str] | None = None
         rollback_capability_reference: dict[str, str] | None = None
         rollback_provenance_reference: dict[str, str] | None = None
-        for gate_id, candidate_copy in iter_fresh_gate_copies(
-            repository=args.repository,
-            supervisor=supervisor,
-            gate_ids=[*gate_ids, *(["rollback-rehearsal"] if governed_paths else [])],
-            evidence_root=policy["evidence_root"],
-        ):
+        selected_gate_ids = [
+            *gate_ids,
+            *(["rollback-rehearsal"] if governed_paths else []),
+        ]
+        for gate_id in selected_gate_ids:
             gate = available[gate_id]
-            copied_candidate = GitCliRepositoryAdapter(candidate_copy).identify(
-                repository_id=policy["repository_id"],
-                mode=candidate["mode"],
-                base_commit=candidate["base_commit"],
-                head_commit=candidate.get("head_commit"),
-                effective_policy_sha256=policy_sha,
-                evidence_root=policy["evidence_root"],
+            gate_started_at = datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
             )
-            if copied_candidate["candidate_id"] != candidate["candidate_id"]:
-                raise RuntimeError("fresh gate candidate copy identity mismatch")
-
-            def copied_candidate_id(
-                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(
-                    candidate_copy
-                ),
-            ) -> str:
-                return copy_adapter.identify(
+            gate_started_ns = time.monotonic_ns()
+            gate_deadline = time.monotonic() + gate["timeout_seconds"]
+            candidate_copy = supervisor / "gate-candidates" / gate_id
+            preparation_error: str | None = None
+            try:
+                prepare_candidate_copy(
+                    repository=args.repository,
+                    destination=candidate_copy,
+                    evidence_root=policy["evidence_root"],
+                    deadline=gate_deadline,
+                )
+                copy_adapter = GitCliRepositoryAdapter(
+                    candidate_copy, deadline=gate_deadline
+                )
+                copied_candidate = copy_adapter.identify(
                     repository_id=policy["repository_id"],
                     mode=candidate["mode"],
                     base_commit=candidate["base_commit"],
                     head_commit=candidate.get("head_commit"),
                     effective_policy_sha256=policy_sha,
                     evidence_root=policy["evidence_root"],
-                )["candidate_id"]
+                )
+                if copied_candidate["candidate_id"] != candidate["candidate_id"]:
+                    raise CandidatePreparationError(
+                        "fresh gate candidate copy identity mismatch"
+                    )
+
+                def copied_candidate_id(
+                    adapter: GitCliRepositoryAdapter = copy_adapter,
+                ) -> str:
+                    return adapter.identify(
+                        repository_id=policy["repository_id"],
+                        mode=candidate["mode"],
+                        base_commit=candidate["base_commit"],
+                        head_commit=candidate.get("head_commit"),
+                        effective_policy_sha256=policy_sha,
+                        evidence_root=policy["evidence_root"],
+                    )["candidate_id"]
+
+            except (OSError, RuntimeError, ValueError) as exc:
+                preparation_error = exc.__class__.__name__
+                candidate_copy = args.repository
+
+                def copied_candidate_id() -> str:
+                    return candidate["candidate_id"]
 
             sandbox_command = list(gate["command"])
             if gate["shell"]:
                 sandbox_command = ["sh", "-c", gate["command"][0]]
             invocation = None
-            if provider_version is not None:
+            if provider_version is not None and preparation_error is None:
                 invocation = build_container_invocation(
                     executable=policy["sandbox"]["provider"],
                     provider_version=provider_version,
@@ -514,7 +541,9 @@ def _run_gates(args: argparse.Namespace) -> int:
                 provenance_context={
                     "repository_digest": candidate["candidate_id"],
                     "gate_definition_sha256": sha256_canonical(gate),
-                    "reviewer_prompt_sha256": sha256_bytes(args.reviewer_prompt.read_bytes()),
+                    "reviewer_prompt_sha256": sha256_bytes(
+                        read_bounded_path_file(args.reviewer_prompt)
+                    ),
                     "producer": {
                         "builder_id": "codex-governed-change",
                         "implementation_sha256": gate_implementation_sha256(),
@@ -558,6 +587,10 @@ def _run_gates(args: argparse.Namespace) -> int:
                 max_output_bytes=gate["max_output_bytes"],
                 shell=gate["shell"],
                 risk_label=gate["risk_label"] or None,
+                absolute_deadline=gate_deadline,
+                observation_started_at=gate_started_at,
+                observation_started_ns=gate_started_ns,
+                preparation_error=preparation_error,
             )
             relative = f"{gate_prefix}/result.json"
             result_sha = sha256_bytes(canonical_json_bytes(result))
@@ -847,7 +880,9 @@ def _mutate(args: argparse.Namespace) -> int:
         candidate=candidate,
         task_contract_sha256=task_sha,
         effective_policy_sha256=policy_sha,
-        reviewer_prompt_sha256=sha256_bytes(args.reviewer_prompt.read_bytes()),
+        reviewer_prompt_sha256=sha256_bytes(
+            read_bounded_path_file(args.reviewer_prompt)
+        ),
         run_id=args.run_id,
         attempt=args.attempt,
         workflow_system=args.workflow_system,
@@ -1131,7 +1166,7 @@ def _review(args: argparse.Namespace) -> int:
             reasoning_effort=args.reasoning_effort,
         )
         stdin_text = build_reviewer_stdin(
-            fixed_prompt=harness["prompt"].read_text(encoding="utf-8"),
+            fixed_prompt=prompt_bytes.decode("utf-8"),
             permitted_inputs=permitted,
         )
         result = launch_reviewer(
@@ -1548,35 +1583,36 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one bounded use case with stable fail-closed exit codes."""
     args = _parser().parse_args(argv)
-    try:
-        lock = _pipeline_lock_for(args)
-        with lock:
-            expected_authority = None
-            assert_binding = getattr(lock, "assert_binding", None)
-            if callable(assert_binding):
-                assert_binding()
-            if isinstance(getattr(lock, "repository", None), Path) and isinstance(
-                getattr(lock, "root", None), Path
-            ):
-                root_identity = getattr(lock, "root_identity", None)
-                expected_authority = (
-                    lock.repository,
-                    lock.root.relative_to(lock.repository).as_posix(),
-                    root_identity if isinstance(root_identity, tuple) else None,
+    with authoritative_json_session():
+        try:
+            lock = _pipeline_lock_for(args)
+            with lock:
+                expected_authority = None
+                assert_binding = getattr(lock, "assert_binding", None)
+                if callable(assert_binding):
+                    assert_binding()
+                if isinstance(getattr(lock, "repository", None), Path) and isinstance(
+                    getattr(lock, "root", None), Path
+                ):
+                    root_identity = getattr(lock, "root_identity", None)
+                    expected_authority = (
+                        lock.repository,
+                        lock.root.relative_to(lock.repository).as_posix(),
+                        root_identity if isinstance(root_identity, tuple) else None,
+                    )
+                _preflight_cli_outputs(
+                    args, expected_authority=expected_authority
                 )
-            _preflight_cli_outputs(
-                args, expected_authority=expected_authority
+                return int(args.handler(args))
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            _emit(
+                {
+                    "state": "UNKNOWN",
+                    "error": exc.__class__.__name__,
+                    "message": "the requested observation could not be completed",
+                }
             )
-            return int(args.handler(args))
-    except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        _emit(
-            {
-                "state": "UNKNOWN",
-                "error": exc.__class__.__name__,
-                "message": "the requested observation could not be completed",
-            }
-        )
-        return EXIT_UNKNOWN
+            return EXIT_UNKNOWN
 
 
 def _pipeline_lock_for(args: argparse.Namespace):

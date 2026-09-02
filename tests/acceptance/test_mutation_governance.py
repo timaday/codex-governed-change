@@ -82,6 +82,10 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "gate-endpoint-unredacted", "review-snapshot-source-only",
             "assurance-fixed-set-removed", "status-ready-passthrough",
             "reviewer-finding-location-unchecked",
+            "shared-host-root-truncated", "named-endpoint-unredacted",
+            "ioctl-signal-escape", "authoritative-json-pathname-read",
+            "authoritative-json-reopened", "untracked-pathname-read",
+            "candidate-clone-unbounded", "preparation-error-launches",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

@@ -22,14 +22,26 @@ def secure_repository_reads_available() -> bool:
         and hasattr(os, "O_DIRECTORY")
         and hasattr(os, "O_NOFOLLOW")
         and os.open in os.supports_dir_fd
+        and os.readlink in os.supports_dir_fd
         and os.stat in os.supports_dir_fd
     )
 
 
-def read_bounded_repository_file(
+def _entry_identity(info: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        stat.S_IFMT(info.st_mode),
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def read_bounded_repository_entry(
     repository: Path, relative_path: str, *, max_bytes: int = 8_000_000
-) -> bytes:
-    """Read an exact repository file through retained directory descriptors."""
+) -> tuple[str, bytes, os.stat_result]:
+    """Observe one regular file or symbolic-link target through retained descriptors."""
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
     if not secure_repository_reads_available():
@@ -66,16 +78,39 @@ def read_bounded_repository_file(
             )
             descriptors.append(child)
             parent = child
-        leaf_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-        leaf_descriptor = os.open(parts[-1], leaf_flags, dir_fd=parent)
-        leaf_info = os.fstat(leaf_descriptor)
-        if not stat.S_ISREG(leaf_info.st_mode):
-            raise ArtifactSafetyError("repository reference is not a regular file")
-        if leaf_info.st_size > max_bytes:
-            raise ArtifactSafetyError("repository reference exceeds the size bound")
-        with os.fdopen(leaf_descriptor, "rb", closefd=True) as stream:
-            leaf_descriptor = -1
-            data = stream.read(max_bytes + 1)
+        leaf_before = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        if stat.S_ISREG(leaf_before.st_mode):
+            leaf_flags = (
+                os.O_RDONLY
+                | os.O_NOFOLLOW
+                | getattr(os, "O_NONBLOCK", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            leaf_descriptor = os.open(parts[-1], leaf_flags, dir_fd=parent)
+            leaf_info = os.fstat(leaf_descriptor)
+            if (
+                not stat.S_ISREG(leaf_info.st_mode)
+                or _entry_identity(leaf_before) != _entry_identity(leaf_info)
+            ):
+                raise ArtifactSafetyError("repository leaf binding changed")
+            if leaf_info.st_size > max_bytes:
+                raise ArtifactSafetyError("repository reference exceeds the size bound")
+            with os.fdopen(leaf_descriptor, "rb", closefd=True) as stream:
+                leaf_descriptor = -1
+                data = stream.read(max_bytes + 1)
+                leaf_after_read = os.fstat(stream.fileno())
+            if _entry_identity(leaf_after_read) != _entry_identity(leaf_info):
+                raise ArtifactSafetyError("repository leaf changed during read")
+            kind = "regular"
+        elif stat.S_ISLNK(leaf_before.st_mode):
+            target = os.readlink(parts[-1], dir_fd=parent)
+            data = os.fsencode(target)
+            leaf_info = leaf_before
+            kind = "symlink"
+        else:
+            raise ArtifactSafetyError(
+                "repository reference is not a regular file or symbolic link"
+            )
         if len(data) > max_bytes:
             raise ArtifactSafetyError("repository reference exceeds the size bound")
 
@@ -97,13 +132,9 @@ def read_bounded_repository_file(
         current_leaf = os.stat(
             parts[-1], dir_fd=parent, follow_symlinks=False
         )
-        if (
-            not stat.S_ISREG(current_leaf.st_mode)
-            or (current_leaf.st_dev, current_leaf.st_ino)
-            != (leaf_info.st_dev, leaf_info.st_ino)
-        ):
+        if _entry_identity(current_leaf) != _entry_identity(leaf_info):
             raise ArtifactSafetyError("repository leaf binding changed")
-        return data
+        return kind, data, leaf_info
     except ArtifactSafetyError:
         raise
     except OSError as exc:
@@ -115,6 +146,33 @@ def read_bounded_repository_file(
             os.close(leaf_descriptor)
         for descriptor in reversed(descriptors):
             os.close(descriptor)
+
+
+def read_bounded_repository_file(
+    repository: Path, relative_path: str, *, max_bytes: int = 8_000_000
+) -> bytes:
+    """Read an exact regular repository file through retained descriptors."""
+    kind, data, _ = read_bounded_repository_entry(
+        repository, relative_path, max_bytes=max_bytes
+    )
+    if kind != "regular":
+        raise ArtifactSafetyError("repository reference is a symlink")
+    return data
+
+
+def read_bounded_path_file(path: Path, *, max_bytes: int = 8_000_000) -> bytes:
+    """Read an authoritative pathname without following any path component."""
+    absolute = path.absolute()
+    if not absolute.is_absolute() or absolute.anchor != os.sep:
+        raise ArtifactSafetyError("authoritative path is unsupported")
+    relative_parts = absolute.parts[1:]
+    if not relative_parts:
+        raise ArtifactSafetyError("authoritative path must name a file")
+    return read_bounded_repository_file(
+        Path(absolute.anchor),
+        "/".join(relative_parts),
+        max_bytes=max_bytes,
+    )
 
 
 class FilesystemArtifactStore:

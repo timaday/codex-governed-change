@@ -115,7 +115,7 @@ A candidate identity binds evidence to one repository state. It includes:
 - effective governance policy digest;
 - final aggregate SHA-256 digest.
 
-Paths MUST be repository-relative and normalized. Collections MUST be sorted. Hashing MUST use raw bytes where content identity matters and canonical JSON for aggregate structures.
+Paths MUST be repository-relative and normalized. Collections MUST be sorted. Hashing MUST use raw bytes where content identity matters and canonical JSON for aggregate structures. Each untracked regular file and symbolic-link target MUST be observed from the repository root through a retained no-follow directory-descriptor chain. Regular leaves are opened nonblocking, bounded and type-checked; symbolic-link targets are read relative to the retained parent; parent and leaf identities are re-stated after observation. A path, parent or kind replacement is an unavailable candidate observation, never a digest of whichever pathname happened to win the race.
 
 The admission kernel MUST use this candidate-bound changed-path set, not the
 task author's affected-surface declaration, when selecting protected governance
@@ -324,7 +324,10 @@ child-subreaper non-signalable and preventing `prlimit64` from terminating or
 crippling it indirectly. Argument-aware `fcntl` filtering denies asynchronous
 ownership, signal selection, leases and notifications, and denies `F_SETFL`
 only when the flags argument includes `O_ASYNC`; benign flags such as
-`O_NONBLOCK` remain usable. The subreaper proves and performs bounded descendant
+`O_NONBLOCK` remain usable. Architecture-correct `ioctl` filtering also denies
+the Linux ownership, signal-selection and asynchronous-status requests that are
+equivalent to those `fcntl` operations; unrelated `ioctl` requests remain
+available. The subreaper proves and performs bounded descendant
 cleanup on that fallback. If neither exact
 kernel boundary is available, the result is `UNKNOWN` before the reviewer is
 admitted. On x86_64 the guard MUST reject the complete x32-tagged syscall
@@ -339,7 +342,10 @@ completion cannot promote it.
 Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
 proxy and other allowlisted parent-environment values with a fixed portable
-token. Parsing and execution-statement digests use those normalized captured
+token. Gate and reviewer normalization use the same shaped-value recognizer.
+It consumes complete multi-component paths beneath recognized POSIX host roots,
+Windows user roots and UNC shares, as well as IP, local and named network
+endpoints including scheme-qualified endpoints. Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working
 material and MUST be projected to fixed omission tokens before shaped-value
@@ -610,7 +616,12 @@ failed removal, missing identity or an inconclusive absence check makes process
 observation incomplete and therefore `UNKNOWN`. Any observed rename of the
 original ID or same-name substitution permanently taints the transaction; later
 removal or absence cannot restore certainty.
-Every gate receives a newly reconstructed candidate copy. A writable copy is
+Every gate receives a newly reconstructed candidate copy. The gate's one
+absolute monotonic deadline starts before that reconstruction and is passed to
+every clone, checkout, submodule and identity helper; command launch and cleanup
+receive only the remaining budget. If preparation expires, fails or cannot be
+observed completely, the supervisor publishes an `UNKNOWN` gate result with the
+preparation limitation and does not launch the command. A writable copy is
 never reused by a later gate, so an earlier command cannot replace the source,
 tests or configuration observed by a sibling gate. Before launch, the trusted
 supervisor independently identifies the copy and requires it to match the exact
@@ -807,12 +818,14 @@ code, service or schema is a runtime dependency. Repository files and committed
 examples MUST NOT contain a developer path, username, hostname, local endpoint,
 credential or machine-derived configuration/evidence.
 
-Every authoritative repository/evidence read opens the resolved repository
+Every authoritative JSON, repository and evidence read opens its declared root
 directory and each child relative to a retained directory descriptor. Leaf opens
 use no-follow and nonblocking flags, then `fstat` proves a bounded regular file
 before bytes are read through that descriptor. After bounded readback the leaf
 name is re-stated relative to the retained parent and must still name the same
-regular-file device/inode. Pathname validation followed by a
+regular-file device/inode, and retained parent identities must remain bound.
+Parsing, schema validation and command use consume that single byte observation;
+they do not reopen the authoritative pathname. Pathname validation followed by a
 later pathname read is not an admissible fallback; unavailable descriptor-bound
 access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
 materializing permitted evidence into the reviewer harness. The reviewer CLI

@@ -373,5 +373,39 @@ evidence. This status mutation and the mutation-operator correction invalidate
 the checkpoint; complete deterministic gates, mutation, rollback, portability
 and a new exact-candidate fresh review are required for the immutable successor.
 
+The fresh read-only audit of immutable commit `a404cb8` was exactly
+candidate-bound, completed every process/capture observation, retained portable
+untruncated streams and produced a formally admissible `BLOCK`. It reported five
+source-level findings: gate portability recognition consumed only partial host
+paths and omitted named endpoints; the Linux seccomp fallback left equivalent
+asynchronous `ioctl` signal controls available; general authoritative JSON used
+race-prone pathname reads; untracked candidate entries separated `lstat` from
+pathname content reads; and candidate-copy Git work occurred outside the gate
+timeout and could fail without retained gate evidence.
+
+The current working-copy successor centralizes complete host-path and named-
+endpoint recognition for gate and reviewer streams, filters asynchronous
+descriptor controls through both `fcntl` and architecture-correct Linux
+`ioctl`, reads authoritative JSON and untracked file/link identity through
+retained no-follow descriptors with post-read binding checks, caches one exact
+JSON observation per command, and starts one absolute gate deadline before
+candidate preparation while retaining incomplete preparation as `UNKNOWN`.
+Eight new curated semantic mutants cover those boundaries. Before this status
+mutation:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- the complete suite passed 279 tests with no skips or expected failures,
+  including public-portability checks;
+- after narrowing one timeout-removal operator so its existing assertion oracle
+  measures only the removed timeout, the repeated expanded mutation run
+  established a `PASS` baseline and causally killed all 63 operators for corpus
+  `sha256:73701b1a19aaf810189bf4c3ffea9a9a843208d0d6bf9058081aa0ef112528a8`.
+
+The mutation-operator correction, final source-quality cleanup and this status
+update change the candidate. They require complete deterministic gates, all 63
+causal mutation kills, rollback rehearsal, portability and a new exact-candidate
+fresh review before any release qualification claim.
+
 These observations are invalidated by any later candidate mutation and remain
 working-copy evidence until protected T24 reconstruction is complete.

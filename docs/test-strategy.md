@@ -145,15 +145,19 @@ records runner capability separately from the read-only reviewer process that
 audits source and retained evidence.
 
 Producer-identity tests mutate every Python file in a copied trusted package and
-require both gate and mutation identities to change. Evidence/locator tests race
-parent and leaf replacement and exercise symlink, FIFO and oversized leaves
-through the descriptor-bound reader. Gate-log canaries cover secret-shaped
-tokens, short and ordinary exact host values, address-shaped endpoints and
-supervisor paths. They verify that ambiguous credential or endpoint redaction
-forces `UNKNOWN` without persisting the canary.
+require both gate and mutation identities to change. Evidence/locator and
+general authoritative-JSON tests race parent and leaf replacement and exercise
+symlink, FIFO and oversized leaves through the descriptor-bound reader.
+Untracked-candidate tests race regular and symbolic-link entries plus their
+parent chains and require identity observation to fail closed. Gate-log canaries
+cover secret-shaped tokens, short and ordinary exact host values, complete
+multi-component POSIX/Windows/UNC host paths, address-shaped and named endpoints
+and supervisor paths. They verify that every ambiguous shaped-value replacement
+forces `UNKNOWN` without persisting the canary and that gate/reviewer
+recognizers cannot drift.
 
 Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
-IPv4/local endpoints and generic host paths. Exact-value normalization is
+IPv4/local/named endpoints and complete generic host paths. Exact-value normalization is
 reported; parsed command-execution command and aggregated-output payloads become
 fixed omission tokens without invalidating JSONL or removing structural process
 facts. The same shaped values in final messages, raw stderr or malformed JSONL
@@ -177,6 +181,9 @@ Reviewer deadline tests stall pre/post identity Git observations and snapshot Gi
 helpers. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
+Gate deadline tests stall initial clone, checkout and submodule helpers, prove
+the same absolute timeout budget reaches execution, and require retained
+`UNKNOWN` preparation evidence without command launch.
 
 Context reconstruction tests independently alter every protected source class,
 adverse signal, inventory/closure entry, profile qualification, source bundle,
@@ -320,6 +327,11 @@ digest. Ignored submodule files remain excluded and must never enter a
 reconstructed candidate copy.
 
 Oracle: unsupported states are explicit `UNKNOWN/BLOCK`, not silent defaults.
+
+On each supported Linux architecture, signal-boundary tests use an inherited
+descriptor and attempt async owner, signal-selection and status changes through
+both `fcntl` and equivalent `ioctl` requests. Every signalling configuration is
+denied while unrelated `ioctl` and benign `O_NONBLOCK` changes remain usable.
 
 Run protected test-gate command arrays with a clean process environment and no
 caller-supplied `PYTHONPATH`. Assert every src-layout test descriptor establishes

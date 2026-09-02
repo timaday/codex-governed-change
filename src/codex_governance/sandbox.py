@@ -33,6 +33,10 @@ CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 PROTECTED_PACKAGE_CONTAINER_ROOT = "/opt/codex-governance"
 
 
+class CandidatePreparationError(RuntimeError):
+    """A disposable candidate could not be prepared within its bound."""
+
+
 @dataclass(frozen=True, slots=True)
 class SandboxInvocation:
     """A protected adapter's already-resolved provider invocation."""
@@ -47,16 +51,31 @@ class SandboxInvocation:
     protected_source_root: Path | None = None
 
 
-def _run_git(repository: Path, *args: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "-C", os.fspath(repository), *args],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+def _remaining(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise CandidatePreparationError("candidate preparation deadline expired")
+    return remaining
+
+
+def _run_git(repository: Path, *args: str, deadline: float | None = None) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(repository), *args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CandidatePreparationError(
+            "candidate-copy Git operation unavailable"
+        ) from exc
     if completed.returncode != 0:
-        raise RuntimeError("candidate-copy Git operation failed")
+        raise CandidatePreparationError("candidate-copy Git operation failed")
     return completed.stdout
 
 
@@ -70,7 +89,10 @@ def _remove_scoped(path: Path, boundary: Path) -> None:
         path.rmdir()
 
 
-def _copy_candidate_entry(source: Path, destination: Path) -> None:
+def _copy_candidate_entry(
+    source: Path, destination: Path, *, deadline: float | None = None
+) -> None:
+    _remaining(deadline)
     info = source.lstat()
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() or destination.is_symlink():
@@ -89,10 +111,15 @@ def _copy_candidate_entry(source: Path, destination: Path) -> None:
         )
     else:
         raise ValueError("unsupported candidate-copy file type")
+    _remaining(deadline)
 
 
-def _submodule_states(repository: Path) -> list[dict[str, str]]:
-    output = _run_git(repository, "submodule", "status", "--recursive").decode(
+def _submodule_states(
+    repository: Path, *, deadline: float | None = None
+) -> list[dict[str, str]]:
+    output = _run_git(
+        repository, "submodule", "status", "--recursive", deadline=deadline
+    ).decode(
         "utf-8", "strict"
     )
     states: list[dict[str, str]] = []
@@ -111,28 +138,53 @@ def _submodule_states(repository: Path) -> list[dict[str, str]]:
     return sorted(states, key=lambda item: (item["path"].count("/"), item["path"]))
 
 
-def _copy_submodule(source: Path, destination: Path, commit: str, boundary: Path) -> None:
+def _copy_submodule(
+    source: Path,
+    destination: Path,
+    commit: str,
+    boundary: Path,
+    *,
+    deadline: float | None = None,
+) -> None:
     if destination.exists() or destination.is_symlink():
         _remove_scoped(destination, boundary)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    cloned = subprocess.run(
-        [
-            "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
-            os.fspath(source), os.fspath(destination),
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        cloned = subprocess.run(
+            [
+                "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
+                os.fspath(source), os.fspath(destination),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CandidatePreparationError(
+            "candidate submodule clone unavailable"
+        ) from exc
     if cloned.returncode != 0:
-        raise RuntimeError("unable to reconstruct candidate submodule")
-    _run_git(destination, "checkout", "--quiet", "--detach", commit)
-    _run_git(destination, "remote", "remove", "origin")
+        raise CandidatePreparationError("unable to reconstruct candidate submodule")
+    _run_git(
+        destination,
+        "checkout",
+        "--quiet",
+        "--detach",
+        commit,
+        deadline=deadline,
+    )
+    _run_git(destination, "remote", "remove", "origin", deadline=deadline)
     logs = destination / ".git" / "logs"
     if logs.exists():
         _remove_scoped(logs, destination)
-    if _run_git(destination, "rev-parse", "HEAD").decode("ascii").strip() != commit:
+    observed_commit = (
+        _run_git(destination, "rev-parse", "HEAD", deadline=deadline)
+        .decode("ascii")
+        .strip()
+    )
+    if observed_commit != commit:
         raise RuntimeError("candidate submodule commit mismatch")
 
 
@@ -197,7 +249,11 @@ def prepare_protected_package_copy(*, package_root: Path, destination: Path) -> 
 
 
 def prepare_candidate_copy(
-    *, repository: Path, destination: Path, evidence_root: str
+    *,
+    repository: Path,
+    destination: Path,
+    evidence_root: str,
+    deadline: float | None = None,
 ) -> Path:
     """Create a writable, disposable Git snapshot without ignored machine state."""
     source = repository.resolve(strict=True)
@@ -214,27 +270,32 @@ def prepare_candidate_copy(
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise FileExistsError("sandbox destination must be absent or empty")
     target.parent.mkdir(parents=True, exist_ok=True)
-    clone = subprocess.run(
-        [
-            "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
-            os.fspath(source), os.fspath(target),
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        clone = subprocess.run(
+            [
+                "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
+                os.fspath(source), os.fspath(target),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CandidatePreparationError("disposable candidate clone unavailable") from exc
     if clone.returncode != 0:
-        raise RuntimeError("unable to create disposable candidate copy")
-    _run_git(target, "checkout", "--quiet", "--detach", "HEAD")
-    _run_git(target, "remote", "remove", "origin")
+        raise CandidatePreparationError("unable to create disposable candidate copy")
+    _run_git(target, "checkout", "--quiet", "--detach", "HEAD", deadline=deadline)
+    _run_git(target, "remote", "remove", "origin", deadline=deadline)
     logs = target / ".git" / "logs"
     if logs.exists():
         _remove_scoped(logs, target)
-    submodules = _submodule_states(source)
+    submodules = _submodule_states(source, deadline=deadline)
     submodule_paths = {item["path"] for item in submodules}
     names = _run_git(
-        source, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+        source, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+        deadline=deadline,
     )
     evidence_posix = evidence.as_posix()
     for raw in names.split(b"\x00"):
@@ -251,7 +312,7 @@ def prepare_candidate_copy(
         source_path = source.joinpath(*relative.split("/"))
         target_path = target.joinpath(*relative.split("/"))
         if source_path.exists() or source_path.is_symlink():
-            _copy_candidate_entry(source_path, target_path)
+            _copy_candidate_entry(source_path, target_path, deadline=deadline)
         elif target_path.exists() or target_path.is_symlink():
             _remove_scoped(target_path, target)
     for submodule in submodules:
@@ -261,10 +322,12 @@ def prepare_candidate_copy(
             target.joinpath(*relative.split("/")),
             submodule["commit"],
             target,
+            deadline=deadline,
         )
     copied_evidence = target.joinpath(*evidence.parts)
     if copied_evidence.exists() or copied_evidence.is_symlink():
         _remove_scoped(copied_evidence, target)
+    _remaining(deadline)
     return target
 
 
@@ -274,6 +337,7 @@ def iter_fresh_gate_copies(
     supervisor: Path,
     gate_ids: Sequence[str],
     evidence_root: str,
+    deadline: float | None = None,
 ) -> Iterator[tuple[str, Path]]:
     """Yield a newly reconstructed writable candidate copy for every gate."""
     root = supervisor.resolve(strict=True)
@@ -290,6 +354,7 @@ def iter_fresh_gate_copies(
             repository=repository,
             destination=root / "gate-candidates" / gate_id,
             evidence_root=evidence_root,
+            deadline=deadline,
         )
 
 

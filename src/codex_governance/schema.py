@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import read_bounded_path_file
 from codex_governance.canonical import canonical_json_bytes, verify_content_address
 from codex_governance.lifecycle import parse_rfc3339
 
@@ -49,6 +53,20 @@ SUPPORTED_KEYWORDS = {
     "const", "enum", "required", "properties", "additionalProperties",
     "items", "minItems", "maxItems", "uniqueItems", "minLength", "pattern", "minimum",
 }
+
+_AUTHORITATIVE_JSON_BYTES: ContextVar[dict[str, bytes] | None] = ContextVar(
+    "authoritative_json_bytes", default=None
+)
+
+
+@contextmanager
+def authoritative_json_session() -> Iterator[None]:
+    """Cache each authoritative pathname's exact bytes for one bounded command."""
+    token = _AUTHORITATIVE_JSON_BYTES.set({})
+    try:
+        yield
+    finally:
+        _AUTHORITATIVE_JSON_BYTES.reset(token)
 
 
 class SchemaValidationError(ValueError):
@@ -252,8 +270,14 @@ def parse_json_bytes(data: bytes) -> Any:
 def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
-    data = path.read_bytes()
-    if len(data) > max_bytes:
+    cache = _AUTHORITATIVE_JSON_BYTES.get()
+    key = str(path.absolute())
+    data = cache.get(key) if cache is not None else None
+    if data is None:
+        data = read_bounded_path_file(path, max_bytes=max_bytes)
+        if cache is not None:
+            cache[key] = data
+    elif len(data) > max_bytes:
         raise ValueError("JSON input exceeds configured size bound")
     return parse_json_bytes(data)
 

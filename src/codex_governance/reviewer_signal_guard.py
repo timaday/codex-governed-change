@@ -67,6 +67,11 @@ FCNTL_SYSCALLS = {
     "x86_64": 72,
 }
 
+IOCTL_SYSCALLS = {
+    "aarch64": 29,
+    "x86_64": 16,
+}
+
 # Linux fcntl commands that unconditionally configure asynchronous delivery.
 DENIED_FCNTL_COMMANDS = (
     8,     # F_SETOWN
@@ -74,6 +79,14 @@ DENIED_FCNTL_COMMANDS = (
     15,    # F_SETOWN_EX
     1024,  # F_SETLEASE
     1026,  # F_NOTIFY
+)
+
+# Linux socket/terminal ioctl requests that configure asynchronous delivery.
+# These public UAPI values are stable across the supported architectures.
+DENIED_IOCTL_REQUESTS = (
+    0x5452,  # FIOASYNC
+    0x8901,  # FIOSETOWN / SIOCSETOWN
+    0x8902,  # SIOCSPGRP
 )
 
 SECCOMP_DATA_ARGUMENT_1_LOW = 24
@@ -153,6 +166,25 @@ def _install_signal_guard() -> bool:
             ),
         )
     )
+    instructions.append(_SockFilter(BPF_LD_W_ABS, 0, 0, 0))
+    ioctl_syscall = IOCTL_SYSCALLS[machine]
+    ioctl_filter_length = 2 + 2 * len(DENIED_IOCTL_REQUESTS)
+    instructions.append(
+        _SockFilter(BPF_JMP_JEQ_K, 0, ioctl_filter_length, ioctl_syscall)
+    )
+    instructions.append(_SockFilter(BPF_LD_W_ABS, 0, 0, SECCOMP_DATA_ARGUMENT_1_LOW))
+    for request in DENIED_IOCTL_REQUESTS:
+        instructions.extend(
+            (
+                _SockFilter(BPF_JMP_JEQ_K, 0, 1, request),
+                _SockFilter(
+                    BPF_RET_K,
+                    0,
+                    0,
+                    SECCOMP_RET_ERRNO | errno.EPERM,
+                ),
+            )
+        )
     instructions.append(_SockFilter(BPF_LD_W_ABS, 0, 0, 0))
     for syscall in sorted(set(syscalls)):
         instructions.extend(

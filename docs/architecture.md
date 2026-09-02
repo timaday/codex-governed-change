@@ -178,7 +178,7 @@ candidate = SHA256(canonical_json({
 }))
 ```
 
-The identity is recomputed immediately after every side-effecting observation. Drift invalidates the result.
+The identity is recomputed immediately after every side-effecting observation. Drift invalidates the result. Non-ignored untracked entries are opened through a retained no-follow descriptor chain rooted at the repository. Regular-file bytes and executable mode and symbolic-link targets are accepted only when parent and leaf bindings remain identical after the bounded observation; pathname replacement is an unavailable identity observation.
 
 ### Canonicalization
 
@@ -257,6 +257,9 @@ resource-limit mutation syscalls, so the same-UID reviewer cannot terminate,
 cripple or modify its outer child-subreaper; that
 filter rejects the entire x32-tagged syscall space on x86_64 before native
 dispatch so alternate-ABI syscall numbers cannot bypass the deny list. The
+argument-aware filter covers both `fcntl` async ownership/status commands and
+their architecture-correct Linux `ioctl` equivalents while leaving unrelated
+descriptor operations available. The
 subreaper then proves and performs bounded descendant cleanup. A bounded
 handshake identifies either exact boundary. Other platforms or architectures
 require an equivalent kernel job/containment primitive or fail closed.
@@ -351,8 +354,9 @@ Gate and mutation implementation identity is the digest of a canonical,
 filename- and length-framed manifest covering every Python file in the trusted
 package, with the producer kind framed separately.
 
-Before gate streams are persisted, a protected normalizer replaces exact host
-and supervisor values and recognized credential-shaped values. Exact proxy
+Before gate or reviewer streams are persisted, one shared protected normalizer
+replaces exact host and supervisor values and recognized credential-, complete
+host-root-path-, address- and named-endpoint-shaped values. Exact proxy
 environment values are credential-class values. Every replacement category and
 count is recorded. Secret-shaped replacement makes the observation ambiguous and
 therefore `UNKNOWN`; known supervisor-path normalization alone does not erase the
@@ -375,7 +379,7 @@ Configuration sources, from low to high precedence:
 3. task contract values explicitly permitted by policy;
 4. CLI options explicitly permitted by policy.
 
-Environment variables do not silently override governance policy. The resolved effective configuration is serialized, redacted, hashed, and referenced by evidence.
+Environment variables do not silently override governance policy. The resolved effective configuration is serialized, redacted, hashed, and referenced by evidence. General authoritative JSON documents and their schemas are read once through the same retained no-follow, nonblocking, bounded descriptor adapter used for repository evidence; parsing and command use consume that observation without pathname reopening.
 
 `schemas/effective-policy.schema.json` is the portable protected-policy representation. It uses repository-relative paths and argument arrays; it contains no developer path, hostname, endpoint, credential, or environment-derived value. A deployment may replace the example only through protected governance review.
 
@@ -457,7 +461,11 @@ no authoritative evidence or governance mount and no inherited secret. The
 sandbox output channel is bounded and untrusted. Protected gate argv is
 self-contained: src-layout Python test gates declare `PYTHONPATH=src` through
 the command array and cannot inherit a developer or supervisor import path.
-Container-backed invocations
+Each per-gate timeout becomes one absolute deadline before the fresh candidate
+copy begins. Clone, checkout, submodule reconstruction, copy identity,
+container creation, execution and cleanup receive only its remaining budget;
+incomplete preparation emits retained `UNKNOWN` evidence without launching the
+gate. Container-backed invocations
 first complete a bounded create transaction using a runtime-only supervisor-owned
 name and ID file; the immutable ID and name are validated before an attached
 start. On normal exit, timeout, interruption, or provider-CLI failure the

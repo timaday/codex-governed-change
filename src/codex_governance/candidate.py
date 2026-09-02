@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import stat
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import read_bounded_repository_entry
 from codex_governance.canonical import (
     normalize_repo_path,
     require_git_object,
@@ -213,13 +213,12 @@ class GitCliRepositoryAdapter:
                 raise ValueError("candidate paths must be valid UTF-8") from exc
             if not self._outside_evidence(path, evidence_root):
                 continue
-            absolute = self.repository.joinpath(*path.split("/"))
-            info = absolute.lstat()
-            if stat.S_ISLNK(info.st_mode):
-                content = os.fsencode(os.readlink(absolute))
+            kind, content, info = read_bounded_repository_entry(
+                self.repository, path, max_bytes=64_000_000
+            )
+            if kind == "symlink":
                 mode = "120000"
-            elif stat.S_ISREG(info.st_mode):
-                content = absolute.read_bytes()
+            elif kind == "regular":
                 mode = "100755" if info.st_mode & 0o111 else "100644"
             else:
                 raise ValueError(

@@ -81,6 +81,14 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "assurance-fixed-set-removed",
         "status-ready-passthrough",
         "reviewer-finding-location-unchecked",
+        "shared-host-root-truncated",
+        "named-endpoint-unredacted",
+        "ioctl-signal-escape",
+        "authoritative-json-pathname-read",
+        "authoritative-json-reopened",
+        "untracked-pathname-read",
+        "candidate-clone-unbounded",
+        "preparation-error-launches",
     }
 )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
 import socket
 import subprocess
@@ -20,6 +19,7 @@ from codex_governance.attestation import build_provenance_statement
 from codex_governance.canonical import canonical_json_bytes, normalize_repo_path, sha256_bytes
 from codex_governance.domain.model import GateStatus
 from codex_governance.lifecycle import parse_rfc3339
+from codex_governance.portability import SHAPED_VALUE_PATTERNS
 from codex_governance.sandbox import (
     SandboxInvocation,
     build_container_start_command,
@@ -153,48 +153,7 @@ def _redact_runtime_paths(
                     "occurrences": occurrences,
                 }
             )
-    patterns = (
-        (
-            re.compile(
-                rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
-                rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
-                re.DOTALL,
-            ),
-            "credential",
-        ),
-        (
-            re.compile(
-                rb"(?i)\b(?:api[_-]?key|token|secret|password|passwd|authorization)"
-                rb"\s*[:=]\s*[^\s,;]+"
-            ),
-            "credential",
-        ),
-        (re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{16,}\b"), "credential"),
-        (re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"), "credential"),
-        (re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), "credential"),
-        (
-            re.compile(
-                rb"(?:/" + rb"home" + rb"/|/" + rb"Users" + rb"/)"
-                rb"[^/\s]+|[A-Za-z]:\\" + rb"Users" + rb"\\[^\\\s]+"
-            ),
-            "generic_host_path",
-        ),
-        (
-            re.compile(
-                rb"(?i)\b(?:local" + rb"host|\[?::1\]?)"
-                rb"(?::[0-9]{1,5})?\b"
-            ),
-            "endpoint",
-        ),
-        (
-            re.compile(
-                rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}"
-                rb"(?::[0-9]{1,5})?\b"
-            ),
-            "endpoint",
-        ),
-    )
-    for pattern, category in patterns:
+    for pattern, category in SHAPED_VALUE_PATTERNS:
         replacement = (
             b"<REDACTED_HOST_PATH>"
             if category == "generic_host_path"
@@ -377,6 +336,10 @@ def run_gate(
     shell: bool = False,
     risk_label: str | None = None,
     producer_version: str = "0.1.0",
+    absolute_deadline: float | None = None,
+    observation_started_at: str | None = None,
+    observation_started_ns: int | None = None,
+    preparation_error: str | None = None,
 ) -> dict[str, Any]:
     """Run one gate through a protected invocation and persist bounded evidence."""
     if not command or not all(isinstance(item, str) and item for item in command):
@@ -395,14 +358,21 @@ def run_gate(
     def repository_artifact_path(relative: str) -> str:
         return normalize_repo_path(f"{evidence_root}/{relative}")
 
-    before = candidate_supplier()
-    started_at = _utc_now()
-    started = time.monotonic_ns()
-    deadline = time.monotonic() + timeout_seconds
+    started_at = observation_started_at or _utc_now()
+    started = observation_started_ns or time.monotonic_ns()
+    deadline = absolute_deadline or (time.monotonic() + timeout_seconds)
+    post_execution_reserve = min(10.0, max(0.01, timeout_seconds * 0.1))
+    execution_deadline = deadline - post_execution_reserve
+    try:
+        before = candidate_supplier()
+        before_observed = True
+    except Exception:
+        before = "sha256:" + "0" * 64
+        before_observed = False
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
     termination: dict[str, Any]
-    observation_complete = True
+    observation_complete = before_observed
     return_code: int | None = None
     threads: list[threading.Thread] = []
     container_cleanup_complete = True
@@ -423,8 +393,17 @@ def run_gate(
             ) <= parse_rfc3339(started_at)
         except (KeyError, TypeError, ValueError):
             capability_valid = False
-    if not capability_valid:
+    if preparation_error is not None:
+        termination = {
+            "kind": "launch_error",
+            "detail": "candidate_preparation_incomplete",
+        }
+        observation_complete = False
+    elif not capability_valid:
         termination = {"kind": "launch_error", "detail": "sandbox_capability_unavailable"}
+        observation_complete = False
+    elif time.monotonic() >= execution_deadline:
+        termination = {"kind": "timeout"}
         observation_complete = False
     else:
         try:
@@ -433,7 +412,7 @@ def run_gate(
             )
             runtime_argv = list(sandbox_invocation.argv)
             if sandbox_invocation.container_provider is not None:
-                remaining = deadline - time.monotonic()
+                remaining = execution_deadline - time.monotonic()
                 container_id = create_container(
                     sandbox_invocation, timeout_seconds=remaining
                 )
@@ -464,7 +443,7 @@ def run_gate(
             for thread in threads:
                 thread.start()
             try:
-                remaining = deadline - time.monotonic()
+                remaining = execution_deadline - time.monotonic()
                 if remaining <= 0:
                     raise subprocess.TimeoutExpired(runtime_argv, timeout_seconds)
                 return_code = process.wait(timeout=remaining)
@@ -476,7 +455,7 @@ def run_gate(
             except subprocess.TimeoutExpired:
                 termination = {"kind": "timeout"}
                 observation_complete = False
-                if not _terminate_process_tree(process):
+                if not _terminate_process_tree(process, deadline=deadline):
                     observation_complete = False
         except OSError as exc:
             termination = {
@@ -487,20 +466,22 @@ def run_gate(
         finally:
             if sandbox_invocation.container_provider is not None:
                 container_cleanup_complete = cleanup_container(
-                    sandbox_invocation, container_id
+                    sandbox_invocation,
+                    container_id,
+                    timeout_seconds=max(0.0, deadline - time.monotonic()),
                 )
                 if not container_cleanup_complete:
                     observation_complete = False
             for thread in threads:
-                thread.join(timeout=3)
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
                 if thread.is_alive():
                     observation_complete = False
             if any(thread.is_alive() for thread in threads) and "process" in locals():
-                _terminate_process_tree(process)
-                if not _close_process_streams(process):
+                _terminate_process_tree(process, deadline=deadline)
+                if not _close_process_streams(process, deadline=deadline):
                     observation_complete = False
                 for thread in threads:
-                    thread.join(timeout=1)
+                    thread.join(timeout=max(0.0, deadline - time.monotonic()))
             if threads and (
                 any(thread.is_alive() for thread in threads)
                 or not stdout_capture.eof
@@ -551,6 +532,8 @@ def run_gate(
         limitations.append("candidate identity changed during gate observation")
     if not observation_complete:
         limitations.append("process observation was incomplete")
+    if preparation_error is not None:
+        limitations.append("candidate preparation was incomplete")
     if not capability_valid:
         limitations.append("required disposable sandbox capability was unavailable")
     if not container_cleanup_complete:

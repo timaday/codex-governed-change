@@ -3,7 +3,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from codex_governance.artifacts import ArtifactSafetyError
 from codex_governance.candidate import GitCliRepositoryAdapter
 
 
@@ -85,6 +87,77 @@ class GitCandidateAdapterTest(unittest.TestCase):
             evidence_root="evidence",
         )["candidate_id"]
         self.assertNotEqual(first, second)
+
+    def test_untracked_leaf_replacement_fails_closed(self) -> None:
+        parent = self.repository / "nested"
+        parent.mkdir()
+        target = parent / "value.txt"
+        target.write_bytes(b"first")
+        replacement = parent / "replacement"
+        replacement.write_bytes(b"second")
+        real_stat = os.stat
+        leaf_observations = 0
+
+        def replace_before_restat(path, *args, **kwargs):
+            nonlocal leaf_observations
+            if (
+                path == "value.txt"
+                and kwargs.get("dir_fd") is not None
+                and kwargs.get("follow_symlinks") is False
+            ):
+                leaf_observations += 1
+                if leaf_observations == 2:
+                    replacement.replace(target)
+            return real_stat(path, *args, **kwargs)
+
+        with (
+            patch(
+                "codex_governance.artifacts.secure_repository_reads_available",
+                return_value=True,
+            ),
+            patch(
+                "codex_governance.artifacts.os.stat",
+                side_effect=replace_before_restat,
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "leaf binding changed"):
+                self.identify()
+        self.assertEqual(2, leaf_observations)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX symbolic-link identity")
+    def test_untracked_symlink_replacement_fails_closed(self) -> None:
+        target = self.repository / "link"
+        target.symlink_to("first-target")
+        replacement = self.repository / "replacement-link"
+        replacement.symlink_to("second-target")
+        real_stat = os.stat
+        leaf_observations = 0
+
+        def replace_before_restat(path, *args, **kwargs):
+            nonlocal leaf_observations
+            if (
+                path == "link"
+                and kwargs.get("dir_fd") is not None
+                and kwargs.get("follow_symlinks") is False
+            ):
+                leaf_observations += 1
+                if leaf_observations == 2:
+                    replacement.replace(target)
+            return real_stat(path, *args, **kwargs)
+
+        with (
+            patch(
+                "codex_governance.artifacts.secure_repository_reads_available",
+                return_value=True,
+            ),
+            patch(
+                "codex_governance.artifacts.os.stat",
+                side_effect=replace_before_restat,
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "leaf binding changed"):
+                self.identify()
+        self.assertEqual(2, leaf_observations)
 
     def test_evidence_root_is_narrowly_excluded(self) -> None:
         before = self.identify()["candidate_id"]

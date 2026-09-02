@@ -906,6 +906,7 @@ print(os.environ['CODEX_HOME'] + ' ' + str(output), file=sys.stderr)
         token = "gh" + "p_" + "Z" * 32
         host_path = "/" + "var" + "/lib/private-runner/state"
         endpoint = "192" + ".168.50.7:8443"
+        named_endpoint = "https://runner.internal.invalid/review/status"
         fake = self.fake_codex(
             """
 import json, pathlib, sys
@@ -927,13 +928,13 @@ output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'redaction'}))
 print(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(payload)}}))
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}))
-print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
+print(%r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
 """
             % (
                 self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
                 self.inputs["context_receipt_sha256"], self.PROMPT,
                 self.inputs["reviewer_qualification_id"], token, host_path,
-                endpoint,
+                endpoint, named_endpoint,
             )
         )
         result = launch_reviewer(
@@ -952,10 +953,68 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
             "reviewer capture threads did not complete", result["limitations"]
         )
         self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
-        for original in (token, host_path, endpoint):
+        for original in (token, host_path, endpoint, named_endpoint):
             self.assertNotIn(original.encode(), result["stderr_bytes"])
             self.assertFalse(reviewer_stream_is_portable(original.encode()))
         self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and platform.machine().lower() in {"aarch64", "x86_64"},
+        "supported Linux seccomp contract",
+    )
+    def test_signal_guard_denies_asynchronous_ioctl_operations(self) -> None:
+        marker = self.harness["root"] / "ioctl-signal-results"
+        handshake_read, handshake_write = os.pipe()
+        os.set_inheritable(handshake_write, True)
+        machine = platform.machine().lower()
+        syscall_number = reviewer_signal_guard.IOCTL_SYSCALLS[machine]
+        requests = reviewer_signal_guard.DENIED_IOCTL_REQUESTS
+        self.assertEqual((0x5452, 0x8901, 0x8902), requests)
+        probe = f"""import ctypes, os
+from pathlib import Path
+libc = ctypes.CDLL(None, use_errno=True)
+read_fd, write_fd = os.pipe()
+available = ctypes.c_int()
+results = []
+ctypes.set_errno(0)
+safe = libc.syscall({syscall_number}, read_fd, 0x541B, ctypes.byref(available))
+results.append(f'safe:{{safe}}:{{ctypes.get_errno()}}')
+for request in {requests!r}:
+    ctypes.set_errno(0)
+    result = libc.syscall({syscall_number}, read_fd, request, 0)
+    results.append(f'{{request}}:{{result}}:{{ctypes.get_errno()}}')
+os.close(read_fd)
+os.close(write_fd)
+Path({str(marker)!r}).write_text('\\n'.join(results))
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                os.fspath(Path(reviewer_signal_guard.__file__)),
+                str(handshake_write),
+                "--",
+                sys.executable,
+                "-c",
+                probe,
+            ],
+            close_fds=True,
+            pass_fds=(handshake_write,),
+        )
+        os.close(handshake_write)
+        try:
+            handshake = json.loads(os.read(handshake_read, 4096).decode("ascii"))
+        finally:
+            os.close(handshake_read)
+        self.assertEqual(0, process.wait(timeout=5))
+        self.assertTrue(handshake["process_signals_blocked"])
+        self.assertEqual(
+            [
+                "safe:0:0",
+                *[f"{request}:-1:{errno.EPERM}" for request in requests],
+            ],
+            marker.read_text(encoding="utf-8").splitlines(),
+        )
 
     def test_command_event_payload_is_omitted_and_preserves_jsonl(self) -> None:
         source_literal = "/" + "var" + "/lib/public-example"
