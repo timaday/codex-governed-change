@@ -76,6 +76,10 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "artifact-leaf-rebind", "fcntl-signal-escape",
             "qualification-blanket-block", "mutant-subject-confusion",
             "provenance-prompt-unchecked", "provenance-materials-unchecked",
+            "rapid-defect-id-unchecked", "rapid-finding-line-unchecked",
+            "reviewer-output-canonicalized", "reviewer-output-leaf-rebind",
+            "fcntl-benign-status-denied", "short-host-value-unredacted",
+            "gate-endpoint-unredacted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

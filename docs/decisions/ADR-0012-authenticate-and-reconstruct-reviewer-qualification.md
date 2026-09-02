@@ -18,8 +18,9 @@ validates the mode-specific output and execution schemas, checks exact case and
 reviewer-identity bindings, then recomputes all qualification metrics. Every
 critical corpus case also carries a human-labelled defect ID and concrete
 requirement/path/line target. Critical recall counts only a blocking finding
-that matches that target and its corpus-derived evidence; a disposition alone
-does not detect a defect.
+whose requirement, path and line match that target and its corpus-derived
+evidence; rapid-review findings additionally match the protected defect ID
+through their typed finding ID. A disposition alone does not detect a defect.
 The trusted launcher replaces only supervisor runtime paths and allowlisted
 parent-environment values with `<REVIEWER_RUNTIME>` before parsing, hashing or
 retention so public evidence remains machine-neutral.
@@ -32,6 +33,11 @@ Version `reviewer-qualification-corpus` as `3.0.0` when critical expected-
 finding labels become mandatory. Migration from `2.0.0` requires those labels
 from a separately protected human source and rebuilds the corpus content
 address; they cannot be inferred from an old `BLOCK` label.
+
+Version `rapid-review-session` as `2.0.0` when typed finding path and line become
+mandatory. Migration from `1.0.0` requires those targets from a separately
+protected source; they cannot be inferred from finding prose or a file-only
+evidence reference.
 
 ## Consequences
 

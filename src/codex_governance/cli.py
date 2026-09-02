@@ -218,8 +218,21 @@ def _write_cli_bytes(args: argparse.Namespace, field: str, value: bytes) -> str:
         _raise_cli_output_conflict()
 
 
-def _read_cli_output(args: argparse.Namespace, field: str) -> bytes:
-    return args._cli_output_store.read_bytes(args._cli_output_paths[field])
+def _retain_reviewer_output(
+    args: argparse.Namespace,
+    result: Mapping[str, Any],
+    output_bytes: bytes,
+) -> None:
+    """Publish the exact validated reviewer representation without reserialization."""
+    if not result.get("execution_valid") or not isinstance(
+        result.get("result"), Mapping
+    ):
+        return
+    if sha256_bytes(output_bytes) != result.get("output_sha256"):
+        raise ValueError("reviewer output representation digest mismatch")
+    retained_sha256 = _write_cli_bytes(args, "output", output_bytes)
+    if retained_sha256 != result.get("output_sha256"):
+        raise ValueError("reviewer output representation digest mismatch")
 
 
 def _document(path: Path) -> dict[str, Any]:
@@ -1123,6 +1136,9 @@ def _review(args: argparse.Namespace) -> int:
             ),
             absolute_deadline=review_deadline,
         )
+        reviewer_output_bytes = result.pop("output_bytes", b"")
+        if not isinstance(reviewer_output_bytes, bytes):
+            raise ValueError("reviewer output representation is unavailable")
         if not reviewer_stream_is_portable(
             result["stdout_bytes"]
         ) or not reviewer_stream_is_portable(result["stderr_bytes"]):
@@ -1135,11 +1151,7 @@ def _review(args: argparse.Namespace) -> int:
             "path": normalize_repo_path(args.stderr_output),
             "sha256": _write_cli_bytes(args, "stderr_output", result["stderr_bytes"]),
         }
-        if result.get("execution_valid") and isinstance(result.get("result"), Mapping):
-            _write_cli_output(args, "output", result["result"])
-            result["output_sha256"] = sha256_bytes(
-                _read_cli_output(args, "output")
-            )
+        _retain_reviewer_output(args, result, reviewer_output_bytes)
         execution_receipt = finalize_context_receipt(
             receipt,
             review_mode=review_mode,

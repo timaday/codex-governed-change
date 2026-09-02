@@ -502,7 +502,10 @@ def qualification_expected_finding_detected(
             ):
                 return True
         elif (
-            _oracle_mentions_requirement(finding.get("oracle"), requirement_id)
+            finding.get("finding_id") == expected["defect_id"]
+            and finding.get("path") == expected_path
+            and finding.get("line") == expected_line
+            and _oracle_mentions_requirement(finding.get("oracle"), requirement_id)
             and expected_path in finding.get("evidence_refs", ())
         ):
             return True

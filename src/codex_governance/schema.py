@@ -233,24 +233,29 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
     return sorted(set(errors))
 
 
+def parse_json_bytes(data: bytes) -> Any:
+    """Parse one already-observed UTF-8 JSON representation."""
+    try:
+        return json.loads(
+            data.decode("utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"non-finite number {value}")),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid UTF-8 JSON: {exc}") from exc
+
+
 def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
     data = path.read_bytes()
     if len(data) > max_bytes:
         raise ValueError("JSON input exceeds configured size bound")
-    try:
-        return json.loads(
-            data.decode("utf-8"),
-            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"non-finite number {value}")),
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid UTF-8 JSON: {exc}") from exc
+    return parse_json_bytes(data)
 
 
-def load_and_validate(instance_path: Path, schema_path: Path) -> Any:
+def validate_loaded_instance(instance: Any, schema_path: Path) -> Any:
+    """Validate an already-parsed instance without reopening its representation."""
     schema = load_json(schema_path)
-    instance = load_json(instance_path)
     if not isinstance(schema, dict):
         raise SchemaValidationError(["$: schema must be an object"])
     errors = validate_instance(instance, schema)
@@ -262,30 +267,20 @@ def load_and_validate(instance_path: Path, schema_path: Path) -> Any:
     return instance
 
 
+def load_and_validate(instance_path: Path, schema_path: Path) -> Any:
+    return validate_loaded_instance(load_json(instance_path), schema_path)
+
+
 class JsonRepresentationAdapter:
     def __init__(self, schema_path: Path):
         self.schema_path = schema_path
 
     def parse(self, data: bytes) -> Any:
         try:
-            value = json.loads(
-                data.decode("utf-8"),
-                parse_constant=lambda item: (_ for _ in ()).throw(ValueError(item)),
-            )
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-            raise SchemaValidationError([f"$: invalid UTF-8 JSON: {exc}"]) from exc
-        schema = load_json(self.schema_path)
-        if not isinstance(schema, dict):
-            raise SchemaValidationError(["$: schema must be an object"])
-        errors = validate_instance(value, schema)
-        errors.extend(
-            validate_semantics(
-                value, self.schema_path.name.removesuffix(".schema.json")
-            )
-        )
-        if errors:
-            raise SchemaValidationError(errors)
-        return value
+            value = parse_json_bytes(data)
+        except ValueError as exc:
+            raise SchemaValidationError([f"$: {exc}"]) from exc
+        return validate_loaded_instance(value, self.schema_path)
 
     def serialize(self, value: Any) -> bytes:
         schema = load_json(self.schema_path)

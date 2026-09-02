@@ -173,6 +173,39 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 self.assertEqual(2, rejected_symlink.returncode)
                 self.assertFalse((outside_parent / "escaped.json").exists())
 
+    def test_review_cli_retains_exact_noncanonical_reviewer_bytes(self) -> None:
+        from codex_governance.artifacts import FilesystemArtifactStore
+        from codex_governance.cli import _retain_reviewer_output
+
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            repository.mkdir()
+            raw = b'{\n  "z": 1,\n  "a": 2\n}\n'
+            arguments = Namespace(
+                _cli_output_store=FilesystemArtifactStore(
+                    repository=repository, root=Path("evidence")
+                ),
+                _cli_output_paths={"output": "reviewer-result.json"},
+            )
+            result = {
+                "execution_valid": True,
+                "result": {"z": 1, "a": 2},
+                "output_sha256": sha256_bytes(raw),
+            }
+            _retain_reviewer_output(arguments, result, raw)
+            self.assertEqual(
+                raw, (repository / "evidence/reviewer-result.json").read_bytes()
+            )
+
+            mismatch = dict(result, output_sha256=sha256_bytes(b"different"))
+            mismatch_arguments = Namespace(
+                _cli_output_store=arguments._cli_output_store,
+                _cli_output_paths={"output": "mismatch.json"},
+            )
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                _retain_reviewer_output(mismatch_arguments, mismatch, raw)
+            self.assertFalse((repository / "evidence/mismatch.json").exists())
+
     def test_review_cli_rejects_special_authoritative_input_without_blocking(self) -> None:
         self.assertTrue(hasattr(os, "mkfifo"), "protected reviewer CLI requires POSIX FIFO detection")
         with tempfile.TemporaryDirectory() as directory:

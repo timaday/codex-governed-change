@@ -305,5 +305,41 @@ evidence. This status mutation changes the candidate, so the final immutable
 successor requires a complete gate rebind and a new exact-candidate fresh
 review.
 
+The fresh read-only audit of immutable commit `6655ed6` declared `BLOCK`, but
+its formal result was `UNKNOWN` and is not admissible: the ignored local output
+schema still constrained the result to the preceding candidate, and source-test
+canaries appeared in the reviewer's captured stream and required ambiguous
+redaction. Four concrete findings are nevertheless retained. Rapid-review
+qualification matched only requirement/file evidence rather than the protected
+defect ID and exact line; reviewer output was reopened and canonically
+reserialized after validation rather than retaining one exact descriptor-read
+representation; the seccomp fallback denied every `F_SETFL`, including benign
+`O_NONBLOCK`; and gate normalization omitted short exact host values plus
+address-shaped endpoints. Every result for `6655ed6` is stale for this
+successor.
+
+The current working-copy remediation makes rapid-review defect ID/path/line
+matching exact, versions the typed rapid-review finding representation with an
+explicit migration, retains the reviewer output parent descriptor and one raw
+output representation through validation/hash/publication, limits `F_SETFL`
+denial to flags containing `O_ASYNC`, and fails closed after replacing short
+host values or address-shaped gate output. Seven new semantic mutants cover
+those boundaries. Before this status mutation, the working-copy checkpoint on
+2026-09-02 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- the exact acceptance suite: 191 tests passed;
+- the unit suite: 76 tests passed;
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py --timeout 180`:
+  baseline `PASS` and all 51 curated mutants `KILLED` for corpus
+  `sha256:562ddc6705fde76368283de901ea7d1d78935c96c1737a147e65294eb4ff1fc4`;
+- `git diff --check`: `PASS`.
+
+These are local deterministic observations, not protected T24 admission
+evidence. This status mutation invalidates the checkpoint and requires the
+complete gates, rollback rehearsal, portability checks and exact-candidate
+fresh review to be rebound to the immutable successor.
+
 These observations are invalidated by any later candidate mutation and remain
 working-copy evidence until protected T24 reconstruction is complete.

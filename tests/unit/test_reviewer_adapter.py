@@ -21,6 +21,7 @@ from codex_governance.canonical import sha256_bytes
 from codex_governance.domain.model import ReviewerVerdict
 from codex_governance import reviewer_signal_guard
 from codex_governance.reviewer import (
+    _ReviewerOutputAuthority,
     build_reviewer_command,
     build_reviewer_environment,
     build_reviewer_permission_profile,
@@ -536,12 +537,22 @@ Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
         os.set_inheritable(handshake_write, True)
         machine = platform.machine().lower()
         syscall_number = reviewer_signal_guard.FCNTL_SYSCALLS[machine]
-        commands = (4, 8, 10, 15, 1024, 1026)
+        commands = (8, 10, 15, 1024, 1026)
         self.assertEqual(commands, reviewer_signal_guard.DENIED_FCNTL_COMMANDS)
-        probe = f"""import ctypes, errno
+        probe = f"""import ctypes, errno, os
 from pathlib import Path
 libc = ctypes.CDLL(None, use_errno=True)
 results = []
+ctypes.set_errno(0)
+result = libc.syscall(
+    {syscall_number}, 0, {reviewer_signal_guard.F_SETFL_COMMAND}, os.O_NONBLOCK
+)
+results.append(f'safe:{{result}}:{{ctypes.get_errno()}}')
+ctypes.set_errno(0)
+result = libc.syscall(
+    {syscall_number}, 0, {reviewer_signal_guard.F_SETFL_COMMAND}, os.O_ASYNC
+)
+results.append(f'async:{{result}}:{{ctypes.get_errno()}}')
 for command in {commands!r}:
     ctypes.set_errno(0)
     result = libc.syscall({syscall_number}, 0, command, 0)
@@ -569,7 +580,11 @@ Path({str(marker)!r}).write_text('\\n'.join(results))
         self.assertEqual(0, process.wait(timeout=5))
         self.assertTrue(handshake["process_signals_blocked"])
         self.assertEqual(
-            [f"{command}:-1:{errno.EPERM}" for command in commands],
+            [
+                "safe:0:0",
+                f"async:-1:{errno.EPERM}",
+                *[f"{command}:-1:{errno.EPERM}" for command in commands],
+            ],
             marker.read_text(encoding="utf-8").splitlines(),
         )
 
@@ -687,7 +702,7 @@ result = {
   'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
   'claims': MANDATORY_CLAIMS, 'limitations': []
 }
-output.write_text(json.dumps(result), encoding='utf-8')
+output.write_bytes((json.dumps(result, indent=2) + '\\n').encode('utf-8'))
 observed = Path(args[args.index('--cd') + 1]) / 'observed.json'
 observed.write_text(json.dumps({'argv': args, 'stdin': raw, 'env_keys': sorted(os.environ)}), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'fake-thread-1'}))
@@ -729,6 +744,11 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertEqual(30, result["output_tokens"])
         self.assertEqual(10, result["reasoning_output_tokens"])
         self.assertEqual("fake-thread-1", result["thread_id"])
+        exact_output = (
+            json.dumps(result["result"], indent=2) + "\n"
+        ).encode("utf-8")
+        self.assertEqual(exact_output, result["output_bytes"])
+        self.assertEqual(sha256_bytes(exact_output), result["output_sha256"])
         descriptor = sanitized_invocation_descriptor(
             model="fake-gpt", reasoning_effort="xhigh", prompt_sha256=self.PROMPT
         )
@@ -752,6 +772,66 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, wrong_binding["verdict"])
         self.assertFalse(wrong_binding["bindings_match"])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO contract is unavailable")
+    def test_reviewer_output_authority_rejects_special_leaf_without_blocking(self) -> None:
+        output = Path(self.temporary.name) / "special-output.json"
+        authority = _ReviewerOutputAuthority(output)
+        try:
+            os.mkfifo(output)
+            started = time.monotonic()
+            with self.assertRaisesRegex(ValueError, "not a regular file"):
+                authority.read_once(1_000)
+            self.assertLess(time.monotonic() - started, 1.0)
+        finally:
+            authority.close()
+            output.unlink(missing_ok=True)
+
+    def test_reviewer_output_authority_rejects_leaf_swap_after_exact_read(self) -> None:
+        output = Path(self.temporary.name) / "swapped-output.json"
+        authority = _ReviewerOutputAuthority(output)
+        output.write_bytes(b'{"observed":true}\n')
+        moved = Path(self.temporary.name) / "original-output.json"
+        real_fstat = os.fstat
+        observations = 0
+        swapped = False
+
+        def swap_after_final_descriptor_observation(descriptor: int):
+            nonlocal observations, swapped
+            observed = real_fstat(descriptor)
+            observations += 1
+            if observations == 2 and not swapped:
+                output.rename(moved)
+                output.write_bytes(b'{"replacement":true}\n')
+                swapped = True
+            return observed
+
+        try:
+            with patch(
+                "codex_governance.reviewer.os.fstat",
+                side_effect=swap_after_final_descriptor_observation,
+            ):
+                with self.assertRaisesRegex(ValueError, "binding changed"):
+                    authority.read_once(1_000)
+        finally:
+            authority.close()
+
+    def test_reviewer_output_authority_rejects_parent_swap(self) -> None:
+        parent = Path(self.temporary.name) / "output-parent"
+        parent.mkdir()
+        output = parent / "reviewer-result.json"
+        authority = _ReviewerOutputAuthority(output)
+        output.write_bytes(b'{"observed":true}\n')
+        original_parent = Path(self.temporary.name) / "original-output-parent"
+        replacement_parent = Path(self.temporary.name) / "output-parent"
+        parent.rename(original_parent)
+        replacement_parent.mkdir()
+        (replacement_parent / output.name).write_bytes(b'{"replacement":true}\n')
+        try:
+            with self.assertRaisesRegex(ValueError, "parent binding changed"):
+                authority.read_once(1_000)
+        finally:
+            authority.close()
 
     def test_parent_environment_excludes_api_keys_and_undeclared_values(self) -> None:
         source = {

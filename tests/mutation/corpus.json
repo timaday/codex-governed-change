@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:9c2fc3a47064da3d7618f861b1c791a6e68272f12fed4742e20f7ecdf69c709e",
+  "corpus_id": "sha256:562ddc6705fde76368283de901ea7d1d78935c96c1737a147e65294eb4ff1fc4",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -398,6 +398,69 @@
       "operator": "accept omitted, substituted, duplicated or reordered gate provenance materials",
       "requirement_id": "GOV-023",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_provenance_review_material_omission_is_rejected"]
+    },
+    {
+      "mutant_id": "rapid-defect-id-unchecked",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        elif (\n            finding.get(\"finding_id\") == expected[\"defect_id\"]\n            and finding.get(\"path\") == expected_path",
+      "new": "        elif (\n            True\n            and finding.get(\"path\") == expected_path",
+      "operator": "accept a rapid-review finding addressed to a different protected defect",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_rapid_qualification_requires_exact_defect_path_and_line"]
+    },
+    {
+      "mutant_id": "rapid-finding-line-unchecked",
+      "path": "src/codex_governance/qualification.py",
+      "old": "            finding.get(\"finding_id\") == expected[\"defect_id\"]\n            and finding.get(\"path\") == expected_path\n            and finding.get(\"line\") == expected_line",
+      "new": "            finding.get(\"finding_id\") == expected[\"defect_id\"]\n            and finding.get(\"path\") == expected_path\n            and True",
+      "operator": "accept a rapid-review finding at a different source line",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_rapid_qualification_requires_exact_defect_path_and_line"]
+    },
+    {
+      "mutant_id": "reviewer-output-canonicalized",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        if isinstance(parsed, Mapping):\n            payload = parsed",
+      "new": "        if isinstance(parsed, Mapping):\n            output_bytes = canonical_json_bytes(parsed)\n            payload = parsed",
+      "operator": "replace the exact reviewer representation with canonicalized parsed content",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_fake_codex_proves_allowlist_environment_and_schema_binding"]
+    },
+    {
+      "mutant_id": "reviewer-output-leaf-rebind",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "            identity_before != identity_after\n            or identity_after != entry_identity\n            or len(data) != opened_after.st_size",
+      "new": "            identity_before != identity_after\n            or False\n            or len(data) != opened_after.st_size",
+      "operator": "accept exact bytes after the authoritative reviewer output leaf is replaced",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_reviewer_output_authority_rejects_leaf_swap_after_exact_read"]
+    },
+    {
+      "mutant_id": "fcntl-benign-status-denied",
+      "path": "src/codex_governance/reviewer_signal_guard.py",
+      "old": "ASYNC_STATUS_FLAG = os.O_ASYNC",
+      "new": "ASYNC_STATUS_FLAG = os.O_NONBLOCK",
+      "operator": "deny benign nonblocking status updates while allowing asynchronous signal delivery",
+      "requirement_id": "GOV-054",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_signal_guard_denies_asynchronous_fcntl_signal_operations"]
+    },
+    {
+      "mutant_id": "short-host-value-unredacted",
+      "path": "src/codex_governance/gate.py",
+      "old": "    for value in sorted(host_values):\n        encoded = os.fsencode(value)\n        if encoded:\n            replacements.append(\n                (encoded, b\"<REDACTED_HOST_VALUE>\", \"host_value\")\n            )",
+      "new": "    for value in sorted(host_values):\n        encoded = os.fsencode(value)\n        if len(encoded) >= 4:\n            replacements.append(\n                (encoded, b\"<REDACTED_HOST_VALUE>\", \"host_value\")\n            )",
+      "operator": "retain exact host values shorter than four bytes in gate evidence",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_short_hostname_is_removed_from_gate_evidence"]
+    },
+    {
+      "mutant_id": "gate-endpoint-unredacted",
+      "path": "src/codex_governance/gate.py",
+      "old": "                rb\"\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\"\n                rb\"(?::[0-9]{1,5})?\\b\"",
+      "new": "                rb\"\\b(?:[0-9]{4}\\.){3}[0-9]{4}\"\n                rb\"(?::[0-9]{1,5})?\\b\"",
+      "operator": "retain an address-shaped endpoint in gate evidence",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_address_shaped_endpoint_is_ambiguous_and_not_retained"]
     }
   ]
 }

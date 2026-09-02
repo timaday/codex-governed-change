@@ -70,6 +70,13 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "mutant-subject-confusion",
         "provenance-prompt-unchecked",
         "provenance-materials-unchecked",
+        "rapid-defect-id-unchecked",
+        "rapid-finding-line-unchecked",
+        "reviewer-output-canonicalized",
+        "reviewer-output-leaf-rebind",
+        "fcntl-benign-status-denied",
+        "short-host-value-unredacted",
+        "gate-endpoint-unredacted",
     }
 )
 

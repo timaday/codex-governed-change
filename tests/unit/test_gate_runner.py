@@ -284,6 +284,30 @@ class GateRunnerTest(unittest.TestCase):
             any(item["category"] == "host_value" for item in result["redactions"])
         )
 
+    def test_short_hostname_is_removed_from_gate_evidence(self) -> None:
+        hostname = "xy"
+        with patch("codex_governance.gate.socket.gethostname", return_value=hostname):
+            result = self.observe(f"print({hostname!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("PASS", result["status"])
+        self.assertNotIn(hostname.encode(), output)
+        self.assertIn(b"<REDACTED_HOST_VALUE>", output)
+
+    def test_address_shaped_endpoint_is_ambiguous_and_not_retained(self) -> None:
+        endpoint = ".".join(("198", "51", "100", "7")) + ":" + str(8443)
+        result = self.observe(f"print({endpoint!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(endpoint.encode(), output)
+        self.assertIn(b"<REDACTED_ENDPOINT>", output)
+        self.assertTrue(
+            any(item["category"] == "endpoint" for item in result["redactions"])
+        )
+
     def test_proxy_environment_value_is_secret_ambiguous(self) -> None:
         proxy = "http://private-user:private-password@proxy.invalid:8080"
         with patch.dict(os.environ, {"HTTPS_PROXY": proxy}):

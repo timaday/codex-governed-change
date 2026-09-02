@@ -292,6 +292,10 @@ The launcher MUST:
   termination, primitive supervisor/capture observations, direct write-once
   normalized stdout/stderr references, output, candidate pre/post identity and
   CLI-reported token usage;
+- retain the output-parent directory descriptor before launch, read the reviewer
+  output leaf exactly once with no-follow, nonblocking, bounded regular-file and
+  post-read leaf-identity checks, and use those same raw bytes for parsing,
+  schema validation, hashing, byte observation and write-once publication;
 - classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
 
 A zero-exit reviewer parent is not complete process observation. Stdin delivery
@@ -312,7 +316,10 @@ complete namespace. Where nested namespaces are kernel-blocked, a
 cross-process-write, and cross-process resource-limit mutation syscall for the
 reviewer and all descendants before exec, making the same-UID outer
 child-subreaper non-signalable and preventing `prlimit64` from terminating or
-crippling it indirectly. The subreaper proves and performs bounded descendant
+crippling it indirectly. Argument-aware `fcntl` filtering denies asynchronous
+ownership, signal selection, leases and notifications, and denies `F_SETFL`
+only when the flags argument includes `O_ASYNC`; benign flags such as
+`O_NONBLOCK` remain usable. The subreaper proves and performs bounded descendant
 cleanup on that fallback. If neither exact
 kernel boundary is available, the result is `UNKNOWN` before the reviewer is
 admitted. On x86_64 the guard MUST reject the complete x32-tagged syscall
@@ -343,6 +350,11 @@ inside a successfully parsed Codex command-execution event. Raw stderr,
 malformed JSONL fallback, final agent messages and every other unstructured
 stream are normalized without source-literal exemptions. Truncation, retained
 machine values or malformed JSONL block.
+
+Gate stdout and stderr receive the same fail-closed portability posture before
+publication: every non-empty exact discovered host value, including a short
+hostname, is replaced, and address- or endpoint-shaped output is replaced as
+ambiguous evidence and forces `UNKNOWN`.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
@@ -751,7 +763,9 @@ and metrics. A self-consistent or content-addressed summary alone is not proof.
 Context variants require representative seeded-defect/governance qualification.
 Every critical case carries a human-approved defect ID and concrete
 requirement/path/line target. A critical defect is detected only when a blocking
-finding matches that target and its resolved corpus-file evidence; a blanket
+conformance finding matches its requirement, path and line, while a rapid-review
+finding additionally matches the protected defect ID through its typed finding
+ID; both modes must resolve the exact corpus-file evidence. A blanket
 `BLOCK`, empty findings, or an unrelated finding has zero recall for that case.
 They are promoted only if this defect-specific critical recall, evidence
 traceability and disposition correctness do not materially regress; efficiency metrics are secondary. The MVP
@@ -767,7 +781,8 @@ protected mutation-corpus digest; `reviewer-qualification`, `context-receipt`,
 `evidence-manifest` is `3.0.0`; `reviewer-qualification-cases` is `3.0.0`
 with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `3.0.0` with
 mandatory typed case classes and human-labelled critical expected-finding targets; and `reviewer-execution` is `3.0.0` with primitive
-observation plus direct stream references. Every transition advertised by the
+observation plus direct stream references. `rapid-review-session` is `2.0.0`
+with typed path and line fields on every finding. Every transition advertised by the
 lifecycle policy has an executable explicit migration; missing legacy facts must
 come from separately protected inputs and every content address is rebuilt.
 An old document is accepted only

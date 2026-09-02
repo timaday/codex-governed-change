@@ -390,6 +390,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                                     "finding_id": case["expected_finding"][
                                         "defect_id"
                                     ],
+                                    "path": case["expected_finding"]["path"],
+                                    "line": case["expected_finding"]["line"],
                                     "claim": "The labelled bypass is present.",
                                     "impact": "Protected authority can be bypassed.",
                                     "severity": "high",
@@ -1367,7 +1369,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         }
         charter_ref = self.write("charter.json", charter, "review-charter")
         session = {
-            "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
+            "schema_version": "2.0.0", "repository_id": self.REPOSITORY_ID,
             "task_contract_sha256": task_sha, "session_id": "SESSION-FIXTURE",
             "candidate_id": self.CANDIDATE_ID, "charter_id": charter["charter_id"],
             "charter_sha256": charter_ref["sha256"],

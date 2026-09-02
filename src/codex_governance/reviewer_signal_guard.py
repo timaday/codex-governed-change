@@ -67,9 +67,8 @@ FCNTL_SYSCALLS = {
     "x86_64": 72,
 }
 
-# Linux fcntl commands that can configure asynchronous signal delivery.
+# Linux fcntl commands that unconditionally configure asynchronous delivery.
 DENIED_FCNTL_COMMANDS = (
-    4,     # F_SETFL (including O_ASYNC)
     8,     # F_SETOWN
     10,    # F_SETSIG
     15,    # F_SETOWN_EX
@@ -78,6 +77,9 @@ DENIED_FCNTL_COMMANDS = (
 )
 
 SECCOMP_DATA_ARGUMENT_1_LOW = 24
+SECCOMP_DATA_ARGUMENT_2_LOW = 32
+F_SETFL_COMMAND = 4
+ASYNC_STATUS_FLAG = os.O_ASYNC
 
 
 class _SockFilter(ctypes.Structure):
@@ -121,7 +123,7 @@ def _install_signal_guard() -> bool:
             )
         )
     fcntl_syscall = FCNTL_SYSCALLS[machine]
-    fcntl_filter_length = 2 + 2 * len(DENIED_FCNTL_COMMANDS)
+    fcntl_filter_length = 6 + 2 * len(DENIED_FCNTL_COMMANDS)
     instructions.append(
         _SockFilter(BPF_JMP_JEQ_K, 0, fcntl_filter_length, fcntl_syscall)
     )
@@ -138,6 +140,19 @@ def _install_signal_guard() -> bool:
                 ),
             )
         )
+    instructions.extend(
+        (
+            _SockFilter(BPF_JMP_JEQ_K, 0, 3, F_SETFL_COMMAND),
+            _SockFilter(BPF_LD_W_ABS, 0, 0, SECCOMP_DATA_ARGUMENT_2_LOW),
+            _SockFilter(BPF_JMP_JSET_K, 0, 1, ASYNC_STATUS_FLAG),
+            _SockFilter(
+                BPF_RET_K,
+                0,
+                0,
+                SECCOMP_RET_ERRNO | errno.EPERM,
+            ),
+        )
+    )
     instructions.append(_SockFilter(BPF_LD_W_ABS, 0, 0, 0))
     for syscall in sorted(set(syscalls)):
         instructions.extend(

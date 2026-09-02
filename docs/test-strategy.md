@@ -111,6 +111,10 @@ No model confidence statement is an oracle.
 - Deterministic barriers MUST replace an existing leaf after open during
   idempotent-write preflight, publication readback and direct readback; all
   three operations must reject the stale descriptor/name binding.
+- Reviewer-output tests retain the parent descriptor before launch and replace
+  the output leaf after descriptor open; symlink, FIFO, oversize and replacement
+  all remain `UNKNOWN`, while noncanonical valid JSON is hashed and published as
+  its exact original bytes.
 - Evidence-root replacement after lock acquisition MUST fail the shared
   root-device/inode binding before the handler or publication can proceed.
 - Gate-manifest creation time MUST be at or after every referenced gate result's
@@ -144,8 +148,9 @@ Producer-identity tests mutate every Python file in a copied trusted package and
 require both gate and mutation identities to change. Evidence/locator tests race
 parent and leaf replacement and exercise symlink, FIFO and oversized leaves
 through the descriptor-bound reader. Gate-log canaries cover secret-shaped
-tokens, host values and supervisor paths and verify that ambiguous secret
-redaction forces `UNKNOWN` without persisting the canary.
+tokens, short and ordinary exact host values, address-shaped endpoints and
+supervisor paths. They verify that ambiguous credential or endpoint redaction
+forces `UNKNOWN` without persisting the canary.
 
 Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
 IPv4/local endpoints and generic host paths. Exact-value normalization is
@@ -463,7 +468,9 @@ protected semantic validator; each variant must be rejected before aggregate
 qualification. Every critical case must include an approved defect ID and
 requirement/path/line target. Require a blocking finding to match that target
 and its resolved corpus evidence; blanket `BLOCK`, empty findings and unrelated
-findings must produce zero recall and prevent qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
+findings—including the right file with the wrong line in either mode or the
+wrong rapid-review finding ID—must produce zero recall and prevent
+qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
 redaction plus `UNKNOWN`, while the identical literal remains portable only in
 a parsed command-execution event,
 then independently recompute case counts, critical recall, false pass/block,

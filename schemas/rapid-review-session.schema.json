@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "task_contract_sha256", "session_id", "candidate_id", "charter_id", "charter_sha256", "reviewer_prompt_sha256", "qualification_id", "model", "status", "environment", "tools", "experiments", "retrieval_expansions", "findings", "counter_hypotheses", "coverage_achieved", "omitted_areas", "obstacles", "new_risks", "follow_up_charters", "residual_risks", "started_at", "ended_at", "producer_version", "provenance"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "const": "2.0.0" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "session_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
@@ -52,9 +52,11 @@
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["finding_id", "claim", "impact", "severity", "confidence", "oracle", "evidence_refs", "threatened_value"],
+      "required": ["finding_id", "path", "line", "claim", "impact", "severity", "confidence", "oracle", "evidence_refs", "threatened_value"],
       "properties": {
         "finding_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+        "path": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
         "claim": { "type": "string", "minLength": 1 },
         "impact": { "type": "string", "minLength": 1 },
         "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },

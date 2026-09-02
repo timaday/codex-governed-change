@@ -35,7 +35,11 @@ from codex_governance.gate import (
     _posix_process_group_exited,
     _terminate_process_tree,
 )
-from codex_governance.schema import SchemaValidationError, load_and_validate
+from codex_governance.schema import (
+    SchemaValidationError,
+    parse_json_bytes,
+    validate_loaded_instance,
+)
 
 
 PERMITTED_REVIEWER_INPUTS = frozenset(
@@ -1360,6 +1364,184 @@ def prepare_sanitized_harness(
     }
 
 
+class _ReviewerOutputReadError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        present: bool,
+        regular: bool,
+        truncated: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.present = present
+        self.regular = regular
+        self.truncated = truncated
+
+
+class _ReviewerOutputAuthority:
+    """Retain and verify the directory authority for one reviewer output leaf."""
+
+    def __init__(self, output_path: Path) -> None:
+        if (
+            os.name != "posix"
+            or not hasattr(os, "O_DIRECTORY")
+            or not hasattr(os, "O_NOFOLLOW")
+            or os.open not in os.supports_dir_fd
+            or os.stat not in os.supports_dir_fd
+        ):
+            raise OSError("descriptor-bound reviewer output is unavailable")
+        leaf = output_path.name
+        if not leaf or normalize_repo_path(leaf) != leaf or "/" in leaf:
+            raise ValueError("reviewer output must be a direct normalized leaf")
+        parent = output_path.parent
+        parent_before = parent.stat(follow_symlinks=False)
+        if not stat.S_ISDIR(parent_before.st_mode):
+            raise ValueError("reviewer output parent must be a directory")
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(parent, flags)
+        try:
+            parent_opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISDIR(parent_opened.st_mode)
+                or (parent_before.st_dev, parent_before.st_ino)
+                != (parent_opened.st_dev, parent_opened.st_ino)
+            ):
+                raise ValueError("reviewer output parent binding changed")
+            try:
+                os.stat(leaf, dir_fd=descriptor, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileExistsError("stale output path exists")
+        except Exception:
+            os.close(descriptor)
+            raise
+        self.path = output_path
+        self.parent = parent
+        self.leaf = leaf
+        self.descriptor = descriptor
+        self.parent_identity = (parent_opened.st_dev, parent_opened.st_ino)
+
+    def close(self) -> None:
+        if self.descriptor >= 0:
+            os.close(self.descriptor)
+            self.descriptor = -1
+
+    def assert_parent_binding(self) -> None:
+        try:
+            observed = self.parent.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError("reviewer output parent binding changed") from exc
+        if (
+            not stat.S_ISDIR(observed.st_mode)
+            or (observed.st_dev, observed.st_ino) != self.parent_identity
+        ):
+            raise ValueError("reviewer output parent binding changed")
+
+    def read_once(self, max_bytes: int) -> bytes:
+        """Open one bound regular leaf and retain its exact bytes once."""
+        self.assert_parent_binding()
+        try:
+            entry_before = os.stat(
+                self.leaf, dir_fd=self.descriptor, follow_symlinks=False
+            )
+        except FileNotFoundError as exc:
+            raise _ReviewerOutputReadError(
+                "reviewer output is absent", present=False, regular=False
+            ) from exc
+        if not stat.S_ISREG(entry_before.st_mode):
+            raise _ReviewerOutputReadError(
+                "reviewer output is not a regular file",
+                present=True,
+                regular=False,
+            )
+        if entry_before.st_size > max_bytes:
+            raise _ReviewerOutputReadError(
+                "reviewer output exceeds configured size bound",
+                present=True,
+                regular=True,
+                truncated=True,
+            )
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(self.leaf, flags, dir_fd=self.descriptor)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (entry_before.st_dev, entry_before.st_ino)
+            ):
+                raise _ReviewerOutputReadError(
+                    "reviewer output binding changed",
+                    present=True,
+                    regular=stat.S_ISREG(opened.st_mode),
+                )
+            chunks: list[bytes] = []
+            observed_bytes = 0
+            while observed_bytes <= max_bytes:
+                chunk = os.read(
+                    descriptor,
+                    min(65_536, max_bytes + 1 - observed_bytes),
+                )
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                observed_bytes += len(chunk)
+            if observed_bytes > max_bytes:
+                raise _ReviewerOutputReadError(
+                    "reviewer output exceeds configured size bound",
+                    present=True,
+                    regular=True,
+                    truncated=True,
+                )
+            opened_after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        try:
+            entry_after = os.stat(
+                self.leaf, dir_fd=self.descriptor, follow_symlinks=False
+            )
+        except FileNotFoundError as exc:
+            raise _ReviewerOutputReadError(
+                "reviewer output binding changed", present=True, regular=True
+            ) from exc
+        identity_before = (
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_size,
+            opened.st_mtime_ns,
+            opened.st_ctime_ns,
+        )
+        identity_after = (
+            opened_after.st_dev,
+            opened_after.st_ino,
+            opened_after.st_size,
+            opened_after.st_mtime_ns,
+            opened_after.st_ctime_ns,
+        )
+        entry_identity = (
+            entry_after.st_dev,
+            entry_after.st_ino,
+            entry_after.st_size,
+            entry_after.st_mtime_ns,
+            entry_after.st_ctime_ns,
+        )
+        data = b"".join(chunks)
+        if (
+            identity_before != identity_after
+            or identity_after != entry_identity
+            or len(data) != opened_after.st_size
+        ):
+            raise _ReviewerOutputReadError(
+                "reviewer output binding changed", present=True, regular=True
+            )
+        self.assert_parent_binding()
+        return data
+
+
 def launch_reviewer(
     *,
     command: Sequence[str],
@@ -1383,8 +1565,6 @@ def launch_reviewer(
         raise ValueError("reviewer observation bounds must be positive")
     if not command or command[-1] != "-" or "resume" in command:
         raise ValueError("reviewer command must be a fresh stdin-driven exec")
-    if output_path.exists() or output_path.is_symlink():
-        return {"verdict": ReviewerVerdict.UNKNOWN, "reason": "stale output path exists"}
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     started_monotonic = time.monotonic()
     deadline = (
@@ -1425,6 +1605,15 @@ def launch_reviewer(
         return {
             "verdict": ReviewerVerdict.UNKNOWN,
             "reason": "pre-review candidate observation was unavailable",
+        }
+    try:
+        output_authority = _ReviewerOutputAuthority(output_path)
+    except FileExistsError:
+        return {"verdict": ReviewerVerdict.UNKNOWN, "reason": "stale output path exists"}
+    except (OSError, ValueError):
+        return {
+            "verdict": ReviewerVerdict.UNKNOWN,
+            "reason": "reviewer output authority was unavailable",
         }
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
@@ -1605,29 +1794,41 @@ def launch_reviewer(
         observation_complete = False
     ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     latency_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
-    output_present = output_path.is_file() and not output_path.is_symlink()
+    output_bytes = b""
+    output_present = False
+    output_regular = False
+    output_truncated = False
     output_valid = False
     candidate_matches = False
     bindings_match = False
     payload: Mapping[str, Any] | None = None
-    if output_present and output_path.stat().st_size <= max_output_bytes:
-        try:
-            parsed = load_and_validate(output_path, schema_path)
-            if isinstance(parsed, Mapping):
-                payload = parsed
-                output_valid = True
-                candidate_matches = parsed.get("candidate_id") == expected_candidate_id
-                required_bindings = dict(expected_bindings or {})
-                required_bindings.setdefault("candidate_id", expected_candidate_id)
-                bindings_match = all(
-                    parsed.get(key) == value for key, value in required_bindings.items()
-                )
-        except (OSError, ValueError, SchemaValidationError):
-            pass
+    try:
+        output_bytes = output_authority.read_once(max_output_bytes)
+        output_present = True
+        output_regular = True
+        parsed = parse_json_bytes(output_bytes)
+        validate_loaded_instance(parsed, schema_path)
+        if isinstance(parsed, Mapping):
+            payload = parsed
+            output_valid = True
+            candidate_matches = parsed.get("candidate_id") == expected_candidate_id
+            required_bindings = dict(expected_bindings or {})
+            required_bindings.setdefault("candidate_id", expected_candidate_id)
+            bindings_match = all(
+                parsed.get(key) == value for key, value in required_bindings.items()
+            )
+    except _ReviewerOutputReadError as exc:
+        output_present = exc.present
+        output_regular = exc.regular
+        output_truncated = exc.truncated
+    except (OSError, ValueError, SchemaValidationError):
+        pass
+    finally:
+        output_authority.close()
     truncated = (
         stdout_capture.truncated
         or stderr_capture.truncated
-        or (output_present and output_path.stat().st_size > max_output_bytes)
+        or output_truncated
     )
     execution_valid = bool(
         return_code == 0
@@ -1666,9 +1867,7 @@ def launch_reviewer(
             )
         ),
     )
-    output_sha256 = sha256_bytes(b"")
-    if output_present and output_path.stat().st_size <= max_output_bytes:
-        output_sha256 = sha256_bytes(output_path.read_bytes())
+    output_sha256 = sha256_bytes(output_bytes)
     stdout_bytes, stdout_redactions = _normalize_reviewer_jsonl(
         bytes(stdout_capture.data),
         command=actual_command,
@@ -1739,14 +1938,12 @@ def launch_reviewer(
         "process_cleanup_complete": process_cleanup_complete,
         "output": {
             "present": output_present,
-            "regular": output_present,
-            "bytes": output_path.stat().st_size if output_present else 0,
+            "regular": output_regular,
+            "bytes": len(output_bytes),
             "schema_valid": output_valid,
             "candidate_matches": candidate_matches,
             "bindings_match": bindings_match,
-            "truncated": bool(
-                output_present and output_path.stat().st_size > max_output_bytes
-            ),
+            "truncated": output_truncated,
         },
     }
     derived_facts = reviewer_observation_facts(primitive_observation)
@@ -1812,6 +2009,7 @@ def launch_reviewer(
         "stderr_sha256": sha256_bytes(stderr_bytes),
         "stdout_bytes": stdout_bytes,
         "stderr_bytes": stderr_bytes,
+        "output_bytes": output_bytes,
         "output_valid": output_valid,
         "candidate_matches": candidate_matches and before == after,
         "bindings_match": bindings_match,

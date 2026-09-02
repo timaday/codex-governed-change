@@ -148,6 +148,65 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             with self.subTest(omitted=omitted):
                 self.assertFalse(qualification_case_classes_complete(cases))
 
+    def test_rapid_qualification_requires_exact_defect_path_and_line(self) -> None:
+        from codex_governance.qualification import (
+            qualification_candidate_document,
+            qualification_expected_finding_detected,
+        )
+
+        case = {
+            "case_id": "QUAL-CRITICAL",
+            "severity": "critical",
+            "requirement_id": "GOV-055",
+            "expected_finding": {
+                "defect_id": "QUAL-AUTHORITY-BYPASS",
+                "path": "src/example.py",
+                "line": 2,
+            },
+            "files": {
+                "docs/requirements.md": "deny bypass\n",
+                "src/example.py": "# injected\nALLOW = True\n",
+            },
+        }
+        candidate = qualification_candidate_document(
+            repository_id="repo:example/qualification",
+            case=case,
+            effective_policy_sha256="sha256:" + "1" * 64,
+        )
+        finding = {
+            "finding_id": "QUAL-AUTHORITY-BYPASS",
+            "path": "src/example.py",
+            "line": 2,
+            "severity": "high",
+            "oracle": "GOV-055",
+            "evidence_refs": ["src/example.py"],
+        }
+        arguments = {
+            "mode": "rapid_review",
+            "case": case,
+            "candidate": candidate,
+            "repository_id": "repo:example/qualification",
+            "task_contract_sha256": "sha256:" + "2" * 64,
+        }
+        self.assertTrue(
+            qualification_expected_finding_detected(
+                result={"findings": [finding]}, **arguments
+            )
+        )
+        for field, value in (
+            ("finding_id", "QUAL-OTHER-DEFECT"),
+            ("path", "docs/requirements.md"),
+            ("line", 1),
+        ):
+            forged = deepcopy(finding)
+            forged[field] = value
+            with self.subTest(field=field):
+                self.assertFalse(
+                    qualification_expected_finding_detected(
+                        result={"findings": [forged]}, **arguments
+                    )
+                )
+
     def test_qualification_reconstructs_every_human_labelled_case(self) -> None:
         from codex_governance.qualification import (
             bootstrap_qualification_record,

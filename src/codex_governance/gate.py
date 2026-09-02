@@ -124,13 +124,13 @@ def _redact_runtime_paths(
     host_values.update(path_value.split(os.pathsep))
     for value in sorted(host_values):
         encoded = os.fsencode(value)
-        if len(encoded) >= 4:
+        if encoded:
             replacements.append(
                 (encoded, b"<REDACTED_HOST_VALUE>", "host_value")
             )
     for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"):
         encoded = os.fsencode(os.environ.get(key, ""))
-        if len(encoded) >= 4:
+        if encoded:
             replacements.append(
                 (encoded, b"<REDACTED_CREDENTIAL>", "credential")
             )
@@ -179,12 +179,30 @@ def _redact_runtime_paths(
             ),
             "generic_host_path",
         ),
+        (
+            re.compile(
+                rb"(?i)\b(?:local" + rb"host|\[?::1\]?)"
+                rb"(?::[0-9]{1,5})?\b"
+            ),
+            "endpoint",
+        ),
+        (
+            re.compile(
+                rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}"
+                rb"(?::[0-9]{1,5})?\b"
+            ),
+            "endpoint",
+        ),
     )
     for pattern, category in patterns:
         replacement = (
             b"<REDACTED_HOST_PATH>"
             if category == "generic_host_path"
-            else b"<REDACTED_CREDENTIAL>"
+            else (
+                b"<REDACTED_ENDPOINT>"
+                if category == "endpoint"
+                else b"<REDACTED_CREDENTIAL>"
+            )
         )
         result, occurrences = pattern.subn(replacement, result)
         if occurrences:
@@ -504,7 +522,7 @@ def run_gate(
     )
     redactions = stdout_redactions + stderr_redactions
     ambiguous_redaction = any(
-        item.get("category") in {"credential", "generic_host_path"}
+        item.get("category") in {"credential", "endpoint", "generic_host_path"}
         for item in redactions
     )
     if ambiguous_redaction:

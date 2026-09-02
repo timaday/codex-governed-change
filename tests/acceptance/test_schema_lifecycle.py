@@ -34,6 +34,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(
             "explicit_required",
+            migration_policy("rapid-review-session", "1.0.0", "2.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
             migration_policy("evidence-manifest", "2.0.0", "3.0.0"),
         )
         self.assertEqual(
@@ -67,6 +71,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                 "reviewer-qualification",
                 "reviewer-qualification-cases",
                 "reviewer-qualification-corpus",
+                "rapid-review-session",
                 "reviewer-result",
                 "reviewer-execution",
                 "rollback-evidence",
@@ -96,6 +101,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_evidence_manifest_v1_to_v2,
             migrate_evidence_manifest_v2_to_v3,
             migrate_provenance_statement_v1_to_v2,
+            migrate_rapid_review_session_v1_to_v2,
             migrate_reviewer_execution_v1_to_v2,
             migrate_reviewer_execution_v2_to_v3,
             migrate_reviewer_qualification_cases_v1_to_v2,
@@ -287,6 +293,49 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual(qualification_corpus_v3, rebuilt_corpus_v3)
         current("reviewer-qualification-corpus", rebuilt_corpus_v3)
         observed.add(("reviewer-qualification-corpus", "2.0.0", "3.0.0"))
+
+        rapid_v2 = example("rapid-review-session")
+        rapid_v2["findings"] = [
+            {
+                "finding_id": "QUAL-AUTHORITY-BYPASS",
+                "path": "src/example.py",
+                "line": 2,
+                "claim": "The labelled bypass is present.",
+                "impact": "Protected authority can be bypassed.",
+                "severity": "high",
+                "confidence": "high",
+                "oracle": "GOV-055",
+                "evidence_refs": ["src/example.py"],
+                "threatened_value": "governed authority",
+            }
+        ]
+        rapid_v1 = deepcopy(rapid_v2)
+        rapid_v1["schema_version"] = "1.0.0"
+        finding_targets = {}
+        for finding in rapid_v1["findings"]:
+            finding_targets[finding["finding_id"]] = {
+                "path": finding.pop("path"),
+                "line": finding.pop("line"),
+            }
+        rejected_by_current("rapid-review-session", rapid_v1)
+        with self.assertRaises(ValueError):
+            migrate_rapid_review_session_v1_to_v2(
+                rapid_v1, finding_targets={}
+            )
+        duplicate_findings = deepcopy(rapid_v1)
+        duplicate_findings["findings"].append(
+            deepcopy(duplicate_findings["findings"][0])
+        )
+        with self.assertRaises(ValueError):
+            migrate_rapid_review_session_v1_to_v2(
+                duplicate_findings, finding_targets=finding_targets
+            )
+        rebuilt_rapid = migrate_rapid_review_session_v1_to_v2(
+            rapid_v1, finding_targets=finding_targets
+        )
+        self.assertEqual(rapid_v2, rebuilt_rapid)
+        current("rapid-review-session", rebuilt_rapid)
+        observed.add(("rapid-review-session", "1.0.0", "2.0.0"))
 
         reviewer_result_v3 = example("reviewer-result")
         claim_ids = [item["claim_id"] for item in reviewer_result_v3["claims"]]

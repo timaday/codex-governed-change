@@ -454,6 +454,50 @@ def migrate_reviewer_result_v1_to_v2(
     )
 
 
+def migrate_rapid_review_session_v1_to_v2(
+    document: Mapping[str, Any], *,
+    finding_targets: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Add protected path/line targets to legacy rapid-review findings."""
+    from codex_governance.canonical import normalize_repo_path
+
+    migrated = _migration_document(
+        document, from_version="1.0.0", identity_field=None
+    )
+    findings = migrated.get("findings")
+    if not isinstance(findings, Sequence) or isinstance(findings, (str, bytes)):
+        raise ValueError("legacy rapid-review findings are unavailable")
+    rebuilt = []
+    finding_ids = {
+        str(item.get("finding_id"))
+        for item in findings
+        if isinstance(item, Mapping)
+    }
+    if len(finding_ids) != len(findings) or set(finding_targets) != finding_ids:
+        raise ValueError("rapid-review finding target set does not match")
+    for raw in findings:
+        if not isinstance(raw, Mapping) or {"path", "line"} & set(raw):
+            raise ValueError("legacy rapid-review finding is invalid")
+        finding_id = str(raw.get("finding_id"))
+        target = finding_targets.get(finding_id)
+        if not isinstance(target, Mapping) or set(target) != {"path", "line"}:
+            raise ValueError("protected rapid-review finding target is incomplete")
+        line = target.get("line")
+        if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+            raise ValueError("protected rapid-review finding line is invalid")
+        rebuilt.append(
+            {
+                **raw,
+                "path": normalize_repo_path(target["path"]),
+                "line": line,
+            }
+        )
+    migrated["findings"] = rebuilt
+    return _finish_migration(
+        migrated, to_version="2.0.0", identity_field=None
+    )
+
+
 def migrate_reviewer_result_v2_to_v3(
     document: Mapping[str, Any], *, claim_ids: Sequence[str]
 ) -> dict[str, Any]:
@@ -577,6 +621,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
     ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
+    ("rapid-review-session", "1.0.0", "2.0.0"): migrate_rapid_review_session_v1_to_v2,
     ("reviewer-result", "1.0.0", "2.0.0"): migrate_reviewer_result_v1_to_v2,
     ("reviewer-result", "2.0.0", "3.0.0"): migrate_reviewer_result_v2_to_v3,
     ("reviewer-execution", "1.0.0", "2.0.0"): migrate_reviewer_execution_v1_to_v2,
