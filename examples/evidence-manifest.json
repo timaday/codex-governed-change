@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "manifest_id": "sha256:2ba1173d1fb0194abac1975f0d8b7d01e60557ace38895073f29ad61b2605334",
+  "schema_version": "2.0.0",
+  "manifest_id": "sha256:8c07b3993cc2e72aee5d5f355d783b371b8281171ce73769ede1f51482ec6efe",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract": {
@@ -60,6 +60,13 @@
   ],
   "reviewer_qualification": {"path": "artifacts/governance/example/reviewer/qualification.json", "sha256": "sha256:1616161616161616161616161616161616161616161616161616161616161616"},
   "rapid_review_qualification": {"path": "artifacts/governance/example/reviewer/rapid-qualification.json", "sha256": "sha256:2626262626262626262626262626262626262626262626262626262626262626"},
+  "reviewer_qualification_cases": {"path": "artifacts/governance/example/reviewer/conformance-cases.json", "sha256": "sha256:3030303030303030303030303030303030303030303030303030303030303030"},
+  "rapid_review_qualification_cases": {"path": "artifacts/governance/example/reviewer/rapid-review-cases.json", "sha256": "sha256:3131313131313131313131313131313131313131313131313131313131313131"},
+  "reviewer_qualification_corpus": {"path": "artifacts/governance/example/reviewer/corpus.json", "sha256": "sha256:3232323232323232323232323232323232323232323232323232323232323232"},
+  "reviewer_qualification_label_decision": {"path": "artifacts/governance/example/reviewer/human-label-decision.json", "sha256": "sha256:3434343434343434343434343434343434343434343434343434343434343434"},
+  "context_sources": {"path": "artifacts/governance/example/reviewer/context-sources.json", "sha256": "sha256:3535353535353535353535353535353535353535353535353535353535353535"},
+  "context_projection": {"path": "artifacts/governance/example/reviewer/context-projection.json", "sha256": "sha256:3636363636363636363636363636363636363636363636363636363636363636"},
+  "context_qualification": {"path": "artifacts/governance/example/reviewer/context-qualification.json", "sha256": "sha256:3737373737373737373737373737373737373737373737373737373737373737"},
   "context_receipt": {"path": "artifacts/governance/example/reviewer/context-receipt.json", "sha256": "sha256:1717171717171717171717171717171717171717171717171717171717171717"},
   "context_execution_receipt": {"path": "artifacts/governance/example/reviewer/context-execution-receipt.json", "sha256": "sha256:2727272727272727272727272727272727272727272727272727272727272727"},
   "risk_register": {"path": "artifacts/governance/example/rapid-review/risk-register.json", "sha256": "sha256:1818181818181818181818181818181818181818181818181818181818181818"},

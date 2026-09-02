@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "repository_id": "repo:example/codex-governed-change",
   "policy_id": "POLICY-REFERENCE-001",
   "lkg_governance_commit": "1111111111111111111111111111111111111111",
@@ -18,13 +18,26 @@
     "process_limit": 128,
     "memory_bytes": 1073741824
   },
-  "context": {"default_profile": "STANDARD", "compact_tokens": 8000, "standard_tokens": 24000, "deep_tokens": 64000, "projection_version": "1.0.0"},
+  "context": {
+    "default_profile": "STANDARD",
+    "compact_tokens": 8000,
+    "standard_tokens": 24000,
+    "deep_tokens": 64000,
+    "projection_version": "1.0.0",
+    "qualification_ids": {
+      "COMPACT": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "STANDARD": "sha256:a59c8ea5a2faa94784e3ed808cb189c9a78660ddc499bdb64ba20975e543ebda",
+      "DEEP": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
   "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "generated_budget": 0},
   "reviewer": {
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh",
     "timeout_seconds": 1800,
     "max_output_bytes": 1000000,
+    "qualification_corpus_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "qualification_label_decision_id": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
     "qualification_ids": {
       "conformance": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "rapid_review": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"

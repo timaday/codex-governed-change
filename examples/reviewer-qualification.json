@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "qualification_id": "sha256:f3850448988d7bd78cbdaf7316a278c0998661f2720fccb449fd562b389d1cbf",
+  "schema_version": "2.0.0",
+  "qualification_id": "sha256:354967ded8fb4d2cbe61325fbe83ce3a7196d9555da77afbb6ecd9be9c39b9b5",
   "prompt_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "schema_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "launcher_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -8,6 +8,8 @@
   "model": "gpt-5.6-sol",
   "reasoning_effort": "xhigh",
   "corpus_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "label_decision_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "case_evidence_sha256": "sha256:abababababababababababababababababababababababababababababababab",
   "human_labelled": true,
   "cases": 12,
   "critical_cases": 8,

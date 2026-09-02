@@ -37,11 +37,23 @@ def validate_time_order(start: str, end: str) -> bool:
 
 def migration_policy(kind: str, from_version: str, to_version: str) -> str:
     """Return the protected migration policy for a public representation."""
-    if kind in {"reviewer-result", "reviewer-execution"} and (
+    if kind in {
+        "effective-policy",
+        "evidence-manifest",
+        "reviewer-qualification",
+        "reviewer-qualification-cases",
+        "reviewer-qualification-corpus",
+        "reviewer-result",
+    } and (
         from_version,
         to_version,
     ) == ("1.0.0", "2.0.0"):
         return "explicit_required"
-    if from_version == to_version and from_version in {"1.0.0", "2.0.0"}:
+    if kind == "reviewer-execution" and (
+        from_version,
+        to_version,
+    ) in {("1.0.0", "2.0.0"), ("2.0.0", "3.0.0")}:
+        return "explicit_required"
+    if from_version == to_version and from_version in {"1.0.0", "2.0.0", "3.0.0"}:
         return "identity"
     return "unsupported"

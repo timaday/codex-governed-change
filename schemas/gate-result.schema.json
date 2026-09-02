@@ -54,7 +54,7 @@
         "additionalProperties": false,
         "required": ["category", "replacement", "occurrences"],
         "properties": {
-          "category": { "enum": ["sandbox_candidate_path", "supervisor_path"] },
+          "category": { "enum": ["sandbox_candidate_path", "supervisor_path", "host_value", "credential", "generic_host_path"] },
           "replacement": { "type": "string", "minLength": 1 },
           "occurrences": { "type": "integer", "minimum": 1 }
         }

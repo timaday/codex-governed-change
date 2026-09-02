@@ -176,6 +176,7 @@ def _boundary_handshake(
                 "cross_process_write_blocked": True,
                 "no_new_privs": True,
                 "process_signals_blocked": True,
+                "resource_limit_changes_blocked": True,
             }
             if value == namespace:
                 return "pid_namespace"

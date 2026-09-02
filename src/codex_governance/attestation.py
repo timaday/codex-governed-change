@@ -10,6 +10,7 @@ from codex_governance.canonical import (
     content_address,
     require_sha256,
     sha256_bytes,
+    sha256_canonical,
     verify_content_address,
 )
 from codex_governance.lifecycle import validate_time_order
@@ -22,20 +23,45 @@ PREDICATE_TYPE = (
 )
 
 
-def gate_implementation_sha256() -> str:
-    """Identify the protected sandbox and deterministic gate producer."""
-    root = Path(__file__).resolve().parent
-    return sha256_bytes((root / "sandbox.py").read_bytes() + (root / "gate.py").read_bytes())
-
-
-def mutation_implementation_sha256() -> str:
-    """Identify the protected sandbox, gate, and mutation producer."""
-    root = Path(__file__).resolve().parent
-    return sha256_bytes(
-        b"".join(
-            (root / name).read_bytes()
-            for name in ("sandbox.py", "gate.py", "mutation.py", "mutation_runner.py")
+def producer_implementation_manifest(
+    producer_kind: str, package_root: Path | None = None
+) -> dict[str, Any]:
+    """Frame the complete trusted Python package closure for one producer."""
+    if producer_kind not in {"gate", "mutation"}:
+        raise ValueError("unknown producer kind")
+    root = (package_root or Path(__file__).resolve().parent).resolve(strict=True)
+    files: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*.py"), key=lambda item: item.relative_to(root).as_posix()):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("producer implementation closure contains an unsafe file")
+        data = path.read_bytes()
+        files.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "bytes": len(data),
+                "sha256": sha256_bytes(data),
+            }
         )
+    if not files:
+        raise ValueError("producer implementation closure is empty")
+    return {
+        "schema_version": "1.0.0",
+        "producer_kind": producer_kind,
+        "files": files,
+    }
+
+
+def gate_implementation_sha256(package_root: Path | None = None) -> str:
+    """Identify the complete protected gate producer closure."""
+    return sha256_canonical(
+        producer_implementation_manifest("gate", package_root)
+    )
+
+
+def mutation_implementation_sha256(package_root: Path | None = None) -> str:
+    """Identify the complete protected mutation producer closure."""
+    return sha256_canonical(
+        producer_implementation_manifest("mutation", package_root)
     )
 
 

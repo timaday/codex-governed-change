@@ -59,11 +59,17 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
         self.assertIn('--candidate "$CANDIDATE"', self.workflow)
         self.assertIn("--execution-output", self.workflow)
         self.assertIn("--context-execution-output", self.workflow)
+        self.assertIn("--stdout-output", self.workflow)
+        self.assertIn("--stderr-output", self.workflow)
         self.assertIn("rapid-review-inputs", self.workflow)
         self.assertIn("rapid-review-session.schema.json", self.workflow)
         self.assertIn("governed-reviewed-evidence", self.final_job)
         self.assertIn("target-branch `.governance/ci/` adapter", self.workflow)
         self.assertIn("--verified-decision-id", self.workflow)
+        self.assertNotIn("pull_request.updated_at", self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count("date -u '+%Y-%m-%dT%H:%M:%SZ'"), 2
+        )
 
     def test_reference_passes_the_executable_static_policy(self) -> None:
         from codex_governance.governance import validate_ci_policy

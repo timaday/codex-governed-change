@@ -61,8 +61,12 @@ def validate_ci_policy(workflow_text: str) -> list[str]:
         "deployment adapter must come from target-branch authority": "target-branch `.governance/ci/` adapter",
         "final disposition must run after failures": "if: ${{ always() }}",
         "final disposition must name every prerequisite": "needs: [deterministic_evidence, fresh_context_review]",
+        "protected runner must capture current UTC": "date -u '+%Y-%m-%dT%H:%M:%SZ'",
         "deterministic prerequisite must be exactly successful": '[[ "$DETERMINISTIC_RESULT" == "success" ]]',
         "review prerequisite must be exactly successful": '[[ "$REVIEW_RESULT" == "success" ]]',
         "governance source must use a full SHA": "GOVERNANCE_REF",
     }
-    return sorted(message for message, token in checks.items() if token not in workflow_text)
+    errors = [message for message, token in checks.items() if token not in workflow_text]
+    if "pull_request.updated_at" in workflow_text:
+        errors.append("replayable event time must not be used for validity evaluation")
+    return sorted(errors)

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:65593a54afd00f5ab6594a0857f077ddc55d4407155b91d8a2f2e84579e12196",
+  "corpus_id": "sha256:ea59494b38c57876fd2b4b828c740f24ac1c25c28667ceebcf313abacb35a515",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -150,8 +150,8 @@
     {
       "mutant_id": "cli-output-overwrite",
       "path": "src/codex_governance/cli.py",
-      "old": "        raise FileExistsError(\"write-once CLI output conflicts with existing content\")",
-      "new": "        return",
+      "old": "    raise FileExistsError(\"write-once CLI output conflicts with existing content\")",
+      "new": "    return",
       "operator": "accept conflicting CLI output replacement",
       "requirement_id": "GOV-047",
       "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration", "-v"]

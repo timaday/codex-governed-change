@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codex_governance.artifacts import ArtifactSafetyError, FilesystemArtifactStore
+from codex_governance.artifacts import (
+    ArtifactSafetyError,
+    FilesystemArtifactStore,
+    read_bounded_repository_file,
+)
 
 
 class ArtifactStoreTest(unittest.TestCase):
@@ -128,6 +132,56 @@ class ArtifactStoreTest(unittest.TestCase):
         self.assertTrue(swapped)
         self.assertEqual([], list(outside.iterdir()))
         self.assertFalse((moved / "result.json").exists())
+
+    def test_repository_reader_rejects_parent_swap_fifo_and_oversize(self) -> None:
+        parent = self.repository / "evidence"
+        parent.mkdir()
+        (parent / "result.json").write_bytes(b"trusted")
+        moved = self.repository / "original-evidence"
+        outside = Path(self.temporary.name) / "outside-read"
+        outside.mkdir()
+        (outside / "result.json").write_bytes(b"untrusted")
+        real_open = os.open
+        swapped = False
+
+        def replace_parent(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if not swapped and path == "result.json" and dir_fd is not None:
+                parent.rename(moved)
+                parent.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            return real_open(path, flags, mode, dir_fd=dir_fd)
+
+        with (
+            patch(
+                "codex_governance.artifacts.secure_repository_reads_available",
+                return_value=True,
+            ),
+            patch(
+                "codex_governance.artifacts.os.open", side_effect=replace_parent
+            ),
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "binding changed"):
+                read_bounded_repository_file(
+                    self.repository, "evidence/result.json"
+                )
+        self.assertTrue(swapped)
+
+        parent.unlink()
+        parent.mkdir()
+        (parent / "oversized").write_bytes(b"123")
+        with self.assertRaisesRegex(ArtifactSafetyError, "size bound"):
+            read_bounded_repository_file(
+                self.repository, "evidence/oversized", max_bytes=2
+            )
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(parent / "fifo")
+            started = time.monotonic()
+            with self.assertRaisesRegex(ArtifactSafetyError, "regular file"):
+                read_bounded_repository_file(
+                    self.repository, "evidence/fifo"
+                )
+            self.assertLess(time.monotonic() - started, 0.5)
 
 
 if __name__ == "__main__":

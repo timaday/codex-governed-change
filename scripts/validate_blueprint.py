@@ -66,6 +66,9 @@ EXAMPLE_SCHEMAS = {
     "examples/provenance-statement.json": "schemas/provenance-statement.schema.json",
     "examples/mutant-record.json": "schemas/mutant-record.schema.json",
     "examples/context-receipt.json": "schemas/context-receipt.schema.json",
+    "examples/context-qualification.json": "schemas/context-qualification.schema.json",
+    "examples/context-source-bundle.json": "schemas/context-source-bundle.schema.json",
+    "examples/context-projection.json": "schemas/context-projection.schema.json",
     "examples/context-execution-receipt.json": "schemas/context-execution-receipt.schema.json",
     "examples/reviewer-execution.json": "schemas/reviewer-execution.schema.json",
     "examples/risk-register.json": "schemas/risk-register.schema.json",
@@ -73,6 +76,9 @@ EXAMPLE_SCHEMAS = {
     "examples/coverage-note.json": "schemas/coverage-note.schema.json",
     "examples/follow-up.json": "schemas/follow-up.schema.json",
     "examples/reviewer-qualification.json": "schemas/reviewer-qualification.schema.json",
+    "examples/reviewer-qualification-cases.json": "schemas/reviewer-qualification-cases.schema.json",
+    "examples/reviewer-qualification-corpus.json": "schemas/reviewer-qualification-corpus.schema.json",
+    "examples/reviewer-qualification-label-decision.json": "schemas/reviewer-qualification-label-decision.schema.json",
     "examples/rollback-evidence.json": "schemas/rollback-evidence.schema.json",
 }
 

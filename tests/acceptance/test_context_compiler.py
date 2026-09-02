@@ -6,11 +6,40 @@ from copy import deepcopy
 from pathlib import Path
 
 from codex_governance.candidate import GitCliRepositoryAdapter, candidate_id_from_components
-from codex_governance.canonical import sha256_bytes
+from codex_governance.canonical import content_address, sha256_bytes
 from codex_governance.domain.model import DispositionState
 
 
 class ContextCompilerAcceptanceTest(unittest.TestCase):
+    def qualification(self, profile: str) -> dict:
+        return content_address(
+            {
+                "schema_version": "1.0.0",
+                "projection_version": "1.0.0",
+                "profile": profile,
+                "baseline": {
+                    "critical_recall": 1.0, "false_passes": 0,
+                    "traceability": 1.0, "disposition_correct": True,
+                    "tokens": 30000,
+                },
+                "candidate": {
+                    "critical_recall": 1.0, "false_passes": 0,
+                    "traceability": 1.0, "disposition_correct": True,
+                    "tokens": 12000,
+                },
+                "qualified": True,
+                "created_at": "2026-08-26T10:00:00Z",
+                "limitations": [],
+            },
+            "qualification_id",
+        )
+
+    def qualification_ids(self) -> dict[str, str]:
+        return {
+            profile: self.qualification(profile)["qualification_id"]
+            for profile in ("COMPACT", "STANDARD", "DEEP")
+        }
+
     def candidate(self, changed_paths=None) -> dict:
         changed_paths = changed_paths or ["src/service.py"]
         components = {
@@ -56,7 +85,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             "conflicts": [],
             "survivors": [],
             "limitations": ["hosted ruleset not observed"],
-            "unknowns": ["deployment policy unavailable"],
+            "unknowns": [],
             "rubric": {"summary": "fixed rubric", "sha256": digest("f")},
             "disposition_contract": "READY_FOR_HUMAN requires every fixed claim",
             "artifacts": [
@@ -70,12 +99,25 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
 
         changed_paths = changed_paths or ["src/service.py"]
         sources = self.sources(changed_paths)
+        if signals.get("gate_failed"):
+            sources["gate_results"][0]["status"] = "FAIL"
+            sources["failures"] = ["unit gate failed"]
+        if signals.get("surviving_mutant"):
+            sources["survivors"] = ["MUTANT-AUTH"]
+        if signals.get("selector_uncertain"):
+            sources["conflicts"] = ["selector uncertainty"]
+        profile = "DEEP" if signals or budget == 1 or any(
+            path.startswith(("schemas/", "src/codex_governance/context"))
+            for path in changed_paths
+        ) else "STANDARD"
         return compile_context(
             sources=sources, candidate=self.candidate(changed_paths),
             requested_profile="STANDARD", token_budget=budget,
             changed_paths=changed_paths,
             affected_closure=sources["affected_closure"], model="gpt-5.6-sol",
-            reasoning_effort="xhigh", **signals,
+            reasoning_effort="xhigh",
+            context_qualification=self.qualification(profile),
+            protected_qualification_ids=self.qualification_ids(),
         )
 
     def test_identical_inputs_produce_identical_projection_and_source_receipts(self) -> None:
@@ -110,6 +152,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
         sources = self.sources()
         sources["failures"] = ["security gate failed"]
         sources["survivors"] = ["MUTANT-AUTH"]
+        sources["unknowns"] = ["reviewer evidence unavailable"]
         from codex_governance.context import compile_context
 
         compiled = compile_context(
@@ -118,6 +161,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             changed_paths=["src/service.py"],
             affected_closure=sources["affected_closure"],
             model="gpt-5.6-sol", reasoning_effort="xhigh",
+            context_qualification=self.qualification("DEEP"),
+            protected_qualification_ids=self.qualification_ids(),
         )
         kernel = compiled["projection"]["assurance_kernel"]
         self.assertEqual(["security gate failed"], kernel["failures"])
@@ -157,6 +202,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             changed_paths=["src/service.py"],
             affected_closure=sources["affected_closure"],
             model="gpt-5.6-sol", reasoning_effort="xhigh",
+            context_qualification=self.qualification("COMPACT"),
+            protected_qualification_ids=self.qualification_ids(),
         )
         standard = compile_context(
             sources=sources, candidate=self.candidate(),
@@ -164,6 +211,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             changed_paths=["src/service.py"],
             affected_closure=sources["affected_closure"],
             model="gpt-5.6-sol", reasoning_effort="xhigh",
+            context_qualification=self.qualification("STANDARD"),
+            protected_qualification_ids=self.qualification_ids(),
         )
         self.assertNotIn("typed_summary", compact["projection"]["evidence_index"][0])
         self.assertIn("typed_summary", standard["projection"]["evidence_index"][0])
@@ -186,6 +235,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             changed_paths=["src/service.py"],
             affected_closure=sources["affected_closure"],
             model="gpt-5.6-sol", reasoning_effort="xhigh",
+            context_qualification=self.qualification("STANDARD"),
+            protected_qualification_ids=self.qualification_ids(),
         )
         reasons = {item["reference"]: item["reason"] for item in compiled["receipt"]["excluded_sources"]}
         self.assertEqual("duplicate", reasons["evidence/copy.log"])
@@ -210,6 +261,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     changed_paths=["src/service.py"],
                     affected_closure=sources["affected_closure"],
                     model="gpt-5.6-sol", reasoning_effort="xhigh",
+                    context_qualification=self.qualification("DEEP"),
+                    protected_qualification_ids=self.qualification_ids(),
                 )
 
     def test_changed_file_inventory_and_selector_are_exact_candidate_derived(self) -> None:
@@ -234,7 +287,43 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                         affected_closure=sources["affected_closure"],
                         model="gpt-5.6-sol",
                         reasoning_effort="xhigh",
+                        context_qualification=self.qualification("STANDARD"),
+                        protected_qualification_ids=self.qualification_ids(),
                     )
+
+    def test_profile_version_metrics_and_protected_qualification_must_match(self) -> None:
+        from codex_governance.context import compile_context
+
+        for defect in ("profile", "version", "regression", "protected-id"):
+            qualification = self.qualification("STANDARD")
+            protected_ids = self.qualification_ids()
+            if defect == "profile":
+                qualification["profile"] = "COMPACT"
+                qualification = content_address(qualification, "qualification_id")
+            elif defect == "version":
+                qualification["projection_version"] = "2.0.0"
+                qualification = content_address(qualification, "qualification_id")
+            elif defect == "regression":
+                qualification["candidate"]["critical_recall"] = 0.5
+                qualification = content_address(qualification, "qualification_id")
+            else:
+                protected_ids["STANDARD"] = "sha256:" + "0" * 64
+            sources = self.sources()
+            with self.subTest(defect=defect), self.assertRaisesRegex(
+                ValueError, "qualification is unavailable"
+            ):
+                compile_context(
+                    sources=sources,
+                    candidate=self.candidate(),
+                    requested_profile="STANDARD",
+                    token_budget=64000,
+                    changed_paths=["src/service.py"],
+                    affected_closure=sources["affected_closure"],
+                    model="gpt-5.6-sol",
+                    reasoning_effort="xhigh",
+                    context_qualification=qualification,
+                    protected_qualification_ids=protected_ids,
+                )
 
     def test_protected_closure_includes_unchanged_caller_and_test_and_rejects_omission(self) -> None:
         from codex_governance.context import compile_context
@@ -299,6 +388,8 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     affected_closure=closure,
                     model="gpt-5.6-sol",
                     reasoning_effort="xhigh",
+                    context_qualification=self.qualification("STANDARD"),
+                    protected_qualification_ids=self.qualification_ids(),
                 )
 
     def test_post_run_receipt_is_separate_exact_and_fail_closed_on_missing_usage(self) -> None:

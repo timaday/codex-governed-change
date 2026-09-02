@@ -1,12 +1,14 @@
 {
   "schema_version": "1.0.0",
-  "receipt_id": "sha256:33aaa0e35947b6f9014d7e5e5229f278c3b2773895d69ba4a29244815245b968",
+  "receipt_id": "sha256:4987f3ca166d7a40c3447c2576e9ae55250f2732a0f38689ea3e2c0856b6d089",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "projection_version": "1.0.0",
-  "profile": "DEEP",
-  "source_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "projection_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "profile": "STANDARD",
+  "context_qualification_id": "sha256:a59c8ea5a2faa94784e3ed808cb189c9a78660ddc499bdb64ba20975e543ebda",
+  "source_bundle_sha256": "sha256:31a5abd67aa0e80e4a6b219fec810ac31a480cdb6366af0688f4179c0de7f85e",
+  "source_sha256": "sha256:31a5abd67aa0e80e4a6b219fec810ac31a480cdb6366af0688f4179c0de7f85e",
+  "projection_sha256": "sha256:31e88f64374752ed0de7c30dc934989afe343bf7c969878a932d3941e8d3793f",
   "included_sources": [
     {"kind": "authority", "reference": "evidence/task-decision.json", "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
     {"kind": "unknown", "reference": "evidence/unknowns.json", "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}

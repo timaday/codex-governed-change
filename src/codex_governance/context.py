@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import ArtifactSafetyError, read_bounded_repository_file
 from codex_governance.candidate import verify_candidate_identity
 from codex_governance.canonical import (
     canonical_json_bytes,
     content_address,
     normalize_repo_path,
     require_sha256,
+    sha256_bytes,
     sha256_canonical,
+    verify_content_address,
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.lifecycle import parse_rfc3339
+from codex_governance.qualification import context_variant_qualified
 
 
 CONTEXT_PROFILES = ("COMPACT", "STANDARD", "DEEP")
+CONTEXT_PROJECTION_VERSION = "1.0.0"
 FORBIDDEN_SOURCE_KEYS = frozenset(
     {"author_conversation", "author_hidden_reasoning", "persisted_reasoning", "author_transcript"}
 )
@@ -56,6 +62,178 @@ KERNEL_FIELDS = (
     "rubric",
     "disposition_contract",
 )
+REVIEW_RUBRIC = {
+    "required_surfaces": [
+        "exact_diff",
+        "affected_closure",
+        "governance_and_evidence",
+    ],
+    "finding_rule": "Every finding cites a requirement or oracle and a concrete repository location.",
+    "success_rule": "No blocking finding is observed only within the exact reviewed closure.",
+}
+DISPOSITION_CONTRACT = {
+    "ready": "Every fixed mandatory claim is supported and no unresolved defeater remains.",
+    "block": "A confirmed failure, blocking finding, or unauthorized governance change blocks.",
+    "unknown": "Missing, stale, conflicting, malformed, truncated, or unavailable evidence blocks.",
+}
+
+
+def build_repository_inventory(
+    repository: Path,
+    *,
+    affected_closure: Sequence[str],
+    changed_paths: Sequence[str],
+) -> list[dict[str, str]]:
+    """Hash the complete protected closure without following repository links."""
+    changed = set(changed_paths)
+    inventory: list[dict[str, str]] = []
+    for raw_path in affected_closure:
+        path = normalize_repo_path(raw_path)
+        try:
+            data = read_bounded_repository_file(repository, path, max_bytes=8_000_000)
+        except ArtifactSafetyError as exc:
+            absolute = repository.joinpath(*path.split("/"))
+            try:
+                absolute.lstat()
+            except FileNotFoundError:
+                if path not in changed:
+                    raise ValueError(
+                        "unchanged affected-closure file is unavailable"
+                    ) from exc
+                inventory.append({"path": path, "state": "absent"})
+                continue
+            raise ValueError(
+                "affected-closure inventory requires bounded regular files"
+            ) from exc
+        inventory.append({"path": path, "state": "present", "sha256": sha256_bytes(data)})
+    if [item["path"] for item in inventory] != sorted(
+        set(item["path"] for item in inventory)
+    ):
+        raise ValueError("repository inventory must be a sorted unique closure")
+    return inventory
+
+
+def build_protected_context_sources(
+    *,
+    candidate: Mapping[str, Any],
+    task: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    repository_inventory: Sequence[Mapping[str, Any]],
+    affected_closure: Sequence[str],
+    gate_results: Sequence[Mapping[str, Any]],
+    mutation_records: Sequence[Mapping[str, Any]],
+    created_at: str,
+    artifacts: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Construct the only admissible context source set from protected inputs."""
+    repository_id = candidate.get("repository_id")
+    if (
+        not verify_candidate_identity(candidate)
+        or task.get("repository_id") != repository_id
+        or policy.get("repository_id") != repository_id
+        or candidate.get("effective_policy_sha256") != sha256_canonical(policy)
+    ):
+        raise ValueError("protected context authority binding mismatch")
+    parse_rfc3339(created_at)
+    closure = [normalize_repo_path(path) for path in affected_closure]
+    if closure != sorted(set(closure)) or not set(candidate.get("changed_paths", ())).issubset(closure):
+        raise ValueError("protected context closure is incomplete")
+    inventory = [dict(item) for item in repository_inventory]
+    if [item.get("path") for item in inventory] != closure:
+        raise ValueError("protected context inventory does not exactly cover the closure")
+    gates = [dict(item) for item in gate_results]
+    records = [dict(item) for item in mutation_records]
+    failures = [item for item in gates if item.get("status") == "FAIL"]
+    unknowns: list[Any] = list(task.get("unknowns", ()))
+    unknowns.extend(
+        item for item in gates if item.get("status") not in {"PASS", "FAIL"}
+    )
+    survivors = [item for item in records if item.get("outcome") == "SURVIVED"]
+    unknowns.extend(
+        item
+        for item in records
+        if item.get("outcome") not in {"KILLED", "SURVIVED"}
+    )
+    gate_ids = [item.get("gate_id") for item in gates]
+    conflicts = (
+        [{"kind": "duplicate_gate_id", "gate_id": gate_id}]
+        if (gate_id := next(
+            (item for item in gate_ids if gate_ids.count(item) > 1), None
+        )) is not None
+        else []
+    )
+    limitations = [
+        {"kind": "gate", "gate_id": item.get("gate_id"), "values": item["limitations"]}
+        for item in gates
+        if item.get("limitations")
+    ] + [
+        {"kind": "mutation", "mutant_id": item.get("mutant_id"), "values": item["limitations"]}
+        for item in records
+        if item.get("limitations")
+    ]
+    return {
+        "repository_id": repository_id,
+        "candidate_id": candidate["candidate_id"],
+        "created_at": created_at,
+        "task_authority": dict(task),
+        "policy": dict(policy),
+        "repository_inventory": inventory,
+        "changed_files": list(candidate.get("changed_paths", ())),
+        "affected_closure": closure,
+        "gate_results": gates,
+        "risks": list(task.get("risks", ())),
+        "failures": failures,
+        "conflicts": conflicts,
+        "survivors": survivors,
+        "limitations": limitations,
+        "unknowns": unknowns,
+        "rubric": REVIEW_RUBRIC,
+        "disposition_contract": DISPOSITION_CONTRACT,
+        "artifacts": [dict(item) for item in artifacts],
+    }
+
+
+def derive_context_signals(sources: Mapping[str, Any]) -> dict[str, bool]:
+    """Derive profile escalation only from the complete protected source set."""
+    gates = sources.get("gate_results", ())
+    statuses = {
+        item.get("status")
+        for item in gates
+        if isinstance(item, Mapping)
+    }
+    searchable = " ".join(
+        str(value).lower()
+        for key in ("risks", "conflicts", "limitations", "unknowns")
+        for value in sources.get(key, ())
+    )
+    return {
+        "gate_failed": "FAIL" in statuses or bool(sources.get("failures")),
+        "gate_missing": not gates or "UNKNOWN" in statuses,
+        "surviving_mutant": bool(sources.get("survivors")),
+        "conflicting_oracle": bool(sources.get("conflicts")),
+        "prompt_injection_risk": "prompt injection" in searchable,
+        "authority_incomplete": "authority" in searchable,
+        "provenance_incomplete": "provenance" in searchable,
+        "reviewer_uncertain": bool(sources.get("unknowns")),
+        "selector_uncertain": False,
+    }
+
+
+def context_qualification_valid(
+    record: Mapping[str, Any], *, profile: str, protected_id: str
+) -> bool:
+    """Recompute one protected projection-profile qualification decision."""
+    try:
+        return bool(
+            verify_content_address(record, "qualification_id")
+            and record.get("qualification_id") == require_sha256(protected_id)
+            and record.get("projection_version") == CONTEXT_PROJECTION_VERSION
+            and record.get("profile") == profile
+            and record.get("qualified") is True
+            and context_variant_qualified(record["baseline"], record["candidate"])
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def select_context_profile(
@@ -92,10 +270,7 @@ def select_context_profile(
 
 
 def _source_reference(kind: str, reference: str, value: Any) -> dict[str, str]:
-    digest = value.get("sha256") if isinstance(value, Mapping) else None
-    if not isinstance(digest, str):
-        digest = sha256_canonical(value)
-    return {"kind": kind, "reference": reference, "sha256": digest}
+    return {"kind": kind, "reference": reference, "sha256": sha256_canonical(value)}
 
 
 def compile_context(
@@ -108,15 +283,8 @@ def compile_context(
     affected_closure: Sequence[str],
     model: str,
     reasoning_effort: str,
-    gate_failed: bool = False,
-    gate_missing: bool = False,
-    surviving_mutant: bool = False,
-    conflicting_oracle: bool = False,
-    prompt_injection_risk: bool = False,
-    authority_incomplete: bool = False,
-    provenance_incomplete: bool = False,
-    reviewer_uncertain: bool = False,
-    selector_uncertain: bool = False,
+    context_qualification: Mapping[str, Any],
+    protected_qualification_ids: Mapping[str, str],
 ) -> dict[str, Any]:
     if (
         not verify_candidate_identity(candidate)
@@ -155,21 +323,23 @@ def compile_context(
         parse_rfc3339(created_at)
     except (TypeError, ValueError) as exc:
         raise ValueError("context sources require an explicit RFC 3339 created_at") from exc
+    risk_signals = derive_context_signals(sources)
     profile = select_context_profile(
         requested_profile=requested_profile,
         changed_paths=candidate_paths,
-        gate_failed=gate_failed,
-        gate_missing=gate_missing,
-        surviving_mutant=surviving_mutant,
-        conflicting_oracle=conflicting_oracle,
-        prompt_injection_risk=prompt_injection_risk,
-        authority_incomplete=authority_incomplete,
-        provenance_incomplete=provenance_incomplete,
-        reviewer_uncertain=reviewer_uncertain,
-        selector_uncertain=selector_uncertain,
+        **risk_signals,
     )
     kernel = {field: sources[field] for field in KERNEL_FIELDS}
     kernel_bytes = canonical_json_bytes(kernel)
+    if profile != "DEEP" and (len(kernel_bytes) + 3) // 4 > token_budget:
+        profile = "DEEP"
+    protected_qualification_id = protected_qualification_ids.get(profile)
+    if not isinstance(protected_qualification_id, str) or not context_qualification_valid(
+        context_qualification,
+        profile=profile,
+        protected_id=protected_qualification_id,
+    ):
+        raise ValueError("context profile/version qualification is unavailable")
     artifacts = sources.get("artifacts", ())
     included_artifacts: list[dict[str, Any]] = []
     excluded: list[dict[str, str]] = []
@@ -202,9 +372,30 @@ def compile_context(
                 {"reference": reference, "sha256": digest, "reason": "available_by_retrieval"}
             )
 
-    projection = {
-        "projection_version": "1.0.0",
+    source_bundle = content_address(
+        {
+            "schema_version": "1.0.0",
+            "repository_id": sources["repository_id"],
+            "candidate_id": sources["candidate_id"],
+            "effective_policy_sha256": candidate["effective_policy_sha256"],
+            "requested_profile": requested_profile,
+            "token_budget": token_budget,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "sources": dict(sources),
+            "risk_signals": risk_signals,
+            "created_at": str(created_at),
+        },
+        "source_bundle_id",
+    )
+    projection = content_address({
+        "schema_version": "1.0.0",
+        "source_bundle_id": source_bundle["source_bundle_id"],
+        "repository_id": sources["repository_id"],
+        "candidate_id": sources["candidate_id"],
+        "projection_version": CONTEXT_PROJECTION_VERSION,
         "profile": profile,
+        "context_qualification_id": context_qualification["qualification_id"],
         "stable_prefix": {
             "policy": sources["policy"],
             "rubric": sources["rubric"],
@@ -213,16 +404,11 @@ def compile_context(
         "assurance_kernel": kernel,
         "evidence_index": sorted(included_artifacts, key=lambda item: item["reference"]),
         "progressive_disclosure": ["manifest", "typed_summary", "relevant_excerpt", "complete_artifact"],
-    }
+    }, "projection_id")
     projection_bytes = canonical_json_bytes(projection)
     estimated_tokens = (len(projection_bytes) + 3) // 4
     insufficient = estimated_tokens > token_budget
-    if insufficient and profile != "DEEP":
-        profile = "DEEP"
-        projection["profile"] = profile
-        projection_bytes = canonical_json_bytes(projection)
-        estimated_tokens = (len(projection_bytes) + 3) // 4
-    source_sha256 = sha256_canonical(sources)
+    source_sha256 = sha256_canonical(source_bundle)
     projection_sha256 = sha256_canonical(projection)
     included = [
         _source_reference("authority", "task_authority", sources["task_authority"]),
@@ -246,6 +432,8 @@ def compile_context(
         "candidate_id": sources["candidate_id"],
         "projection_version": "1.0.0",
         "profile": profile,
+        "context_qualification_id": context_qualification["qualification_id"],
+        "source_bundle_sha256": source_sha256,
         "source_sha256": source_sha256,
         "projection_sha256": projection_sha256,
         "included_sources": included,
@@ -274,6 +462,7 @@ def compile_context(
     }
     receipt = content_address(receipt, "receipt_id")
     return {
+        "source_bundle": source_bundle,
         "projection": projection,
         "receipt": receipt,
         "retrieval_index": dict(sorted(retrieval_index.items())),

@@ -12,10 +12,9 @@
   "invocation_id": "example-review-001",
   "verdict": "NO_BLOCKING_FINDING_OBSERVED",
   "reviewed_surfaces": [
-    "Exact base-to-candidate diff",
-    "Affected contracts and callers",
-    "Gate evidence and candidate binding",
-    "Security and governance boundaries"
+    "exact_diff",
+    "affected_closure",
+    "governance_and_evidence"
   ],
   "affected_closure": [
     "docs/requirements.md",

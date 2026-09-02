@@ -9,7 +9,14 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from codex_governance.candidate import GitCliRepositoryAdapter
-from codex_governance.canonical import canonical_json_bytes, sha256_canonical
+from codex_governance.canonical import (
+    canonical_json_bytes,
+    content_address,
+    sha256_bytes,
+    sha256_canonical,
+)
+from codex_governance.evidence import assemble_gate_manifest
+from codex_governance.mutation import REQUIRED_CURATED_MUTANTS
 from codex_governance.domain.model import DispositionState
 
 
@@ -170,10 +177,18 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             "scope": ("output",),
             "identify": ("output",),
             "run-gates": ("output",),
-            "prepare-review": ("projection_output", "receipt_output"),
+            "prepare-review": (
+                "sources_output", "projection_output", "receipt_output"
+            ),
             "assemble-manifest": ("output",),
             "mutate": ("output",),
-            "review": ("output", "execution_output", "context_execution_output"),
+            "review": (
+                "output",
+                "execution_output",
+                "context_execution_output",
+                "stdout_output",
+                "stderr_output",
+            ),
             "import-reviewer-result": ("destination",),
             "evaluate": ("output",),
         }
@@ -333,6 +348,16 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             )
             policy["repository_id"] = "repo:example/context-fixture"
             policy["lkg_governance_commit"] = base
+            qualification = json.loads(
+                (self.ROOT / "examples/context-qualification.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            qualification["profile"] = "DEEP"
+            qualification = content_address(qualification, "qualification_id")
+            policy["context"]["qualification_ids"]["DEEP"] = qualification[
+                "qualification_id"
+            ]
             policy_path = root / "policy.json"
             policy_path.write_bytes(canonical_json_bytes(policy))
             candidate = GitCliRepositoryAdapter(repository).identify(
@@ -345,26 +370,134 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             )
             candidate_path = root / "candidate.json"
             candidate_path.write_bytes(canonical_json_bytes(candidate))
+            task = json.loads(
+                (self.ROOT / "examples/task-contract.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            task.update(
+                repository_id=policy["repository_id"],
+                base_commit=base,
+                profile="mixed",
+                required_gate_ids=["blueprint-quality"],
+                unknowns=[],
+            )
+            task_path = root / "task.json"
+            task_path.write_bytes(canonical_json_bytes(task))
+            task_sha = sha256_bytes(canonical_json_bytes(task))
+            qualification_path = root / "context-qualification.json"
+            qualification_path.write_bytes(canonical_json_bytes(qualification))
+
+            evidence = repository / "artifacts/governance"
+            evidence.mkdir(parents=True)
+            gate_result = json.loads(
+                (self.ROOT / "examples/gate-result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            gate_result.update(
+                repository_id=policy["repository_id"],
+                task_contract_sha256=task_sha,
+                profile=task["profile"],
+                candidate_before=candidate["candidate_id"],
+                candidate_after=candidate["candidate_id"],
+                source_identity=candidate["candidate_id"],
+            )
+            gate_result_path = evidence / "gate-result.json"
+            gate_result_bytes = canonical_json_bytes(gate_result)
+            gate_result_path.write_bytes(gate_result_bytes)
+            gate_result_ref = {
+                "path": "artifacts/governance/gate-result.json",
+                "sha256": sha256_bytes(gate_result_bytes),
+            }
+            gate_manifest = assemble_gate_manifest(
+                repository_id=policy["repository_id"],
+                task_contract_sha256=task_sha,
+                candidate_id=candidate["candidate_id"],
+                required_gate_ids=["blueprint-quality"],
+                gate_references={"blueprint-quality": gate_result_ref},
+                created_at=gate_result["ended_at"],
+            )
+            gate_manifest_path = evidence / "gate-manifest.json"
+            gate_manifest_bytes = canonical_json_bytes(gate_manifest)
+            gate_manifest_path.write_bytes(gate_manifest_bytes)
+            gate_summary = root / "gate-summary.json"
+            gate_summary.write_bytes(
+                canonical_json_bytes(
+                    {
+                        "repository_id": policy["repository_id"],
+                        "candidate_id": candidate["candidate_id"],
+                        "gate_manifest": {
+                            "path": "artifacts/governance/gate-manifest.json",
+                            "sha256": sha256_bytes(gate_manifest_bytes),
+                        },
+                        "results": [
+                            {"gate_id": "blueprint-quality", "status": "PASS"}
+                        ],
+                    }
+                )
+            )
+            mutant_template = json.loads(
+                (self.ROOT / "examples/mutant-record.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            mutant_references = []
+            for index, mutant_id in enumerate(sorted(REQUIRED_CURATED_MUTANTS)):
+                mutant = dict(mutant_template)
+                mutant.update(
+                    repository_id=policy["repository_id"],
+                    task_contract_sha256=task_sha,
+                    effective_policy_sha256=sha256_canonical(policy),
+                    candidate_id=candidate["candidate_id"],
+                    mutant_id="MUTANT-" + mutant_id.upper(),
+                    outcome="KILLED",
+                )
+                mutant = content_address(mutant, "mutant_record_id")
+                mutant_bytes = canonical_json_bytes(mutant)
+                mutant_path = evidence / f"mutant-{index}.json"
+                mutant_path.write_bytes(mutant_bytes)
+                mutant_references.append(
+                    {
+                        "path": f"artifacts/governance/mutant-{index}.json",
+                        "sha256": sha256_bytes(mutant_bytes),
+                    }
+                )
+            mutation_summary = root / "mutation-summary.json"
+            mutation_summary.write_bytes(
+                canonical_json_bytes(
+                    {"state": "PASS", "mutant_records": mutant_references}
+                )
+            )
             closure = GitCliRepositoryAdapter(repository).conservative_affected_closure(
                 candidate=candidate, evidence_root=policy["evidence_root"]
             )
             sources = root / "sources.json"
-            sources.write_bytes(
-                canonical_json_bytes(self.sources(candidate, closure))
-            )
+            sources.write_bytes(canonical_json_bytes(self.sources(candidate, closure)))
+            source_bundle = repository / "artifacts/governance/sources.json"
             projection = repository / "artifacts/governance/projection.json"
             receipt = repository / "artifacts/governance/receipt.json"
             prepared = self.run_cli(
                 "prepare-review", "--repository", str(repository),
                 "--policy", str(policy_path),
-                "--sources", str(sources),
-                "--candidate", str(candidate_path), "--profile", "STANDARD",
-                "--token-budget", "24000",
+                "--task", str(task_path),
+                "--gate-summary", str(gate_summary),
+                "--mutation-summary", str(mutation_summary),
+                "--context-qualification", str(qualification_path),
+                "--candidate", str(candidate_path), "--profile", "DEEP",
+                "--token-budget", "64000",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
+                "--observed-at", "2026-08-26T10:00:00Z",
+                "--sources-output", "artifacts/governance/sources.json",
                 "--projection-output", "artifacts/governance/projection.json",
                 "--receipt-output", "artifacts/governance/receipt.json",
             )
-            self.assertEqual(0, prepared.returncode, prepared.stderr.decode())
+            self.assertEqual(
+                0,
+                prepared.returncode,
+                prepared.stderr.decode() + prepared.stdout.decode(),
+            )
+            self.assertTrue(source_bundle.is_file())
             verified = self.run_cli(
                 "verify", "--artifact", str(receipt), "--schema", "context-receipt",
                 "--identity-field", "receipt_id",
@@ -372,10 +505,15 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             self.assertEqual(0, verified.returncode, verified.stderr.decode())
             blocked = self.run_cli(
                 "prepare-review", "--repository", str(repository),
-                "--policy", str(policy_path), "--sources", str(sources),
+                "--policy", str(policy_path), "--task", str(task_path),
+                "--gate-summary", str(gate_summary),
+                "--mutation-summary", str(mutation_summary),
+                "--context-qualification", str(qualification_path),
                 "--candidate", str(candidate_path), "--profile", "COMPACT",
                 "--token-budget", "1",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
+                "--observed-at", "2026-08-26T10:00:00Z",
+                "--sources-output", "artifacts/governance/small-sources.json",
                 "--projection-output", "artifacts/governance/small-projection.json",
                 "--receipt-output", "artifacts/governance/small-receipt.json",
             )
@@ -388,9 +526,14 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             mismatch = self.run_cli(
                 "prepare-review", "--repository", str(repository),
                 "--policy", str(policy_path), "--sources", str(tampered_path),
-                "--candidate", str(candidate_path), "--profile", "STANDARD",
-                "--token-budget", "24000", "--model", "gpt-5.6-sol",
+                "--task", str(task_path), "--gate-summary", str(gate_summary),
+                "--mutation-summary", str(mutation_summary),
+                "--context-qualification", str(qualification_path),
+                "--candidate", str(candidate_path), "--profile", "DEEP",
+                "--token-budget", "64000", "--model", "gpt-5.6-sol",
                 "--reasoning-effort", "xhigh",
+                "--observed-at", "2026-08-26T10:00:00Z",
+                "--sources-output", "artifacts/governance/tampered-sources.json",
                 "--projection-output", "artifacts/governance/tampered-projection.json",
                 "--receipt-output", "artifacts/governance/tampered-receipt.json",
             )
@@ -474,7 +617,11 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "sandbox_capabilities", "provenance_statements", "gate_manifest",
                 "required_gate_ids", "mutation_corpus", "mutation_baseline",
                 "mutant_records", "reviewer_qualification",
-                "rapid_review_qualification", "context_receipt",
+                "rapid_review_qualification", "reviewer_qualification_cases",
+                "rapid_review_qualification_cases",
+                "reviewer_qualification_corpus",
+                "reviewer_qualification_label_decision", "context_sources",
+                "context_projection", "context_qualification", "context_receipt",
                 "context_execution_receipt", "reviewer_result",
                 "reviewer_execution", "rapid_review_executions",
                 "rapid_review_context_execution_receipts",

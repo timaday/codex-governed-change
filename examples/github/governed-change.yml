@@ -104,8 +104,8 @@ jobs:
         env:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          OBSERVED_AT: ${{ github.event.pull_request.updated_at }}
         run: |
+          OBSERVED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas run-gates \
             --repository candidate \
             --policy "$POLICY" \
@@ -131,20 +131,21 @@ jobs:
 
       - name: Compile context and reviewer allowlist
         run: |
-          test -f authority/.governance/ci/prepare-context-sources.py
-          python3 authority/.governance/ci/prepare-context-sources.py \
-            --authority authority \
-            --candidate candidate \
-            --evidence "$ARTIFACT_ROOT"
+          OBSERVED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas prepare-review \
             --repository candidate \
             --policy "$POLICY" \
-            --sources "$ARTIFACT_ROOT/context-sources.json" \
+            --task "$TASK" \
+            --gate-summary "$ARTIFACT_ROOT/gate-summary.json" \
+            --mutation-summary "$ARTIFACT_ROOT/mutation-summary.json" \
+            --context-qualification authority/.governance/context-qualifications/DEEP.json \
             --candidate "$CANDIDATE" \
             --profile DEEP \
             --token-budget 64000 \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --observed-at "$OBSERVED_AT" \
+            --sources-output "$ARTIFACT_REPOSITORY_ROOT/context-sources.json" \
             --projection-output "$ARTIFACT_REPOSITORY_ROOT/context-projection.json" \
             --receipt-output "$ARTIFACT_REPOSITORY_ROOT/context-receipt.json"
           test -f authority/.governance/ci/prepare-review-inputs.py
@@ -215,6 +216,8 @@ jobs:
             --output artifacts/governance/reviewer-result.json \
             --execution-output artifacts/governance/reviewer-execution.json \
             --context-execution-output artifacts/governance/context-execution-receipt.json \
+            --stdout-output artifacts/governance/reviewer-stdout.jsonl \
+            --stderr-output artifacts/governance/reviewer-stderr.txt \
             --workflow-system github-actions \
             --run-id "${{ github.run_id }}" \
             --attempt "${{ github.run_attempt }}" \
@@ -239,6 +242,8 @@ jobs:
               --output "artifacts/governance/rapid-review-sessions/$session_name.json" \
               --execution-output "artifacts/governance/rapid-review-executions/$session_name.json" \
               --context-execution-output "artifacts/governance/rapid-review-context-executions/$session_name.json" \
+              --stdout-output "artifacts/governance/rapid-review-executions/$session_name.stdout.jsonl" \
+              --stderr-output "artifacts/governance/rapid-review-executions/$session_name.stderr.txt" \
               --workflow-system github-actions \
               --run-id "${{ github.run_id }}" \
               --attempt "${{ github.run_attempt }}" \
@@ -319,9 +324,8 @@ jobs:
           path: candidate/artifacts/governance
 
       - name: Reconstruct and require READY_FOR_HUMAN
-        env:
-          EVALUATED_AT: ${{ github.event.pull_request.updated_at }}
         run: |
+          EVALUATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas import-reviewer-result \
             --repository candidate \
             --source candidate/artifacts/governance/reviewer-result.json \

@@ -49,6 +49,8 @@ No model confidence statement is an oracle.
 - A default container that blocks nested user namespaces MUST use the exact
   inherited seccomp signal/ptrace guard without relaxing the container sandbox;
   unsupported architectures or a missing guard handshake MUST fail closed.
+- A seccomp-fallback reviewer that calls `prlimit64` against its known same-UID
+  parent MUST receive `EPERM`; the parent and its cleanup boundary MUST survive.
 - On x86_64, an x32-tagged `kill(..., 0)` probe MUST receive the guard's `EPERM`
   even when the host kernel would otherwise report that the x32 ABI is absent;
   reaching native or x32 kernel dispatch is a containment failure.
@@ -58,6 +60,16 @@ No model confidence statement is an oracle.
   cannot establish initial success, plus a forced stream-close stall that MUST
   return bounded `UNKNOWN` rather than hang.
 - Fake Codex executable that records argv/stdin/environment and emits controlled results.
+- A reviewer that retains stdin without reading a payload larger than the pipe
+  capacity; stdin delivery MUST remain inside the monotonic deadline, terminate
+  the trusted boundary, and return `UNKNOWN` without hanging.
+- A fake container provider proving that a timeout kills the local provider
+  client, forcibly removes the exact supervisor-owned immutable container ID,
+  verifies both ID and reserved name are absent, permanently rejects any
+  cleanup-time rename/substitution even if later queries show absence,
+  and remains `UNKNOWN` when bounded create, identity or removal proof is
+  unavailable. A delayed create that completes after its client is stopped MUST
+  never be admitted as complete cleanup.
 - Native Codex sandbox canary proving that the sanitized workspace is readable,
   an external host canary is unreadable, network is disabled, and tool
   environments omit home, Codex-home, proxy, authentication and injected secret
@@ -112,6 +124,35 @@ No model confidence statement is an oracle.
   qualification lane after deterministic tests.
 
 The deterministic suite MUST NOT require a live model, network, API key, or GitHub account.
+
+Hostile descendant tests intentionally require a signal-capable Linux runtime.
+When an outer sandbox itself denies process-signal syscalls, those tests fail
+closed rather than skip or weaken assertions. Protected gate evidence therefore
+records runner capability separately from the read-only reviewer process that
+audits source and retained evidence.
+
+Producer-identity tests mutate every Python file in a copied trusted package and
+require both gate and mutation identities to change. Evidence/locator tests race
+parent and leaf replacement and exercise symlink, FIFO and oversized leaves
+through the descriptor-bound reader. Gate-log canaries cover secret-shaped
+tokens, host values and supervisor paths and verify that ambiguous secret
+redaction forces `UNKNOWN` without persisting the canary.
+
+Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
+IPv4/local endpoints and generic host paths. Exact-value normalization is
+reported; ambiguous pattern normalization forces `UNKNOWN`, and no original
+bytes may enter retained evidence.
+
+Context reconstruction tests independently alter every protected source class,
+adverse signal, inventory/closure entry, profile qualification, source bundle,
+projection, inclusion/exclusion reason and metric while re-addressing outer
+documents. Every mismatch blocks. Reviewer-result tests omit changed/closure
+paths and introduce unresolved mandatory claims under a success verdict.
+
+The required-workflow oracle captures current UTC inside the trusted disposition
+job. A rerun after a decision or waiver expires fails even when the original
+pull-request event timestamp remains inside the old validity interval;
+evaluation before manifest creation also fails closed.
 
 The seeded-defect suite also attempts to replace an existing schema-valid CLI
 output, alter a referenced raw execution stream, force unrelated producers to
@@ -323,7 +364,19 @@ Fixtures must prove:
 
 Human-labelled seeded critical defects and prompt injections qualify each review
 mode's exact prompt, schema, model and material launcher identity; a conformance
-qualification cannot authorize the rapid-review schema. Compare
+qualification cannot authorize the rapid-review schema. Compare the protected
+typed corpus and every immutable per-case execution with the recorded human
+labels only when the typed label-decision ID is authenticated by the protected
+decision source. Deterministically reconstruct each synthetic candidate from the
+corpus bytes. Resolve and re-hash each normalized captured stdout/stderr stream,
+verify fixed runtime-value redaction and absence of machine values, parse and
+reconcile the final Codex JSONL message/thread/usage, validate the mode-specific
+result schema and content-addressed reviewer-execution statement, independently
+derive capture/cleanup/binding state from primitive observations, and bind them
+to the exact case and qualification identity,
+then independently recompute case counts, critical recall, false pass/block,
+unknown, latency and the qualified flag. Reject missing, substituted,
+expired-only, self-asserted or internally inconsistent qualification evidence. Compare
 COMPACT/STANDARD/DEEP and
 optimization variants using critical recall, false pass/block, unknown rate,
 mutation kill, RST findings, traceability, unresolved unknowns, tokens, bytes,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -18,7 +20,13 @@ from codex_governance.attestation import build_provenance_statement
 from codex_governance.canonical import canonical_json_bytes, normalize_repo_path, sha256_bytes
 from codex_governance.domain.model import GateStatus
 from codex_governance.lifecycle import parse_rfc3339
-from codex_governance.sandbox import SandboxInvocation, validate_sandbox_capability
+from codex_governance.sandbox import (
+    SandboxInvocation,
+    build_container_start_command,
+    cleanup_container,
+    create_container,
+    validate_sandbox_capability,
+)
 
 
 def classify_gate_result(
@@ -82,32 +90,104 @@ def _utc_now() -> str:
 def _redact_runtime_paths(
     data: bytes, sandbox_invocation: SandboxInvocation | None
 ) -> tuple[bytes, list[dict[str, Any]]]:
-    """Remove supervisor-only machine paths before evidence enters a repository."""
-    if sandbox_invocation is None:
-        return data, []
+    """Remove known host values and credential-shaped bytes before persistence."""
     replacements: list[tuple[bytes, bytes, str]] = []
-    for value, replacement, category in (
-        (
-            sandbox_invocation.candidate_copy,
-            b"<SANDBOX_CANDIDATE>",
-            "sandbox_candidate_path",
-        ),
-        (
-            sandbox_invocation.supervisor_cwd,
-            b"<SANDBOX_SUPERVISOR>",
-            "supervisor_path",
-        ),
-    ):
-        if isinstance(value, Path):
-            encoded = os.fsencode(value)
-            if encoded:
-                replacements.append((encoded, replacement, category))
+    if sandbox_invocation is not None:
+        for value, replacement, category in (
+            (
+                sandbox_invocation.candidate_copy,
+                b"<SANDBOX_CANDIDATE>",
+                "sandbox_candidate_path",
+            ),
+            (
+                sandbox_invocation.supervisor_cwd,
+                b"<SANDBOX_SUPERVISOR>",
+                "supervisor_path",
+            ),
+        ):
+            if isinstance(value, Path):
+                encoded = os.fsencode(value)
+                if encoded:
+                    replacements.append((encoded, replacement, category))
+    try:
+        hostname = socket.gethostname()
+    except OSError:
+        hostname = ""
+    host_values = {
+        hostname,
+        *(os.environ.get(key, "") for key in (
+            "HOME", "USERPROFILE", "HOSTNAME", "COMPUTERNAME",
+            "SSL_CERT_FILE", "SSL_CERT_DIR", "TMPDIR", "TMP", "TEMP",
+        )),
+    }
+    path_value = os.environ.get("PATH", "")
+    host_values.update(path_value.split(os.pathsep))
+    for value in sorted(host_values):
+        encoded = os.fsencode(value)
+        if len(encoded) >= 4:
+            replacements.append(
+                (encoded, b"<REDACTED_HOST_VALUE>", "host_value")
+            )
+    for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"):
+        encoded = os.fsencode(os.environ.get(key, ""))
+        if len(encoded) >= 4:
+            replacements.append(
+                (encoded, b"<REDACTED_CREDENTIAL>", "credential")
+            )
     result = data
     redactions: list[dict[str, Any]] = []
-    for original, replacement, category in replacements:
+    seen: set[bytes] = set()
+    for original, replacement, category in sorted(
+        replacements, key=lambda item: len(item[0]), reverse=True
+    ):
+        if original in seen:
+            continue
+        seen.add(original)
         occurrences = result.count(original)
         if occurrences:
             result = result.replace(original, replacement)
+            redactions.append(
+                {
+                    "category": category,
+                    "replacement": replacement.decode("ascii"),
+                    "occurrences": occurrences,
+                }
+            )
+    patterns = (
+        (
+            re.compile(
+                rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
+                rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+                re.DOTALL,
+            ),
+            "credential",
+        ),
+        (
+            re.compile(
+                rb"(?i)\b(?:api[_-]?key|token|secret|password|passwd|authorization)"
+                rb"\s*[:=]\s*[^\s,;]+"
+            ),
+            "credential",
+        ),
+        (re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{16,}\b"), "credential"),
+        (re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"), "credential"),
+        (re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), "credential"),
+        (
+            re.compile(
+                rb"(?:/" + rb"home" + rb"/|/" + rb"Users" + rb"/)"
+                rb"[^/\s]+|[A-Za-z]:\\" + rb"Users" + rb"\\[^\\\s]+"
+            ),
+            "generic_host_path",
+        ),
+    )
+    for pattern, category in patterns:
+        replacement = (
+            b"<REDACTED_HOST_PATH>"
+            if category == "generic_host_path"
+            else b"<REDACTED_CREDENTIAL>"
+        )
+        result, occurrences = pattern.subn(replacement, result)
+        if occurrences:
             redactions.append(
                 {
                     "category": category,
@@ -171,8 +251,15 @@ def _linux_process_group_is_zombie_only(process_group: int) -> bool:
     return matched
 
 
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> bool:
+def _remaining(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen[bytes], *, deadline: float | None = None
+) -> bool:
     """Terminate an isolated process tree and report whether cleanup was proven."""
+    cleanup_deadline = deadline if deadline is not None else time.monotonic() + 3.2
     if os.name == "posix":
         process_group = process.pid
         try:
@@ -181,12 +268,15 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> bool:
             pass
         except OSError:
             return False
-        try:
-            process.wait(timeout=0.2)
-        except subprocess.TimeoutExpired:
-            pass
+        if _remaining(cleanup_deadline) > 0:
+            try:
+                process.wait(timeout=min(0.2, _remaining(cleanup_deadline)))
+            except subprocess.TimeoutExpired:
+                pass
         if _posix_process_group_exited(
-            process_group, 1.0, allow_zombie_only=True
+            process_group,
+            min(1.0, _remaining(cleanup_deadline)),
+            allow_zombie_only=True,
         ):
             return process.poll() is not None
         try:
@@ -195,30 +285,37 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> bool:
             pass
         except OSError:
             return False
+        if _remaining(cleanup_deadline) <= 0:
+            return process.poll() is not None and _posix_process_group_exited(
+                process_group, 0.0, allow_zombie_only=True
+            )
         try:
-            process.wait(timeout=1.0)
+            process.wait(timeout=min(1.0, _remaining(cleanup_deadline)))
         except subprocess.TimeoutExpired:
             return False
         return _posix_process_group_exited(
-            process_group, 1.0, allow_zombie_only=True
+            process_group,
+            min(1.0, _remaining(cleanup_deadline)),
+            allow_zombie_only=True,
         )
 
     try:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=1.0)
+            process.wait(timeout=_remaining(cleanup_deadline))
         return process.poll() is not None
     except (OSError, subprocess.TimeoutExpired):
         try:
             process.kill()
-            process.wait(timeout=1.0)
+            process.wait(timeout=_remaining(cleanup_deadline))
         except (OSError, subprocess.TimeoutExpired):
             return False
         return process.poll() is not None
 
 
 def _close_process_streams(
-    process: subprocess.Popen[bytes], *, timeout: float = 0.2
+    process: subprocess.Popen[bytes], *, timeout: float = 0.2,
+    deadline: float | None = None,
 ) -> bool:
     """Close captured streams without letting a buffered close stall control flow."""
     close_threads: list[threading.Thread] = []
@@ -235,9 +332,11 @@ def _close_process_streams(
         thread = threading.Thread(target=close, args=(stream,), daemon=True)
         close_threads.append(thread)
         thread.start()
-    deadline = time.monotonic() + max(0.0, timeout)
+    close_deadline = (
+        deadline if deadline is not None else time.monotonic() + max(0.0, timeout)
+    )
     for thread in close_threads:
-        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        thread.join(timeout=_remaining(close_deadline))
     return not any(thread.is_alive() for thread in close_threads)
 
 
@@ -281,12 +380,15 @@ def run_gate(
     before = candidate_supplier()
     started_at = _utc_now()
     started = time.monotonic_ns()
+    deadline = time.monotonic() + timeout_seconds
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
     termination: dict[str, Any]
     observation_complete = True
     return_code: int | None = None
     threads: list[threading.Thread] = []
+    container_cleanup_complete = True
+    container_id: str | None = None
     capability_report = (
         dict(sandbox_invocation.capability_report)
         if isinstance(sandbox_invocation, SandboxInvocation)
@@ -311,8 +413,19 @@ def run_gate(
             creationflags = (
                 subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
             )
+            runtime_argv = list(sandbox_invocation.argv)
+            if sandbox_invocation.container_provider is not None:
+                remaining = deadline - time.monotonic()
+                container_id = create_container(
+                    sandbox_invocation, timeout_seconds=remaining
+                )
+                if container_id is None:
+                    raise OSError("container identity unavailable")
+                runtime_argv = build_container_start_command(
+                    sandbox_invocation, container_id
+                )
             process = subprocess.Popen(
-                list(sandbox_invocation.argv),
+                runtime_argv,
                 cwd=sandbox_invocation.supervisor_cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
@@ -333,7 +446,10 @@ def run_gate(
             for thread in threads:
                 thread.start()
             try:
-                return_code = process.wait(timeout=timeout_seconds)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(runtime_argv, timeout_seconds)
+                return_code = process.wait(timeout=remaining)
                 if return_code < 0:
                     termination = {"kind": "signal", "signal": str(-return_code)}
                     observation_complete = False
@@ -342,7 +458,8 @@ def run_gate(
             except subprocess.TimeoutExpired:
                 termination = {"kind": "timeout"}
                 observation_complete = False
-                _terminate_process_tree(process)
+                if not _terminate_process_tree(process):
+                    observation_complete = False
         except OSError as exc:
             termination = {
                 "kind": "launch_error",
@@ -350,6 +467,12 @@ def run_gate(
             }
             observation_complete = False
         finally:
+            if sandbox_invocation.container_provider is not None:
+                container_cleanup_complete = cleanup_container(
+                    sandbox_invocation, container_id
+                )
+                if not container_cleanup_complete:
+                    observation_complete = False
             for thread in threads:
                 thread.join(timeout=3)
                 if thread.is_alive():
@@ -380,6 +503,12 @@ def run_gate(
         bytes(stderr_capture.data), sandbox_invocation
     )
     redactions = stdout_redactions + stderr_redactions
+    ambiguous_redaction = any(
+        item.get("category") in {"credential", "generic_host_path"}
+        for item in redactions
+    )
+    if ambiguous_redaction:
+        observation_complete = False
     stdout_path = f"{prefix}/stdout.bin"
     stderr_path = f"{prefix}/stderr.bin"
     artifact_store.write_bytes(stdout_path, stdout)
@@ -405,6 +534,12 @@ def run_gate(
         limitations.append("process observation was incomplete")
     if not capability_valid:
         limitations.append("required disposable sandbox capability was unavailable")
+    if not container_cleanup_complete:
+        limitations.append("sandbox container cleanup could not be proven")
+    if ambiguous_redaction:
+        limitations.append(
+            "secret-shaped or unbound host data was redacted; output evidence is ambiguous"
+        )
     provenance = build_provenance_statement(
         repository_id=repository_id,
         candidate_id=before,
@@ -430,6 +565,7 @@ def run_gate(
             "max_output_bytes": max_output_bytes,
             "process_limit": max(1, int((capability_report or {}).get("process_limit", 1))),
             "memory_bytes": max(1, int((capability_report or {}).get("memory_bytes", 1))),
+            "cpu_seconds": max(1, int((capability_report or {}).get("cpu_seconds", 1))),
         },
         artifacts=[
             {"name": "stdout", "sha256": sha256_bytes(stdout)},

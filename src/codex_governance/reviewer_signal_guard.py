@@ -38,6 +38,7 @@ DENIED_SYSCALLS = {
         131,  # tgkill
         138,  # rt_sigqueueinfo
         240,  # rt_tgsigqueueinfo
+        261,  # prlimit64
         271,  # process_vm_writev
         424,  # pidfd_send_signal
         440,  # process_madvise
@@ -49,10 +50,16 @@ DENIED_SYSCALLS = {
         200,  # tkill
         234,  # tgkill
         297,  # rt_tgsigqueueinfo
+        302,  # prlimit64
         311,  # process_vm_writev
         424,  # pidfd_send_signal
         440,  # process_madvise
     ),
+}
+
+PRLIMIT64_SYSCALLS = {
+    "aarch64": 261,
+    "x86_64": 302,
 }
 
 
@@ -135,6 +142,7 @@ def _write_handshake(descriptor: int) -> bool:
             "cross_process_write_blocked": True,
             "no_new_privs": True,
             "process_signals_blocked": True,
+            "resource_limit_changes_blocked": True,
         },
         sort_keys=True,
         separators=(",", ":"),

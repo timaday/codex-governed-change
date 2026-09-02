@@ -279,10 +279,17 @@ The launcher MUST:
   configuration in a content-addressed reviewer-execution statement that also
   binds the Codex thread and CLI versions, workflow run/attempt, limits,
   materials, prompt/schema/model/qualification/launcher identities,
-  termination, output, candidate pre/post identity and CLI-reported token usage;
+  termination, primitive supervisor/capture observations, direct write-once
+  normalized stdout/stderr references, output, candidate pre/post identity and
+  CLI-reported token usage;
 - classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
 
-A zero-exit reviewer parent is not complete process observation. Both bounded
+A zero-exit reviewer parent is not complete process observation. Stdin delivery
+MUST run in a bounded writer and share one absolute launcher deadline with
+process waiting, stream closure, capture joins and forced cleanup. Process
+execution reserves part of that same bound for cleanup; no phase receives a
+fresh timeout after the deadline. A reviewer that retains but does not read
+stdin forces bounded termination and `UNKNOWN`. Both bounded
 stdout and stderr capture threads MUST reach EOF and a trusted descendant
 boundary MUST prove that no live descendant remains before reviewer output can
 be valid. Changing process group or session, closing every standard stream, or
@@ -291,10 +298,12 @@ reference adapter prefers placing the reviewer behind trusted PID 1 in a fresh
 user, PID and mount namespace whose trusted parent remains outside the
 reviewer-visible PID namespace; PID-1 exit or parent death tears down the
 complete namespace. Where nested namespaces are kernel-blocked, a
-`no_new_privs` seccomp guard MUST instead deny every process-signal and
-cross-process-write syscall for the reviewer and all descendants before exec,
-making the same-UID outer child-subreaper non-signalable. The subreaper proves
-and performs bounded descendant cleanup on that fallback. If neither exact
+`no_new_privs` seccomp guard MUST instead deny every process-signal,
+cross-process-write, and cross-process resource-limit mutation syscall for the
+reviewer and all descendants before exec, making the same-UID outer
+child-subreaper non-signalable and preventing `prlimit64` from terminating or
+crippling it indirectly. The subreaper proves and performs bounded descendant
+cleanup on that fallback. If neither exact
 kernel boundary is available, the result is `UNKNOWN` before the reviewer is
 admitted. On x86_64 the guard MUST reject the complete x32-tagged syscall
 number space before native syscall dispatch; checking only native x86_64
@@ -305,6 +314,14 @@ capture joins MUST remain time-bounded. Any live descendant, missing containment
 handshake or incomplete capture permanently forces `UNKNOWN`; later cleanup
 completion cannot promote it.
 
+Before retained reviewer streams are hashed or persisted, the trusted launcher
+MUST replace harness, executable-runtime, home, authentication-home, temporary,
+proxy and other allowlisted parent-environment values with a fixed portable
+token. Parsing and execution-statement digests use those normalized captured
+bytes. Recognized credential-, endpoint- or generic host-path-shaped values are
+also replaced before persistence, but that ambiguous transformation permanently
+forces `UNKNOWN`. Truncation, retained machine values or malformed JSONL block.
+
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
 The prompt, output schema, model, Codex CLI version and material launcher configuration form one
@@ -314,7 +331,24 @@ IDs even when their prompt, model and launcher are otherwise identical. A
 protected human-labelled defect and prompt-injection corpus records critical
 recall, false pass/block, unknown, latency and cost for each identity. A material
 identity change invalidates only that exact qualification and cannot fall back to
-the identity for another mode.
+the identity for another mode. Qualification acceptance MUST bind the exact
+approved corpus and the authenticated label-decision ID, and that decision ID
+MUST be present in the protected decision-source result. Corpus, label-decision
+and case-evidence representations are typed and content-addressed. Each case
+MUST deterministically reconstruct its full candidate identity from the exact
+corpus paths, modes and UTF-8 file bytes; resolve and re-hash its stored
+normalized stdout/stderr capture streams; parse the final Codex JSONL agent
+message, thread and usage; schema-validate that message against the retained
+reviewer output; derive capture, cleanup, binding and execution validity from
+primitive supervisor observations; bind the execution to the exact case plus
+prompt/schema/model/launcher/Codex identity; and independently recompute every
+aggregate. Self-reported execution booleans, supplied digest-shaped candidate
+IDs or unverified issuer prose are not execution or human authority.
+A typed coverage-class field identifies seeded-defect, prompt-injection and
+clean-control cases. Every exact identity and review mode MUST exercise all three
+classes; one deliberately injected seeded-defect case may cover both of the first
+two classes, but a corpus missing any class cannot qualify.
+A content-addressed summary is not sufficient evidence of its own claims.
 High/critical policy may require a human specialist or genuinely diverse lane;
 disagreement is a defeater, not a majority vote. Whole-repository architecture
 and security audit is a separate scheduled/major-change workflow.
@@ -327,9 +361,12 @@ configuration into an active layer. Authentication may remain in the normal
 Codex home, but no authentication file or value enters the harness, prompt,
 result, or evidence manifest. The launcher MUST re-observe the live candidate
 before and after the reviewer process. A trusted post-run phase MUST persist the
-reviewer result, reviewer-execution statement and a context-execution receipt
-linked to the immutable prepared receipt. The execution statement binds both
-receipts and the output without creating a circular content address. Admission MUST reconstruct those links;
+reviewer result, normalized stdout and stderr bytes, reviewer-execution statement
+and a context-execution receipt linked to the immutable prepared receipt. The
+execution statement binds both receipts, both direct stream references and the
+output without creating a circular content address. Admission MUST resolve the
+raw streams, reconstruct their JSONL result/usage and primitive observation
+facts, and then reconstruct those links;
 a schema-valid reviewer document or ambient workflow success is insufficient.
 
 ## 9. Affected closure and repository audit
@@ -396,6 +433,12 @@ An LLM cannot create, approve, extend or infer a waiver. Expired, mismatched, mi
 
 - Artifact logs MUST be bounded, hashed and redacted before model exposure.
 - Redaction MUST be deterministic and reported; it MUST NOT conceal required causal evidence.
+- Protected normalization MUST remove exact supervisor/host values and
+  secret-shaped credentials before persistence. A secret-shaped replacement is
+  evidence ambiguity and forces `UNKNOWN`; exact proxy-environment values are
+  credential-class values even when their syntax is not independently
+  recognized. Known supervisor-path replacement may remain usable when its
+  category and count are recorded.
 - Reviewer prompts and outputs MUST NOT request or store hidden chain-of-thought.
 - Authentication files, API keys and environment secrets MUST never be committed or included in evidence.
 - Audit records SHOULD contain versions, hashes, times, exit states and limitations, not unnecessary source copies or personal data.
@@ -463,6 +506,23 @@ time/output limits, and no writable protected governance, supervisor, reviewer
 harness or authoritative evidence path. The supervisor records its capability
 report. If that boundary cannot be established, the gate is `UNKNOWN` and
 admission blocks. A separate directory or path validation alone is not a sandbox.
+For a container provider, the trusted supervisor MUST allocate a runtime-only
+name and ID file outside the candidate, finish a bounded `create` transaction,
+and validate the immutable container ID and reserved name before starting the
+timed attached command. The capability explicitly records the pinned image and
+canonical candidate command; admission independently reconstructs its execution
+identity from protected provider/version/image/command and every process, memory,
+CPU, timeout and output bound. After every exit path it MUST resolve any identity that
+appears after a client timeout, forcibly remove only exact immutable IDs, and
+quarantine the reserved name until repeated successful all-container listing
+queries prove both the ID and exact name stably absent. A non-zero or malformed
+provider response is ambiguous, never proof of absence. Killing only the local
+provider CLI, accepting a missing ID, ignoring a failed remove, or relying on
+one pre-completion name query is not container cleanup. Delayed creation,
+failed removal, missing identity or an inconclusive absence check makes process
+observation incomplete and therefore `UNKNOWN`. Any observed rename of the
+original ID or same-name substitution permanently taints the transaction; later
+removal or absence cannot restore certainty.
 Every gate receives a newly reconstructed candidate copy. A writable copy is
 never reused by a later gate, so an earlier command cannot replace the source,
 tests or configuration observed by a sibling gate. Before launch, the trusted
@@ -579,12 +639,26 @@ to a context receipt. Stable rubric content precedes candidate-specific deltas;
 unchanged content is referenced by digest. Prompt caching is recorded only when
 reported by the active interface and never reduces logical assurance input.
 
-The receipt binds projection/profile version, source/projection digests,
+Caller input is never aggregation authority. The protected compiler resolves
+typed digest-bound task, policy, gate, mutation, risk, limitation, unknown and
+rubric artifacts; independently re-identifies repository inventory and affected
+closure; derives adverse profile signals; and rejects any supplied summary or
+flag that differs. Every projection-version/profile combination binds a
+protected content-addressed context-qualification artifact and the exact
+qualification ID declared by effective policy.
+
+The source bundle, projection and prepared receipt are separate immutable
+referenced artifacts. The receipt binds projection/profile version,
+context-qualification identity, source/projection digests,
 included sources, excluded sources with deterministic reasons, estimated and
 actual tokens where available, bytes, truncation, retrieval expansions, model,
 effort, latency and cost when available. Mandatory information is never silently
 truncated. The compiler escalates or returns
 `CONTEXT_BUDGET_INSUFFICIENT` with `UNKNOWN/BLOCK`.
+
+Admission descriptor-reads those artifacts and independently reconstructs their
+source inventory, closure, signal/profile decision, inclusion choices, digests
+and metrics. A self-consistent or content-addressed summary alone is not proof.
 
 Context variants require representative seeded-defect/governance qualification.
 They are promoted only if critical recall, evidence traceability and disposition
@@ -594,7 +668,13 @@ manifests, not embeddings or a vector database.
 
 ## 19. Schema lifecycle and portability
 
-Schemas define supported versions and migration behavior. Syntax validation is
+Schemas define supported versions and migration behavior. The qualification
+evidence additions are breaking: `effective-policy`, `evidence-manifest`, and
+`reviewer-qualification` are `2.0.0`; `reviewer-qualification-cases` is `2.0.0`
+with full candidate evidence; `reviewer-qualification-corpus` is `2.0.0` with
+mandatory typed case classes; and `reviewer-execution` is `3.0.0` with primitive
+observation plus direct stream references. Migration from each immediately
+preceding version is explicit. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time
 ordering, digest/reference relationships and lifecycle constraints. Unsupported
 or ambiguous versions block. The domain remains independent of JSON, Git,
@@ -605,6 +685,20 @@ code plus declared Git/Codex and an optional local sandbox executable. No HiveGa
 code, service or schema is a runtime dependency. Repository files and committed
 examples MUST NOT contain a developer path, username, hostname, local endpoint,
 credential or machine-derived configuration/evidence.
+
+Every authoritative repository/evidence read opens the resolved repository
+directory and each child relative to a retained directory descriptor. Leaf opens
+use no-follow and nonblocking flags, then `fstat` proves a bounded regular file
+before bytes are read through that descriptor. Pathname validation followed by a
+later pathname read is not an admissible fallback; unavailable descriptor-bound
+access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
+materializing permitted evidence into the reviewer harness.
+
+Gate and mutation implementation identities hash a canonical manifest containing
+the repository-relative filename, byte length and SHA-256 digest of every Python
+file in the trusted package closure. The producer kind is framed separately.
+Changing any shared producer dependency changes the asserted identity and makes
+earlier evidence incompatible.
 
 ## 20. Acceptance rule
 

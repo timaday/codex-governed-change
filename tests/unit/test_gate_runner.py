@@ -16,7 +16,7 @@ from codex_governance.gate import (
     _posix_process_group_exited,
     run_gate,
 )
-from codex_governance.sandbox import SandboxInvocation
+from codex_governance.sandbox import SandboxInvocation, sandbox_execution_identity
 
 
 class GateRunnerTest(unittest.TestCase):
@@ -72,14 +72,27 @@ class GateRunnerTest(unittest.TestCase):
         }
         values.update(overrides)
         if "sandbox_invocation" not in overrides:
+            execution_identity = sandbox_execution_identity(
+                provider="docker",
+                provider_version="test",
+                image="python@sha256:" + "a" * 64,
+                command=list(values["command"]),
+                process_limit=8,
+                memory_bytes=1000000,
+                cpu_seconds=2,
+                timeout_seconds=2,
+                output_bytes=64,
+            )
             report = content_address(
                 {
                     "schema_version": "1.0.0",
-                    "provider": "unit-fixture",
+                    "provider": "docker",
                     "provider_version": "test",
+                    "image": "python@sha256:" + "a" * 64,
+                    "command": list(values["command"]),
                     "implementation_sha256": "sha256:" + "1" * 64,
                     "source_identity": self.CANDIDATE,
-                    "execution_identity": "sha256:" + "2" * 64,
+                    "execution_identity": execution_identity,
                     "disposable": True,
                     "secrets_present": False,
                     "network_mode": "none",
@@ -127,6 +140,85 @@ class GateRunnerTest(unittest.TestCase):
         drift = self.observe("pass", candidate_supplier=lambda: next(identities))
         self.assertEqual("UNKNOWN", drift["status"])
 
+    def test_container_cleanup_runs_after_timeout_and_unproven_cleanup_blocks(self) -> None:
+        command = [sys.executable, "-c", "import time; time.sleep(10)"]
+        report = content_address(
+            {
+                "schema_version": "1.0.0",
+                "provider": "docker",
+                "provider_version": "fixture",
+                "image": "python@sha256:" + "a" * 64,
+                "command": command,
+                "implementation_sha256": "sha256:" + "1" * 64,
+                "source_identity": self.CANDIDATE,
+                "execution_identity": sandbox_execution_identity(
+                    provider="docker",
+                    provider_version="fixture",
+                    image="python@sha256:" + "a" * 64,
+                    command=command,
+                    process_limit=8,
+                    memory_bytes=1000000,
+                    cpu_seconds=2,
+                    timeout_seconds=2,
+                    output_bytes=64,
+                ),
+                "disposable": True,
+                "secrets_present": False,
+                "network_mode": "none",
+                "candidate_copy_writable": True,
+                "protected_paths_writable": False,
+                "evidence_paths_writable": False,
+                "supervisor_paths_writable": False,
+                "process_limit": 8,
+                "memory_bytes": 1000000,
+                "cpu_seconds": 2,
+                "timeout_seconds": 2,
+                "output_bytes": 64,
+                "verified_at": "2026-08-26T10:00:00Z",
+                "limitations": ["unit fixture"],
+            },
+            "capability_id",
+        )
+        invocation = SandboxInvocation(
+            (sys.executable, "-c", "import time; time.sleep(5)"),
+            report,
+            self.sandbox_area,
+            self.sandbox_area,
+            "docker",
+            "codex-governance-fixture",
+            self.sandbox_area / "fixture.cid",
+        )
+        container_id = "a" * 64
+        with (
+            patch("codex_governance.gate.create_container", return_value=container_id),
+            patch(
+                "codex_governance.gate.build_container_start_command",
+                return_value=[sys.executable, "-c", "import time; time.sleep(5)"],
+            ),
+            patch("codex_governance.gate.cleanup_container", return_value=True) as cleanup,
+        ):
+            timed_out = self.observe(
+                "pass",
+                sandbox_invocation=invocation,
+                timeout_seconds=0.05,
+            )
+        cleanup.assert_called_once_with(invocation, container_id)
+        self.assertEqual("timeout", timed_out["termination"]["kind"])
+        with (
+            patch("codex_governance.gate.create_container", return_value=container_id),
+            patch(
+                "codex_governance.gate.build_container_start_command",
+                return_value=[sys.executable, "-c", "pass"],
+            ),
+            patch("codex_governance.gate.cleanup_container", return_value=False),
+        ):
+            incomplete = self.observe("pass", sandbox_invocation=invocation)
+        self.assertEqual("UNKNOWN", incomplete["status"])
+        self.assertIn(
+            "sandbox container cleanup could not be proven",
+            incomplete["limitations"],
+        )
+
     def test_missing_sandbox_never_falls_back_to_host_execution(self) -> None:
         marker = self.repository / "must-not-exist"
         result = self.observe(
@@ -152,6 +244,70 @@ class GateRunnerTest(unittest.TestCase):
         self.assertNotIn(str(self.sandbox_area).encode(), output)
         self.assertIn(b"<SANDBOX_CANDIDATE>", output)
         self.assertTrue(result["redactions"])
+
+    def test_secret_shaped_and_unbound_host_values_never_enter_evidence(self) -> None:
+        token = "gh" + "p_" + "A" * 32
+        private_home = "/" + "home" + "/private-person/work"
+        result = self.observe(
+            f"print({token!r}); print({private_home!r})",
+            max_output_bytes=1024,
+        )
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(token.encode(), output)
+        self.assertNotIn(private_home.encode(), output)
+        self.assertIn(b"<REDACTED_CREDENTIAL>", output)
+        self.assertIn(b"<REDACTED_HOST_PATH>", output)
+        self.assertEqual(
+            {"credential", "generic_host_path"},
+            {
+                item["category"]
+                for item in result["redactions"]
+                if item["category"] in {"credential", "generic_host_path"}
+            },
+        )
+        self.assertTrue(any("ambiguous" in item for item in result["limitations"]))
+
+    def test_exact_host_value_redaction_is_reported_without_hiding_exit(self) -> None:
+        hostname = "fixture-host-value"
+        with patch("codex_governance.gate.socket.gethostname", return_value=hostname):
+            result = self.observe(f"print({hostname!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("PASS", result["status"])
+        self.assertNotIn(hostname.encode(), output)
+        self.assertIn(b"<REDACTED_HOST_VALUE>", output)
+        self.assertTrue(
+            any(item["category"] == "host_value" for item in result["redactions"])
+        )
+
+    def test_proxy_environment_value_is_secret_ambiguous(self) -> None:
+        proxy = "http://private-user:private-password@proxy.invalid:8080"
+        with patch.dict(os.environ, {"HTTPS_PROXY": proxy}):
+            result = self.observe(f"print({proxy!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(proxy.encode(), output)
+        self.assertIn(b"<REDACTED_CREDENTIAL>", output)
+        self.assertTrue(
+            any(item["category"] == "credential" for item in result["redactions"])
+        )
+
+    def test_hostname_lookup_failure_does_not_bypass_normalization(self) -> None:
+        token = "sk-" + "B" * 32
+        with patch("codex_governance.gate.socket.gethostname", side_effect=OSError):
+            result = self.observe(f"print({token!r})")
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(token.encode(), output)
+        self.assertIn(b"<REDACTED_CREDENTIAL>", output)
 
     def test_argument_arrays_do_not_expand_shell_fragments(self) -> None:
         marker = self.repository / "should-not-exist"

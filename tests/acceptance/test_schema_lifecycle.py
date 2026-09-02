@@ -19,6 +19,18 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
 
         self.assertEqual("explicit_required", migration_policy("reviewer-result", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-execution", "2.0.0", "3.0.0"))
+        for kind in (
+            "effective-policy",
+            "evidence-manifest",
+            "reviewer-qualification",
+            "reviewer-qualification-cases",
+            "reviewer-qualification-corpus",
+        ):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    "explicit_required", migration_policy(kind, "1.0.0", "2.0.0")
+                )
         self.assertEqual("unsupported", migration_policy("reviewer-result", "0.1.0", "2.0.0"))
 
     def test_complete_rfc3339_and_real_calendar_values_are_required(self) -> None:
@@ -57,6 +69,9 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             "oracle-reference.json": "oracle_id",
             "provenance-statement.json": "statement_id",
             "reviewer-qualification.json": "qualification_id",
+            "reviewer-qualification-cases.json": "case_evidence_id",
+            "reviewer-qualification-corpus.json": "corpus_id",
+            "reviewer-qualification-label-decision.json": "decision_id",
             "reviewer-execution.json": "execution_id",
             "risk-assessment.json": "assessment_id",
             "risk-register.json": "risk_register_id",

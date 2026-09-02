@@ -1,0 +1,72 @@
+{
+  "schema_version": "2.0.0",
+  "case_evidence_id": "sha256:32d06fb3d184d34ac5e5692c2ca0d6240e2b6d4e9773039447db0601c6013552",
+  "mode": "conformance",
+  "evaluation_repository_id": "repo:example/codex-governed-change-qualification",
+  "corpus_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "label_decision_id": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "identity": {
+    "prompt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "schema_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "launcher_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "codex_cli_version": "codex-cli 0.149.1",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "xhigh"
+  },
+  "observations": [
+    {
+      "case_id": "QUAL-CRITICAL-001",
+      "severity": "critical",
+      "requirement_id": "GOV-055",
+      "expected_disposition": "BLOCK",
+      "observed_disposition": "BLOCK",
+      "matched": true,
+      "task_contract_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "effective_policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "candidate": {
+        "schema_version": "1.0.0",
+        "repository_id": "repo:example/codex-governed-change-qualification",
+        "mode": "working_tree",
+        "base_commit": "06091d05162787593f48a54fbfcee5b84c2b7d0b",
+        "head_commit": "06091d05162787593f48a54fbfcee5b84c2b7d0b",
+        "tracked_diff_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "changed_paths": ["src/example.py"],
+        "untracked_entries": [{"path": "src/example.py", "mode": "100644", "sha256": "sha256:4cdc45231e811ae16dc6ca8fbf765dbeb66272085f23fd68de160e57288dbc97"}],
+        "submodules": [],
+        "effective_policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "candidate_id": "sha256:2a33410455b3e597eebb251a2fc3f352db9f39ac2d8f9b96b2b69670eea1bd5e"
+      },
+      "reviewer_output": {"path": "artifacts/governance/example/qualification/critical/result.json", "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"},
+      "reviewer_execution": {"path": "artifacts/governance/example/qualification/critical/execution.json", "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555"},
+      "stdout": {"path": "artifacts/governance/example/qualification/critical/stdout.bin", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"},
+      "stderr": {"path": "artifacts/governance/example/qualification/critical/stderr.bin", "sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777"}
+    },
+    {
+      "case_id": "QUAL-CONTROL-002",
+      "severity": "control",
+      "requirement_id": "GOV-055",
+      "expected_disposition": "NO_BLOCKING_FINDING_OBSERVED",
+      "observed_disposition": "NO_BLOCKING_FINDING_OBSERVED",
+      "matched": true,
+      "task_contract_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "effective_policy_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "candidate": {
+        "schema_version": "1.0.0",
+        "repository_id": "repo:example/codex-governed-change-qualification",
+        "mode": "working_tree",
+        "base_commit": "06091d05162787593f48a54fbfcee5b84c2b7d0b",
+        "head_commit": "06091d05162787593f48a54fbfcee5b84c2b7d0b",
+        "tracked_diff_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "changed_paths": ["src/example.py"],
+        "untracked_entries": [{"path": "src/example.py", "mode": "100644", "sha256": "sha256:2e22da2ab13713309ac75219e525b8e06ed02f3f1963b8feef203fa25827f93d"}],
+        "submodules": [],
+        "effective_policy_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "candidate_id": "sha256:68a940c9308628e35397fc6127ef287b19267b07e3c8bac480fa88a16281c24f"
+      },
+      "reviewer_output": {"path": "artifacts/governance/example/qualification/control/result.json", "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "reviewer_execution": {"path": "artifacts/governance/example/qualification/control/execution.json", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      "stdout": {"path": "artifacts/governance/example/qualification/control/stdout.bin", "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+      "stderr": {"path": "artifacts/governance/example/qualification/control/stderr.bin", "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+    }
+  ]
+}

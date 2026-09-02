@@ -126,13 +126,13 @@ def select_generated_mutants(
     return sorted(relevant, key=lambda item: str(item.get("id", "")))[:budget]
 
 
-def load_curated_corpus(path: Path) -> dict[str, Any]:
-    """Load the protected finite corpus without accepting unknown operations."""
+def parse_curated_corpus(data: bytes) -> dict[str, Any]:
+    """Parse exact protected corpus bytes without a second pathname read."""
     import json
 
     try:
-        document = json.loads(path.read_bytes().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("curated mutation corpus is unavailable or malformed") from exc
     if not isinstance(document, dict) or document.get("schema_version") != "1.0.0":
         raise ValueError("unsupported curated mutation corpus")
@@ -173,6 +173,15 @@ def load_curated_corpus(path: Path) -> dict[str, Any]:
     if ids != REQUIRED_CURATED_MUTANTS:
         raise ValueError("curated mutation corpus does not exactly match protected IDs")
     return document
+
+
+def load_curated_corpus(path: Path) -> dict[str, Any]:
+    """Load the protected finite corpus without accepting unknown operations."""
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ValueError("curated mutation corpus is unavailable or malformed") from exc
+    return parse_curated_corpus(data)
 
 
 def apply_curated_mutant(candidate_copy: Path, mutant: Mapping[str, Any]) -> str:

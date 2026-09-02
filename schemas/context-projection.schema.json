@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/context-projection.schema.json",
+  "title": "Exact deterministic reviewer context projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "projection_id", "source_bundle_id", "repository_id", "candidate_id", "projection_version", "profile", "context_qualification_id", "stable_prefix", "assurance_kernel", "evidence_index", "progressive_disclosure"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "projection_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_bundle_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository_id": {"type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$"},
+    "candidate_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "projection_version": {"type": "string", "minLength": 1},
+    "profile": {"enum": ["COMPACT", "STANDARD", "DEEP"]},
+    "context_qualification_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "stable_prefix": {"type": "object"},
+    "assurance_kernel": {"type": "object"},
+    "evidence_index": {"type": "array", "items": {"type": "object"}},
+    "progressive_disclosure": {"type": "array", "items": {"enum": ["manifest", "typed_summary", "relevant_excerpt", "complete_artifact"]}}
+  }
+}

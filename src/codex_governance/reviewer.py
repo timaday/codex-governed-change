@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from codex_governance.artifacts import read_bounded_repository_file
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import (
     canonical_json_bytes,
@@ -47,8 +49,13 @@ PERMITTED_REVIEWER_INPUTS = frozenset(
         "gate_manifest_sha256",
         "context_receipt_path",
         "context_receipt_sha256",
+        "context_sources_path",
+        "context_sources_sha256",
         "context_projection_path",
         "context_projection_sha256",
+        "context_qualification_path",
+        "context_qualification_sha256",
+        "context_qualification_id",
         "reviewer_qualification_path",
         "reviewer_qualification_sha256",
         "reviewer_qualification_id",
@@ -70,7 +77,10 @@ REQUIRED_REVIEWER_INPUTS = frozenset(
         "candidate_id", "candidate_path", "effective_policy_path",
         "effective_policy_sha256", "gate_manifest_path", "gate_manifest_sha256",
         "context_receipt_path", "context_receipt_sha256",
+        "context_sources_path", "context_sources_sha256",
         "context_projection_path", "context_projection_sha256",
+        "context_qualification_path", "context_qualification_sha256",
+        "context_qualification_id",
         "reviewer_qualification_path", "reviewer_qualification_sha256",
         "reviewer_qualification_id", "reviewer_prompt_sha256", "review_mode",
     }
@@ -312,6 +322,57 @@ def build_reviewer_environment(source: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def _normalize_reviewer_stream(
+    data: bytes,
+    *,
+    command: Sequence[str],
+    schema_path: Path,
+    output_path: Path,
+    environment: Mapping[str, str],
+) -> tuple[bytes, list[str]]:
+    """Remove supervisor-only runtime values before hashing retained evidence."""
+    replacements: set[bytes] = set()
+
+    def remember(value: str | os.PathLike[str]) -> None:
+        encoded = os.fsencode(value)
+        if encoded:
+            replacements.add(encoded)
+
+    for path in (
+        schema_path,
+        schema_path.parent,
+        output_path,
+        output_path.parent,
+        Path(__file__).resolve().parent,
+    ):
+        remember(path)
+    for argument in command:
+        if isinstance(argument, str) and os.path.isabs(argument):
+            remember(argument)
+    for key, value in environment.items():
+        if key in {"LANG", "LC_ALL"} or not value:
+            continue
+        remember(value)
+        if key == "PATH":
+            for entry in value.split(os.pathsep):
+                if entry and os.path.isabs(entry):
+                    remember(entry)
+    try:
+        remember(socket.gethostname())
+    except OSError:
+        pass
+
+    normalized = data
+    for value in sorted(replacements, key=len, reverse=True):
+        normalized = normalized.replace(value, b"<REVIEWER_RUNTIME>")
+    redactions: list[str] = []
+    for pattern in REVIEWER_AMBIGUOUS_PATTERNS:
+        normalized, count = pattern.subn(b"<REVIEWER_REDACTED>", normalized)
+        if count:
+            redactions.append("ambiguous_machine_or_credential_value")
+    return normalized, sorted(set(redactions))
+
+
 def observe_codex_cli_version(
     executable: str, *, environment: Mapping[str, str] | None = None
 ) -> str:
@@ -338,8 +399,8 @@ def observe_codex_cli_version(
     return value
 
 
-def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
-    """Extract one final usage record from the bounded Codex JSONL stream."""
+def parse_codex_jsonl_evidence(data: bytes) -> dict[str, Any]:
+    """Parse bounded Codex JSONL into independently checkable terminal facts."""
     usage = {
         "input_tokens": 0,
         "cached_input_tokens": 0,
@@ -348,6 +409,8 @@ def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
     }
     observed = False
     thread_id: str | None = None
+    final_message: str | None = None
+    valid = True
     try:
         for raw in data.splitlines():
             if not raw.strip():
@@ -357,6 +420,14 @@ def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
                 raise ValueError("invalid Codex JSONL event")
             if event["type"] == "thread.started" and isinstance(event.get("thread_id"), str):
                 thread_id = event["thread_id"]
+            if event["type"] == "item.completed":
+                item = event.get("item")
+                if (
+                    isinstance(item, Mapping)
+                    and item.get("type") == "agent_message"
+                    and isinstance(item.get("text"), str)
+                ):
+                    final_message = item["text"]
             if event["type"] == "turn.completed" and isinstance(event.get("usage"), Mapping):
                 candidate = {
                     key: event["usage"].get(key, 0)
@@ -372,9 +443,155 @@ def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
                 usage = candidate
                 observed = True
     except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        valid = False
         observed = False
         usage = {key: 0 for key in usage}
-    return {"usage_observed": observed, "thread_id": thread_id, **usage}
+        thread_id = None
+        final_message = None
+    return {
+        "jsonl_valid": valid,
+        "usage_observed": observed,
+        "thread_id": thread_id,
+        "final_message": final_message,
+        **usage,
+    }
+
+
+def _parse_codex_jsonl(data: bytes) -> dict[str, Any]:
+    parsed = parse_codex_jsonl_evidence(data)
+    return {
+        key: parsed[key]
+        for key in (
+            "usage_observed",
+            "thread_id",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        )
+    }
+
+
+REVIEWER_AMBIGUOUS_PATTERNS = (
+    re.compile(
+        rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
+        rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    re.compile(
+        rb"(?i)\b(?:api[_-]?key|token|secret|password|passwd|authorization)"
+        rb"\s*[:=]\s*[^\s,;]+"
+    ),
+    re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{16,}\b"),
+    re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    re.compile(
+        rb"(?:/" + rb"home" + rb"/|/" + rb"Users" + rb"/|/var/|/private/|/mnt/|/run/)"
+        rb"[^\s\"']+|[A-Za-z]:\\" + rb"Users" + rb"\\[^\s\"']+"
+    ),
+    re.compile(
+        rb"(?i)\b(?:local" + rb"host|127(?:\.[0-9]{1,3}){3}|"
+        rb"10(?:\.[0-9]{1,3}){3}|192\.168(?:\.[0-9]{1,3}){2}|"
+        rb"172\.(?:1[6-9]|2[0-9]|3[01])(?:\.[0-9]{1,3}){2}|\[?::1\]?)"
+        rb"(?::[0-9]{1,5})?\b"
+    ),
+    re.compile(rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b"),
+)
+
+
+def reviewer_stream_is_portable(data: bytes) -> bool:
+    """Reject retained secrets, machine endpoints, and absolute host locations."""
+    try:
+        data.decode("utf-8")
+    except UnicodeError:
+        return False
+    return b"\x00" not in data and not any(
+        pattern.search(data) for pattern in REVIEWER_AMBIGUOUS_PATTERNS
+    )
+
+
+def reviewer_observation_facts(observation: Mapping[str, Any]) -> dict[str, bool]:
+    """Derive reviewer completion facts from primitive supervisor observations."""
+    try:
+        stdin = observation["stdin"]
+        stdout = observation["stdout"]
+        stderr = observation["stderr"]
+        supervisor = observation["supervisor"]
+        output = observation["output"]
+        stdin_complete = bool(
+            stdin["complete"] is True
+            and stdin["bytes_expected"] == stdin["bytes_written"]
+        )
+        captures_complete = bool(
+            all(
+                stream["thread_completed"] is True
+                and stream["eof"] is True
+                and stream["read_failed"] is False
+                and stream["truncated"] is False
+                and stream.get("ambiguous_redaction") is False
+                and stream["bytes_observed"] == stream["bytes_captured"]
+                for stream in (stdout, stderr)
+            )
+        )
+        supervisor_complete = bool(
+            supervisor["boundary_available"] is True
+            and supervisor["cleanup_complete"] is True
+            and supervisor["descendants_observed"] is False
+        )
+        process_cleanup_complete = bool(
+            observation["process_cleanup_complete"] is True
+            and supervisor_complete
+        )
+        observation_complete = bool(
+            observation["parent_exit_observed"] is True
+            and observation["timed_out"] is False
+            and stdin_complete
+            and captures_complete
+            and process_cleanup_complete
+        )
+        output_valid = bool(
+            output["present"] is True
+            and output["regular"] is True
+            and output["schema_valid"] is True
+        )
+        bindings_match = bool(
+            output["candidate_matches"] is True
+            and output["bindings_match"] is True
+            and observation["candidate_unchanged"] is True
+        )
+        execution_valid = bool(
+            observation["return_code"] == 0
+            and observation_complete
+            and output_valid
+            and bindings_match
+            and output["truncated"] is False
+        )
+    except (KeyError, TypeError):
+        stdin_complete = captures_complete = process_cleanup_complete = False
+        observation_complete = output_valid = bindings_match = execution_valid = False
+    return {
+        "stdin_delivery_complete": stdin_complete,
+        "capture_threads_completed": captures_complete,
+        "process_cleanup_complete": process_cleanup_complete,
+        "observation_complete": observation_complete,
+        "output_valid": output_valid,
+        "bindings_match": bindings_match,
+        "output_truncated": bool(
+            (
+                isinstance(observation.get("output"), Mapping)
+                and observation["output"].get("truncated") is True
+            )
+            or (
+                isinstance(observation.get("stdout"), Mapping)
+                and observation["stdout"].get("truncated") is True
+            )
+            or (
+                isinstance(observation.get("stderr"), Mapping)
+                and observation["stderr"].get("truncated") is True
+            )
+        ),
+        "execution_valid": execution_valid,
+    }
 
 
 def build_reviewer_execution_statement(
@@ -389,6 +606,9 @@ def build_reviewer_execution_statement(
     qualification_id: str,
     model: str,
     reasoning_effort: str,
+    context_source_bundle_sha256: str,
+    context_projection_sha256: str,
+    context_qualification_id: str,
     input_context_receipt_sha256: str,
     context_execution_receipt_sha256: str,
     workflow_system: str,
@@ -397,6 +617,8 @@ def build_reviewer_execution_statement(
     timeout_seconds: float,
     max_output_bytes: int,
     codex_cli_version: str,
+    stdout_reference: Mapping[str, str],
+    stderr_reference: Mapping[str, str],
     execution: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build a content-addressed statement for one fresh reviewer process."""
@@ -425,8 +647,24 @@ def build_reviewer_execution_statement(
         reasoning_effort=reasoning_effort,
         prompt_sha256=execution.get("reviewer_prompt_sha256"),
     )
+    observation = execution.get("observation")
+    if not isinstance(observation, Mapping):
+        raise ValueError("reviewer primitive observation is unavailable")
+    facts = reviewer_observation_facts(observation)
+    stream_references: dict[str, dict[str, str]] = {}
+    for name, reference, expected_digest in (
+        ("stdout", stdout_reference, execution.get("stdout_sha256")),
+        ("stderr", stderr_reference, execution.get("stderr_sha256")),
+    ):
+        if not isinstance(reference, Mapping) or set(reference) != {"path", "sha256"}:
+            raise ValueError("reviewer stream reference is malformed")
+        normalized = normalize_repo_path(reference["path"])
+        digest = require_sha256(reference["sha256"])
+        if digest != expected_digest:
+            raise ValueError("reviewer stream reference digest mismatch")
+        stream_references[name] = {"path": normalized, "sha256": digest}
     document = {
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "repository_id": repository_id,
         "task_contract_sha256": require_sha256(task_contract_sha256),
         "effective_policy_sha256": require_sha256(effective_policy_sha256),
@@ -445,6 +683,7 @@ def build_reviewer_execution_statement(
         "reviewer_output_sha256": require_sha256(execution.get("output_sha256")),
         "candidate_before": require_sha256(execution.get("candidate_before")),
         "candidate_after": require_sha256(execution.get("candidate_after")),
+        "observation": dict(observation),
         "invocation": descriptor,
         "argv_sha256": require_sha256(execution.get("argv_sha256")),
         "stdin_sha256": require_sha256(execution.get("stdin_sha256")),
@@ -471,6 +710,9 @@ def build_reviewer_execution_statement(
             {"name": "output-schema", "sha256": require_sha256(output_schema_sha256)},
             {"name": "launcher", "sha256": require_sha256(launcher_sha256)},
             {"name": "qualification", "sha256": require_sha256(qualification_id)},
+            {"name": "context-source-bundle", "sha256": require_sha256(context_source_bundle_sha256)},
+            {"name": "context-projection", "sha256": require_sha256(context_projection_sha256)},
+            {"name": "context-qualification", "sha256": require_sha256(context_qualification_id)},
             {"name": "prepared-context", "sha256": require_sha256(input_context_receipt_sha256)},
             {"name": "post-run-context", "sha256": require_sha256(context_execution_receipt_sha256)},
         ],
@@ -478,21 +720,20 @@ def build_reviewer_execution_statement(
         "started_at": execution.get("started_at"),
         "ended_at": execution.get("ended_at"),
         "latency_ms": execution.get("latency_ms", 0),
-        "return_code": (
-            execution.get("return_code")
-            if isinstance(execution.get("return_code"), int)
-            else -1
-        ),
-        "timed_out": execution.get("timed_out") is True,
-        "observation_complete": execution.get("observation_complete") is True,
-        "capture_threads_completed": execution.get("capture_threads_completed") is True,
-        "process_cleanup_complete": execution.get("process_cleanup_complete") is True,
-        "execution_valid": execution.get("execution_valid") is True,
-        "output_valid": execution.get("output_valid") is True,
-        "bindings_match": execution.get("bindings_match") is True,
-        "output_truncated": execution.get("output_truncated") is True,
+        "return_code": observation.get("return_code", -1),
+        "timed_out": observation.get("timed_out") is True,
+        "stdin_delivery_complete": facts["stdin_delivery_complete"],
+        "observation_complete": facts["observation_complete"],
+        "capture_threads_completed": facts["capture_threads_completed"],
+        "process_cleanup_complete": facts["process_cleanup_complete"],
+        "execution_valid": facts["execution_valid"],
+        "output_valid": facts["output_valid"],
+        "bindings_match": facts["bindings_match"],
+        "output_truncated": facts["output_truncated"],
         "stdout_sha256": require_sha256(execution.get("stdout_sha256")),
         "stderr_sha256": require_sha256(execution.get("stderr_sha256")),
+        "stdout": stream_references["stdout"],
+        "stderr": stream_references["stderr"],
         "usage_observed": execution.get("usage_observed") is True,
         "input_tokens": execution.get("input_tokens", 0),
         "cached_input_tokens": execution.get("cached_input_tokens", 0),
@@ -624,22 +865,43 @@ REVIEWER_LAUNCHER_FILES = (
 
 
 def _stop_reviewer_supervisor(
-    process: subprocess.Popen[bytes], *, timeout: float = 3.0
+    process: subprocess.Popen[bytes], *, deadline: float
 ) -> bool:
     """Ask the dedicated subreaper to drain descendants before forced exit."""
+    def reap_after_deadline() -> None:
+        try:
+            process.wait()
+        except OSError:
+            pass
+
+    def retain_until_reaped() -> None:
+        if process.poll() is None:
+            import threading
+
+            threading.Thread(target=reap_after_deadline, daemon=True).start()
+
     try:
         if process.poll() is None:
             process.terminate()
-        process.wait(timeout=timeout)
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining <= 0:
+            if process.poll() is None:
+                process.kill()
+                retain_until_reaped()
+            return process.poll() is not None
+        process.wait(timeout=remaining)
         return True
     except OSError:
         return False
     except subprocess.TimeoutExpired:
         try:
             process.kill()
-            process.wait(timeout=1.0)
+            remaining = max(0.0, deadline - time.monotonic())
+            if remaining > 0:
+                process.wait(timeout=remaining)
         except (OSError, subprocess.TimeoutExpired):
             pass
+        retain_until_reaped()
         return False
 
 
@@ -663,24 +925,6 @@ def _validate_snapshot_symlinks(snapshot: Path, candidate_paths: Sequence[str]) 
             path.resolve(strict=False).relative_to(root)
         except (OSError, RuntimeError, ValueError) as exc:
             raise ValueError("review snapshot contains an escaping symlink") from exc
-
-
-def _bounded_regular_source(
-    repository: Path, relative: str, *, max_bytes: int
-) -> Path:
-    normalized = normalize_repo_path(relative)
-    root = repository.resolve()
-    current = root
-    for part in normalized.split("/"):
-        current = current / part
-        info = current.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            raise ValueError("review evidence source contains a symlink")
-    current.resolve().relative_to(root)
-    info = current.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
-        raise ValueError("review evidence source is not a bounded regular file")
-    return current
 
 
 def _materialize_permitted_evidence(
@@ -725,10 +969,9 @@ def _materialize_permitted_evidence(
             return
         if len(destinations) >= max_files:
             raise ValueError("too many reviewer evidence files")
-        source = _bounded_regular_source(
+        data = read_bounded_repository_file(
             candidate_repository, normalized, max_bytes=max_total_bytes
         )
-        data = source.read_bytes()
         if sha256_bytes(data) != expected_digest:
             raise ValueError("review evidence digest mismatch")
         total += len(data)
@@ -920,12 +1163,17 @@ def launch_reviewer(
     """Launch the fresh reviewer and validate its exact output and binding."""
     if review_mode not in {"conformance", "rapid_review"}:
         raise ValueError("review mode must be conformance or rapid_review")
+    if timeout_seconds <= 0 or max_output_bytes < 1:
+        raise ValueError("reviewer observation bounds must be positive")
     if not command or command[-1] != "-" or "resume" in command:
         raise ValueError("reviewer command must be a fresh stdin-driven exec")
     if output_path.exists() or output_path.is_symlink():
         return {"verdict": ReviewerVerdict.UNKNOWN, "reason": "stale output path exists"}
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     started_monotonic = time.monotonic()
+    deadline = started_monotonic + timeout_seconds
+    cleanup_reserve = min(5.0, timeout_seconds * 0.75)
+    execution_deadline = deadline - cleanup_reserve
     before = candidate_supplier()
     stdout_capture = _BoundedCapture(max_output_bytes)
     stderr_capture = _BoundedCapture(max_output_bytes)
@@ -940,6 +1188,13 @@ def launch_reviewer(
     status_read: int | None = None
     status_write: int | None = None
     supervisor_status: Mapping[str, Any] | None = None
+    stdin_payload = stdin_text.encode("utf-8")
+    stdin_delivery = {
+        "complete": False,
+        "bytes_expected": len(stdin_payload),
+        "bytes_written": 0,
+    }
+    stdin_thread: Any = None
     actual_command = list(command)
     sanitized_environment = build_reviewer_environment(environment or os.environ)
     try:
@@ -960,6 +1215,7 @@ def launch_reviewer(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            bufsize=0,
             env=sanitized_environment,
             start_new_session=True,
             pass_fds=(status_write,),
@@ -975,36 +1231,80 @@ def launch_reviewer(
         ]
         for thread in threads:
             thread.start()
-        process.stdin.write(stdin_text.encode("utf-8"))
-        process.stdin.close()
+
+        def deliver_stdin() -> None:
+            try:
+                assert process is not None and process.stdin is not None
+                remaining = memoryview(stdin_payload)
+                while remaining:
+                    written = process.stdin.write(remaining)
+                    if not isinstance(written, int) or written <= 0:
+                        return
+                    stdin_delivery["bytes_written"] += written
+                    remaining = remaining[written:]
+                process.stdin.close()
+                stdin_delivery["complete"] = True
+            except (OSError, ValueError):
+                return
+
+        stdin_thread = threading.Thread(target=deliver_stdin, daemon=True)
+        stdin_thread.start()
         try:
-            return_code = process.wait(timeout=timeout_seconds)
+            remaining = execution_deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(actual_command, timeout_seconds)
+            return_code = process.wait(timeout=remaining)
             parent_exit_observed = True
         except subprocess.TimeoutExpired:
             timed_out = True
             observation_complete = False
-            process_cleanup_complete = _stop_reviewer_supervisor(process)
+            process_cleanup_complete = _stop_reviewer_supervisor(
+                process, deadline=deadline
+            )
     except OSError:
         observation_complete = False
         process_cleanup_complete = False
         if process is not None:
-            process_cleanup_complete = _stop_reviewer_supervisor(process)
+            process_cleanup_complete = _stop_reviewer_supervisor(
+                process, deadline=deadline
+            )
     finally:
         if status_write is not None:
             try:
                 os.close(status_write)
             except OSError:
                 pass
-        if process is not None and process.stdin is not None:
-            try:
-                process.stdin.close()
-            except (OSError, ValueError):
-                pass
+        if stdin_thread is not None:
+            stdin_thread.join(timeout=max(0.0, deadline - time.monotonic()))
+            if stdin_thread.is_alive():
+                observation_complete = False
+                if process is not None:
+                    streams_closed = _close_process_streams(
+                        process, deadline=deadline
+                    )
+                    process_cleanup_complete = (
+                        process_cleanup_complete and streams_closed
+                    )
+                stdin_thread.join(timeout=max(0.0, deadline - time.monotonic()))
+            if stdin_thread.is_alive():
+                process_cleanup_complete = False
+            elif process is not None and process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except (OSError, ValueError):
+                    process_cleanup_complete = False
+        elif process is not None and process.stdin is not None:
+            if not _close_process_streams(process, deadline=deadline):
+                process_cleanup_complete = False
+        if not stdin_delivery["complete"]:
+            observation_complete = False
         if parent_exit_observed and process is not None:
             if os.name == "posix":
-                if not _posix_process_group_exited(process.pid, 0.2):
+                if not _posix_process_group_exited(
+                    process.pid, min(0.2, max(0.0, deadline - time.monotonic()))
+                ):
                     observation_complete = False
-                    cleaned = _terminate_process_tree(process)
+                    cleaned = _terminate_process_tree(process, deadline=deadline)
                     process_cleanup_complete = process_cleanup_complete and cleaned
             else:
                 observation_complete = False
@@ -1030,20 +1330,20 @@ def launch_reviewer(
         elif supervisor_status.get("descendants_observed") is True:
             observation_complete = False
         for thread in threads:
-            thread.join(timeout=3)
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
         if any(thread.is_alive() for thread in threads):
             observation_complete = False
             if process is not None:
-                cleaned = _terminate_process_tree(process)
+                cleaned = _terminate_process_tree(process, deadline=deadline)
                 process_cleanup_complete = process_cleanup_complete and cleaned
                 if os.name != "posix":
                     process_cleanup_complete = False
-                streams_closed = _close_process_streams(process)
+                streams_closed = _close_process_streams(process, deadline=deadline)
                 process_cleanup_complete = (
                     process_cleanup_complete and streams_closed
                 )
             for thread in threads:
-                thread.join(timeout=1)
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
         capture_threads_completed = not any(thread.is_alive() for thread in threads)
         if threads and (not stdout_capture.eof or not stderr_capture.eof):
             observation_complete = False
@@ -1119,7 +1419,98 @@ def launch_reviewer(
     output_sha256 = sha256_bytes(b"")
     if output_present and output_path.stat().st_size <= max_output_bytes:
         output_sha256 = sha256_bytes(output_path.read_bytes())
-    usage = _parse_codex_jsonl(bytes(stdout_capture.data))
+    stdout_bytes, stdout_redactions = _normalize_reviewer_stream(
+        bytes(stdout_capture.data),
+        command=actual_command,
+        schema_path=schema_path,
+        output_path=output_path,
+        environment=sanitized_environment,
+    )
+    stderr_bytes, stderr_redactions = _normalize_reviewer_stream(
+        bytes(stderr_capture.data),
+        command=actual_command,
+        schema_path=schema_path,
+        output_path=output_path,
+        environment=sanitized_environment,
+    )
+    primitive_observation = {
+        "parent_exit_observed": parent_exit_observed,
+        "return_code": return_code if isinstance(return_code, int) else -1,
+        "timed_out": timed_out,
+        "candidate_unchanged": bool(
+            before == expected_candidate_id and after == expected_candidate_id
+        ),
+        "stdin": dict(stdin_delivery),
+        "stdout": {
+            "bytes_observed": stdout_capture.total,
+            "bytes_captured": len(stdout_capture.data),
+            "bytes_normalized": len(stdout_bytes),
+            "thread_completed": bool(threads and not threads[0].is_alive()),
+            "eof": stdout_capture.eof,
+            "read_failed": stdout_capture.failed,
+            "truncated": stdout_capture.truncated,
+            "ambiguous_redaction": bool(stdout_redactions),
+        },
+        "stderr": {
+            "bytes_observed": stderr_capture.total,
+            "bytes_captured": len(stderr_capture.data),
+            "bytes_normalized": len(stderr_bytes),
+            "thread_completed": bool(
+                len(threads) > 1 and not threads[1].is_alive()
+            ),
+            "eof": stderr_capture.eof,
+            "read_failed": stderr_capture.failed,
+            "truncated": stderr_capture.truncated,
+            "ambiguous_redaction": bool(stderr_redactions),
+        },
+        "supervisor": {
+            "boundary_available": bool(
+                supervisor_status
+                and supervisor_status.get("boundary_available") is True
+            ),
+            "boundary_kind": (
+                supervisor_status.get("boundary_kind")
+                if supervisor_status
+                and supervisor_status.get("boundary_kind")
+                in {"pid_namespace", "seccomp_signal_guard"}
+                else "unavailable"
+            ),
+            "descendants_observed": bool(
+                supervisor_status
+                and supervisor_status.get("descendants_observed") is True
+            ),
+            "cleanup_complete": bool(
+                supervisor_status
+                and supervisor_status.get("cleanup_complete") is True
+            ),
+        },
+        "process_cleanup_complete": process_cleanup_complete,
+        "output": {
+            "present": output_present,
+            "regular": output_present,
+            "bytes": output_path.stat().st_size if output_present else 0,
+            "schema_valid": output_valid,
+            "candidate_matches": candidate_matches,
+            "bindings_match": bindings_match,
+            "truncated": bool(
+                output_present and output_path.stat().st_size > max_output_bytes
+            ),
+        },
+    }
+    derived_facts = reviewer_observation_facts(primitive_observation)
+    execution_valid = execution_valid and derived_facts["execution_valid"]
+    observation_complete = (
+        observation_complete and derived_facts["observation_complete"]
+    )
+    capture_threads_completed = derived_facts["capture_threads_completed"]
+    process_cleanup_complete = derived_facts["process_cleanup_complete"]
+    if not execution_valid and verdict is not ReviewerVerdict.BLOCK:
+        verdict = ReviewerVerdict.UNKNOWN
+    if stdout_redactions or stderr_redactions:
+        execution_valid = False
+        observation_complete = False
+        verdict = ReviewerVerdict.UNKNOWN
+    usage = _parse_codex_jsonl(stdout_bytes)
     if stdout_capture.truncated:
         usage = {
             "usage_observed": False,
@@ -1140,6 +1531,12 @@ def launch_reviewer(
         limitations.append("reviewer capture threads did not complete")
     if not process_cleanup_complete:
         limitations.append("reviewer process cleanup could not be proven complete")
+    if not stdin_delivery["complete"]:
+        limitations.append("reviewer stdin delivery did not complete within the deadline")
+    if stdout_redactions or stderr_redactions:
+        limitations.append(
+            "ambiguous machine- or credential-shaped reviewer stream bytes were redacted"
+        )
     return {
         "verdict": verdict,
         "result": dict(payload) if payload else None,
@@ -1157,8 +1554,12 @@ def launch_reviewer(
         "observation_complete": observation_complete,
         "capture_threads_completed": capture_threads_completed,
         "process_cleanup_complete": process_cleanup_complete,
-        "stdout_sha256": sha256_bytes(bytes(stdout_capture.data)),
-        "stderr_sha256": sha256_bytes(bytes(stderr_capture.data)),
+        "stdin_delivery_complete": stdin_delivery["complete"],
+        "observation": primitive_observation,
+        "stdout_sha256": sha256_bytes(stdout_bytes),
+        "stderr_sha256": sha256_bytes(stderr_bytes),
+        "stdout_bytes": stdout_bytes,
+        "stderr_bytes": stderr_bytes,
         "output_valid": output_valid,
         "candidate_matches": candidate_matches and before == after,
         "bindings_match": bindings_match,

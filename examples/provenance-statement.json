@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "statement_id": "sha256:363cb43c0c90178d9f69d6ca14560d8fe11854f0a08cf790d03f66d4300b0928",
+  "statement_id": "sha256:d1b4f299fbb7eab117f1102fbd34f9b283d4fbe4eb96a23ec697f2b4c9d5ab74",
   "_type": "https://in-toto.io/Statement/v1",
   "subject": [
     {"name": "repo:example/codex-governed-change", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
@@ -26,7 +26,7 @@
     "started_at": "2026-08-26T10:00:00Z",
     "ended_at": "2026-08-26T10:01:00Z",
     "result": "PASS",
-    "limits": {"timeout_seconds": 900, "max_output_bytes": 1000000, "process_limit": 128, "memory_bytes": 1073741824},
+    "limits": {"timeout_seconds": 900, "max_output_bytes": 1000000, "process_limit": 128, "memory_bytes": 1073741824, "cpu_seconds": 600},
     "artifacts": [{"name": "gate-result", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"}],
     "limitations": ["This provenance statement is unsigned."],
     "signed": false

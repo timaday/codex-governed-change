@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import errno
 import secrets
 import stat
 from pathlib import Path
@@ -12,6 +13,108 @@ from codex_governance.canonical import normalize_repo_path, require_sha256, sha2
 
 class ArtifactSafetyError(ValueError):
     pass
+
+
+def secure_repository_reads_available() -> bool:
+    """Return whether directory-bound no-follow reads are supported."""
+    return bool(
+        os.name == "posix"
+        and hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+    )
+
+
+def read_bounded_repository_file(
+    repository: Path, relative_path: str, *, max_bytes: int = 8_000_000
+) -> bytes:
+    """Read an exact repository file through retained directory descriptors."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    if not secure_repository_reads_available():
+        raise ArtifactSafetyError(
+            "directory-bound no-follow repository reads are unavailable"
+        )
+    normalized = normalize_repo_path(relative_path)
+    parts = tuple(normalized.split("/"))
+    root = repository.resolve(strict=True)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptors: list[int] = []
+    bindings: list[tuple[int, str, tuple[int, int]]] = []
+    leaf_descriptor = -1
+    try:
+        root_before = root.stat(follow_symlinks=False)
+        root_descriptor = os.open(root, directory_flags)
+        descriptors.append(root_descriptor)
+        root_held = os.fstat(root_descriptor)
+        if (
+            not stat.S_ISDIR(root_held.st_mode)
+            or (root_before.st_dev, root_before.st_ino)
+            != (root_held.st_dev, root_held.st_ino)
+        ):
+            raise ArtifactSafetyError("repository root binding changed")
+        parent = root_descriptor
+        for part in parts[:-1]:
+            child = os.open(part, directory_flags, dir_fd=parent)
+            child_info = os.fstat(child)
+            if not stat.S_ISDIR(child_info.st_mode):
+                os.close(child)
+                raise ArtifactSafetyError("repository file parent is not a directory")
+            bindings.append(
+                (parent, part, (child_info.st_dev, child_info.st_ino))
+            )
+            descriptors.append(child)
+            parent = child
+        leaf_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        leaf_descriptor = os.open(parts[-1], leaf_flags, dir_fd=parent)
+        leaf_info = os.fstat(leaf_descriptor)
+        if not stat.S_ISREG(leaf_info.st_mode):
+            raise ArtifactSafetyError("repository reference is not a regular file")
+        if leaf_info.st_size > max_bytes:
+            raise ArtifactSafetyError("repository reference exceeds the size bound")
+        with os.fdopen(leaf_descriptor, "rb", closefd=True) as stream:
+            leaf_descriptor = -1
+            data = stream.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ArtifactSafetyError("repository reference exceeds the size bound")
+
+        current_root = root.stat(follow_symlinks=False)
+        if (current_root.st_dev, current_root.st_ino) != (
+            root_held.st_dev,
+            root_held.st_ino,
+        ):
+            raise ArtifactSafetyError("repository root binding changed")
+        for parent_descriptor, name, expected in bindings:
+            current = os.stat(
+                name, dir_fd=parent_descriptor, follow_symlinks=False
+            )
+            if (
+                not stat.S_ISDIR(current.st_mode)
+                or (current.st_dev, current.st_ino) != expected
+            ):
+                raise ArtifactSafetyError("repository parent binding changed")
+        current_leaf = os.stat(
+            parts[-1], dir_fd=parent, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISREG(current_leaf.st_mode)
+            or (current_leaf.st_dev, current_leaf.st_ino)
+            != (leaf_info.st_dev, leaf_info.st_ino)
+        ):
+            raise ArtifactSafetyError("repository leaf binding changed")
+        return data
+    except ArtifactSafetyError:
+        raise
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ArtifactSafetyError("repository reference is a symlink") from exc
+        raise ArtifactSafetyError("repository reference is unavailable") from exc
+    finally:
+        if leaf_descriptor >= 0:
+            os.close(leaf_descriptor)
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 class FilesystemArtifactStore:
@@ -92,9 +195,7 @@ class FilesystemArtifactStore:
     def _secure_dir_fd_available() -> bool:
         required = (os.open, os.mkdir, os.link, os.unlink, os.stat)
         return bool(
-            os.name == "posix"
-            and hasattr(os, "O_DIRECTORY")
-            and hasattr(os, "O_NOFOLLOW")
+            secure_repository_reads_available()
             and all(function in os.supports_dir_fd for function in required)
         )
 

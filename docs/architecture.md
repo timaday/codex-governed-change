@@ -220,10 +220,20 @@ secrets and environment values excluded. It binds the exact mode-specific
 qualification, prompt, output schema, model, launcher package closure, prepared
 and post-run context receipts, reviewer output, termination, candidate pre/post
 identity, digest-only argv/stdin identities, Codex thread/CLI versions, workflow
-run/attempt, bounds, materials, event-stream digests and Codex CLI-reported token
-usage. No host path or environment value is persisted.
+run/attempt, bounds, materials, primitive supervisor/capture observations,
+direct event-stream references and Codex CLI-reported token usage. Admission
+re-hashes both streams and derives the final result, usage and execution state
+from those observations. No host path or environment value is persisted.
+The retained stream bytes are the complete bounded captures after one fixed
+trusted normalization pass replaces supervisor-only paths and allowlisted
+parent-environment values with `<REVIEWER_RUNTIME>`; their digests bind those
+portable bytes. Recognized credential, endpoint and generic host-path patterns
+are removed before persistence and make the execution `UNKNOWN` because their
+causal meaning cannot be reconstructed safely.
 
-The reviewer parent exit and result file are insufficient until both bounded
+The reviewer parent exit and result file are insufficient until a bounded stdin
+writer finishes within one absolute monotonic deadline shared by process wait,
+forced cleanup, stream closure and capture joins, both bounded
 capture threads observe EOF and a trusted descendant boundary proves no live
 reviewer descendant remains. The preferred Linux adapter uses a fresh user, PID
 and mount namespace: trusted PID 1 supervises the reviewer, while the namespace
@@ -234,8 +244,9 @@ the namespace, including children that call `setsid()` or `setpgid()` and close
 all standard streams. When a host/container kernel blocks nested user
 namespaces, a supported-architecture fallback installs `no_new_privs` and a
 seccomp filter before reviewer exec. The inherited filter rejects `kill`,
-thread/group/queued/pidfd signal, ptrace and cross-process-write syscalls, so the
-same-UID reviewer cannot terminate or modify its outer child-subreaper; that
+thread/group/queued/pidfd signal, ptrace, cross-process-write and cross-process
+resource-limit mutation syscalls, so the same-UID reviewer cannot terminate,
+cripple or modify its outer child-subreaper; that
 filter rejects the entire x32-tagged syscall space on x86_64 before native
 dispatch so alternate-ABI syscall numbers cannot bypass the deny list. The
 subreaper then proves and performs bounded descendant cleanup. A bounded
@@ -244,8 +255,8 @@ require an equivalent kernel job/containment primitive or fail closed.
 Process-group checks and the outer child-subreaper
 remain defence in depth, but a zombie-only procfs snapshot cannot establish
 initial success because enumeration races with fork/exit. Stream closure occurs
-only through a bounded helper; a blocked close cannot exceed the reviewer
-deadline. Cleanup completion is evidence and never promotes an already
+only through a bounded helper; a blocked write or close cannot escape the
+reviewer deadline. Cleanup completion is evidence and never promotes an already
 incomplete run.
 
 ## Evidence storage
@@ -303,13 +314,21 @@ from the repository root through the output leaf. Valid output paths therefore
 remain portable repository-relative artifact locations.
 
 Gate and mutation reconstruction resolves the bounded stdout and stderr
-references, re-hashes their bytes, reconciles declared sizes and provenance
+references through retained directory descriptors and no-follow, nonblocking
+leaf opens, re-hashes their bytes, reconciles declared sizes and provenance
 subjects, and requires complete, non-truncated, exited termination semantics.
 Capability verification must precede result start, result start must not follow
 result end, provenance start/end must equal the result, and the manifest must
 not predate any result completion. The reconstructed status must agree with the exit code. Missing or altered raw
 streams, timeouts, signals, incomplete observations and truncation are
 `UNKNOWN`, even when a schema-valid result document claims `PASS`.
+
+Sandbox admission reconstructs execution identity from the protected provider,
+pinned image, canonical command, provider version and exact process, memory, CPU,
+timeout and output bounds. Those inputs are explicit capability fields and must
+match protected policy and provenance. Cleanup permanently records any mismatch
+between the original immutable container ID/name pair, including later rename or
+same-name substitution; later absence cannot erase that uncertainty.
 
 Each candidate directory includes provenance statements, authenticated-decision
 references, a context receipt, mutation records and a deterministic assurance
@@ -320,6 +339,24 @@ authority-bearing subject.
 Gate, mutation and reviewer producers retain their own workflow/run identities.
 Causal content-addressed materials and subjects relate those distinct runs;
 aggregation never requires unrelated producers to claim the same workflow.
+Gate and mutation implementation identity is the digest of a canonical,
+filename- and length-framed manifest covering every Python file in the trusted
+package, with the producer kind framed separately.
+
+Before gate streams are persisted, a protected normalizer replaces exact host
+and supervisor values and recognized credential-shaped values. Exact proxy
+environment values are credential-class values. Every replacement category and
+count is recorded. Secret-shaped replacement makes the observation ambiguous and
+therefore `UNKNOWN`; known supervisor-path normalization alone does not erase the
+underlying exit observation.
+
+Context evidence is a four-link chain: typed protected source bundle, exact
+projection, prepared receipt and post-run execution receipt. The evidence
+manifest references the first three directly, and admission reconstructs their
+digests, repository closure, adverse-signal profile selection, inclusion choices,
+metrics and separately referenced protected profile/version qualification before
+accepting usage. Reviewer process provenance names the source bundle, projection,
+qualification, prepared receipt and post-run receipt as distinct materials.
 
 ## Configuration
 
@@ -385,7 +422,12 @@ same post-copy identity check; dirty/unavailable submodule worktrees fail closed
 and the current MVP blocks reviewer execution for non-empty submodule sets until
 immutable recursive object materialization is available. Candidate processes receive
 no authoritative evidence or governance mount and no inherited secret. The
-sandbox output channel is bounded and untrusted. After process-tree termination,
+sandbox output channel is bounded and untrusted. Container-backed invocations
+first complete a bounded create transaction using a runtime-only supervisor-owned
+name and ID file; the immutable ID and name are validated before an attached
+start. On normal exit, timeout, interruption, or provider-CLI failure the
+supervisor forcibly removes that exact ID and proves both ID and name absent;
+failure to establish absence is incomplete observation. After process-tree termination,
 the trusted supervisor re-identifies the source and packages outputs into the
 write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.

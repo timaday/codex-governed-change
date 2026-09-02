@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "source_bundle_id": "sha256:f677e075f625304d2555657789855e95f290f942d2f7c69b7eb43161d01f3615",
+  "repository_id": "repo:example/codex-governed-change",
+  "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "requested_profile": "STANDARD",
+  "token_budget": 24000,
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "xhigh",
+  "sources": {
+    "repository_id": "repo:example/codex-governed-change",
+    "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "task_authority": {"sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+    "policy": {"sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+    "repository_inventory": [{"path": "README.md", "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}],
+    "changed_files": ["README.md"],
+    "affected_closure": ["README.md"],
+    "gate_results": [{"gate_id": "blueprint-quality", "status": "PASS"}],
+    "risks": [],
+    "failures": [],
+    "conflicts": [],
+    "survivors": [],
+    "limitations": [],
+    "unknowns": [],
+    "rubric": {"sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+    "disposition_contract": "All mandatory claims and exact bindings are required.",
+    "artifacts": [],
+    "created_at": "2026-08-26T10:00:00Z"
+  },
+  "risk_signals": {
+    "gate_failed": false,
+    "gate_missing": false,
+    "surviving_mutant": false,
+    "conflicting_oracle": false,
+    "prompt_injection_risk": false,
+    "authority_incomplete": false,
+    "provenance_incomplete": false,
+    "reviewer_uncertain": false,
+    "selector_uncertain": false
+  },
+  "created_at": "2026-08-26T10:00:00Z"
+}

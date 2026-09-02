@@ -2,28 +2,12 @@
 
 from __future__ import annotations
 
-import stat
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from codex_governance.canonical import normalize_repo_path, require_sha256, sha256_bytes
-
-
-def _safe_file(repository: Path, relative_path: Any) -> Path:
-    root = repository.resolve()
-    normalized = normalize_repo_path(relative_path)
-    target = root.joinpath(*normalized.split("/"))
-    current = root
-    for part in normalized.split("/"):
-        current = current / part
-        info = current.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            raise ValueError("evidence locator traverses a symlink")
-    if not stat.S_ISREG(target.stat().st_mode):
-        raise ValueError("evidence locator does not resolve to a regular file")
-    target.resolve().relative_to(root)
-    return target
+from codex_governance.artifacts import read_bounded_repository_file
+from codex_governance.canonical import require_sha256, sha256_bytes
 
 
 def resolve_evidence_locator(
@@ -34,10 +18,9 @@ def resolve_evidence_locator(
 ) -> bytes:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
-    target = _safe_file(repository, locator.get("path"))
-    if target.stat().st_size > max_bytes:
-        raise ValueError("evidence locator exceeds the size bound")
-    data = target.read_bytes()
+    data = read_bounded_repository_file(
+        repository, str(locator.get("path")), max_bytes=max_bytes
+    )
     if sha256_bytes(data) != require_sha256(locator.get("artifact_sha256")):
         raise ValueError("evidence locator artifact digest mismatch")
     kind = locator.get("kind")

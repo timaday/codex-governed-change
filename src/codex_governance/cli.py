@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from codex_governance.artifacts import FilesystemArtifactStore
 from codex_governance.attestation import (
@@ -28,7 +28,12 @@ from codex_governance.canonical import (
     verify_content_address,
 )
 from codex_governance.configuration import load_effective_policy, resolve_effective_configuration
-from codex_governance.context import compile_context, finalize_context_receipt
+from codex_governance.context import (
+    build_protected_context_sources,
+    build_repository_inventory,
+    compile_context,
+    finalize_context_receipt,
+)
 from codex_governance.domain.model import DispositionState
 from codex_governance.evidence import (
     PRODUCER_VERSION,
@@ -43,6 +48,7 @@ from codex_governance.gate import run_gate
 from codex_governance.hook import decide_stop
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.locking import PipelineLock
+from codex_governance.mutation import REQUIRED_CURATED_MUTANTS
 from codex_governance.mutation_runner import run_governed_mutation_corpus
 from codex_governance.profiles import validate_task_contract
 from codex_governance.qualification import reviewer_qualification_state
@@ -54,6 +60,7 @@ from codex_governance.reviewer import (
     observe_codex_cli_version,
     prepare_sanitized_harness,
     reviewer_launcher_sha256,
+    reviewer_stream_is_portable,
 )
 from codex_governance.sandbox import (
     build_container_invocation,
@@ -76,10 +83,16 @@ CLI_OUTPUT_ARGUMENTS = {
     "scope": ("output",),
     "identify": ("output",),
     "run-gates": ("output",),
-    "prepare-review": ("projection_output", "receipt_output"),
+    "prepare-review": ("sources_output", "projection_output", "receipt_output"),
     "assemble-manifest": ("output",),
     "mutate": ("output",),
-    "review": ("output", "execution_output", "context_execution_output"),
+    "review": (
+        "output",
+        "execution_output",
+        "context_execution_output",
+        "stdout_output",
+        "stderr_output",
+    ),
     "import-reviewer-result": ("destination",),
     "evaluate": ("output",),
 }
@@ -177,7 +190,20 @@ def _write_cli_output(
     try:
         return store.write_bytes(relative, canonical_json_bytes(value))
     except FileExistsError:
-        raise FileExistsError("write-once CLI output conflicts with existing content")
+        _raise_cli_output_conflict()
+
+
+def _raise_cli_output_conflict() -> NoReturn:
+    raise FileExistsError("write-once CLI output conflicts with existing content")
+
+
+def _write_cli_bytes(args: argparse.Namespace, field: str, value: bytes) -> str:
+    try:
+        return args._cli_output_store.write_bytes(
+            args._cli_output_paths[field], value
+        )
+    except FileExistsError:
+        _raise_cli_output_conflict()
 
 
 def _read_cli_output(args: argparse.Namespace, field: str) -> bytes:
@@ -413,13 +439,33 @@ def _run_gates(args: argparse.Namespace) -> int:
 
 def _prepare_review(args: argparse.Namespace) -> int:
     policy = _validated(args.policy, args.schema_root, "effective-policy")
+    task = _validated(args.task, args.schema_root, "task-contract")
     candidate = _validated(args.candidate, args.schema_root, "candidate")
+    qualification = _validated(
+        args.context_qualification, args.schema_root, "context-qualification"
+    )
     policy_sha = sha256_canonical(policy)
+    task_sha = sha256_canonical(task)
     if (
-        candidate["repository_id"] != policy["repository_id"]
+        task["repository_id"] != policy["repository_id"]
+        or task["base_commit"] != candidate["base_commit"]
+        or candidate["repository_id"] != policy["repository_id"]
         or candidate["effective_policy_sha256"] != policy_sha
     ):
         raise ValueError("context policy and candidate binding mismatch")
+    context_policy = policy["context"]
+    profile_rank = {"COMPACT": 0, "STANDARD": 1, "DEEP": 2}
+    expected_budget = context_policy[f"{args.profile.lower()}_tokens"]
+    if (
+        context_policy.get("projection_version") != qualification.get("projection_version")
+        or qualification.get("qualification_id")
+        != context_policy.get("qualification_ids", {}).get(args.profile)
+        or profile_rank[args.profile] < profile_rank[context_policy["default_profile"]]
+        or args.token_budget != expected_budget
+        or args.model != policy["reviewer"]["model"]
+        or args.reasoning_effort != policy["reviewer"]["reasoning_effort"]
+    ):
+        raise ValueError("context profile, budget, model, or qualification is not protected")
     adapter = GitCliRepositoryAdapter(args.repository)
     observed_candidate = adapter.identify(
         repository_id=policy["repository_id"],
@@ -435,8 +481,84 @@ def _prepare_review(args: argparse.Namespace) -> int:
         candidate=observed_candidate,
         evidence_root=policy["evidence_root"],
     )
+    repository_inventory = build_repository_inventory(
+        args.repository,
+        affected_closure=affected_closure,
+        changed_paths=observed_candidate["changed_paths"],
+    )
+    gate_summary = _document(args.gate_summary)
+    if (
+        gate_summary.get("repository_id") != policy["repository_id"]
+        or gate_summary.get("candidate_id") != observed_candidate["candidate_id"]
+    ):
+        raise ValueError("gate summary context binding mismatch")
+    gate_manifest = load_referenced_json(
+        repository=args.repository,
+        reference=gate_summary["gate_manifest"],
+        schema_path=args.schema_root / "gate-manifest.schema.json",
+    )
+    gate_results = [
+        load_referenced_json(
+            repository=args.repository,
+            reference=item["reference"],
+            schema_path=args.schema_root / "gate-result.schema.json",
+        )
+        for item in gate_manifest["gate_results"]
+    ]
+    if (
+        gate_manifest.get("repository_id") != policy["repository_id"]
+        or gate_manifest.get("candidate_id") != observed_candidate["candidate_id"]
+        or gate_manifest.get("task_contract_sha256") != task_sha
+        or gate_summary.get("results")
+        != [
+            {"gate_id": item.get("gate_id"), "status": result.get("status")}
+            for item, result in zip(
+                gate_manifest["gate_results"], gate_results, strict=True
+            )
+        ]
+    ):
+        raise ValueError("gate summary does not reconstruct exactly")
+    mutation_summary = _document(args.mutation_summary)
+    mutation_records = [
+        load_referenced_json(
+            repository=args.repository,
+            reference=reference,
+            schema_path=args.schema_root / "mutant-record.schema.json",
+        )
+        for reference in mutation_summary.get("mutant_records", ())
+    ]
+    expected_mutant_ids = {
+        "MUTANT-" + mutant.upper() for mutant in REQUIRED_CURATED_MUTANTS
+    }
+    if (
+        mutation_summary.get("state") != "PASS"
+        or len(mutation_records) != len(expected_mutant_ids)
+        or {item.get("mutant_id") for item in mutation_records}
+        != expected_mutant_ids
+        or any(
+            item.get("repository_id") != policy["repository_id"]
+            or item.get("candidate_id") != observed_candidate["candidate_id"]
+            or item.get("effective_policy_sha256") != policy_sha
+            or item.get("task_contract_sha256") != task_sha
+            or item.get("outcome") != "KILLED"
+            for item in mutation_records
+        )
+    ):
+        raise ValueError("mutation summary is incomplete or not exact-candidate PASS")
+    sources = build_protected_context_sources(
+        candidate=observed_candidate,
+        task=task,
+        policy=policy,
+        repository_inventory=repository_inventory,
+        affected_closure=affected_closure,
+        gate_results=gate_results,
+        mutation_records=mutation_records,
+        created_at=args.observed_at,
+    )
+    if args.sources is not None and _document(args.sources) != sources:
+        raise ValueError("caller context sources do not match protected reconstruction")
     compiled = compile_context(
-        sources=_document(args.sources),
+        sources=sources,
         candidate=observed_candidate,
         requested_profile=args.profile,
         token_budget=args.token_budget,
@@ -444,16 +566,10 @@ def _prepare_review(args: argparse.Namespace) -> int:
         affected_closure=affected_closure,
         model=args.model,
         reasoning_effort=args.reasoning_effort,
-        gate_failed=args.gate_failed,
-        gate_missing=args.gate_missing,
-        surviving_mutant=args.surviving_mutant,
-        conflicting_oracle=args.conflicting_oracle,
-        prompt_injection_risk=args.prompt_injection_risk,
-        authority_incomplete=args.authority_incomplete,
-        provenance_incomplete=args.provenance_incomplete,
-        reviewer_uncertain=args.reviewer_uncertain,
-        selector_uncertain=args.selector_uncertain,
+        context_qualification=qualification,
+        protected_qualification_ids=context_policy["qualification_ids"],
     )
+    _write_cli_output(args, "sources_output", compiled["source_bundle"])
     _write_cli_output(args, "projection_output", compiled["projection"])
     _write_cli_output(args, "receipt_output", compiled["receipt"])
     result = {
@@ -552,6 +668,21 @@ def _review(args: argparse.Namespace) -> int:
     receipt = _validated(
         evidence_path("context_receipt_path"), args.schema_root, "context-receipt"
     )
+    context_sources = _validated(
+        evidence_path("context_sources_path"),
+        args.schema_root,
+        "context-source-bundle",
+    )
+    context_projection = _validated(
+        evidence_path("context_projection_path"),
+        args.schema_root,
+        "context-projection",
+    )
+    context_qualification = _validated(
+        evidence_path("context_qualification_path"),
+        args.schema_root,
+        "context-qualification",
+    )
     qualification = _validated(
         evidence_path("reviewer_qualification_path"),
         args.schema_root,
@@ -571,6 +702,12 @@ def _review(args: argparse.Namespace) -> int:
             identity,
             qualification,
             protected_qualification_id=policy["reviewer"]["qualification_ids"][review_mode],
+            protected_corpus_sha256=policy["reviewer"][
+                "qualification_corpus_sha256"
+            ],
+            protected_label_decision_id=policy["reviewer"][
+                "qualification_label_decision_id"
+            ],
         )
         is not DispositionState.READY_FOR_HUMAN
         or permitted.get("reviewer_qualification_id")
@@ -585,6 +722,28 @@ def _review(args: argparse.Namespace) -> int:
         != permitted.get("gate_manifest_sha256")
         or receipt.get("candidate_id") != candidate["candidate_id"]
         or receipt.get("repository_id") != policy["repository_id"]
+        or sha256_bytes(evidence_path("context_sources_path").read_bytes())
+        != permitted.get("context_sources_sha256")
+        or sha256_bytes(evidence_path("context_projection_path").read_bytes())
+        != permitted.get("context_projection_sha256")
+        or sha256_bytes(evidence_path("context_qualification_path").read_bytes())
+        != permitted.get("context_qualification_sha256")
+        or context_sources.get("repository_id") != policy["repository_id"]
+        or context_sources.get("candidate_id") != candidate["candidate_id"]
+        or context_sources.get("effective_policy_sha256") != policy_sha
+        or context_projection.get("source_bundle_id")
+        != context_sources.get("source_bundle_id")
+        or context_projection.get("candidate_id") != candidate["candidate_id"]
+        or context_projection.get("context_qualification_id")
+        != context_qualification.get("qualification_id")
+        or context_qualification.get("qualification_id")
+        != permitted.get("context_qualification_id")
+        or context_qualification.get("qualification_id")
+        != policy.get("context", {}).get("qualification_ids", {}).get(
+            receipt.get("profile")
+        )
+        or receipt.get("source_bundle_sha256")
+        != permitted.get("context_sources_sha256")
         or receipt.get("projection_sha256")
         != permitted.get("context_projection_sha256")
         or receipt.get("model") != args.model
@@ -684,6 +843,18 @@ def _review(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
         )
+        if not reviewer_stream_is_portable(
+            result["stdout_bytes"]
+        ) or not reviewer_stream_is_portable(result["stderr_bytes"]):
+            raise ValueError("reviewer streams retain non-portable material")
+        stdout_reference = {
+            "path": normalize_repo_path(args.stdout_output),
+            "sha256": _write_cli_bytes(args, "stdout_output", result["stdout_bytes"]),
+        }
+        stderr_reference = {
+            "path": normalize_repo_path(args.stderr_output),
+            "sha256": _write_cli_bytes(args, "stderr_output", result["stderr_bytes"]),
+        }
         if result.get("execution_valid") and isinstance(result.get("result"), Mapping):
             _write_cli_output(args, "output", result["result"])
             result["output_sha256"] = sha256_bytes(
@@ -723,6 +894,9 @@ def _review(args: argparse.Namespace) -> int:
             qualification_id=qualification["qualification_id"],
             model=args.model,
             reasoning_effort=args.reasoning_effort,
+            context_source_bundle_sha256=permitted["context_sources_sha256"],
+            context_projection_sha256=permitted["context_projection_sha256"],
+            context_qualification_id=permitted["context_qualification_id"],
             input_context_receipt_sha256=permitted["context_receipt_sha256"],
             context_execution_receipt_sha256=sha256_canonical(execution_receipt),
             workflow_system=args.workflow_system,
@@ -731,6 +905,8 @@ def _review(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
             codex_cli_version=codex_cli_version,
+            stdout_reference=stdout_reference,
+            stderr_reference=stderr_reference,
             execution=result,
         )
         _write_cli_output(args, "execution_output", execution_statement)
@@ -945,20 +1121,20 @@ def _parser() -> argparse.ArgumentParser:
     prepare = subparsers.add_parser("prepare-review")
     prepare.add_argument("--repository", type=Path, default=Path.cwd())
     prepare.add_argument("--policy", type=Path, required=True)
-    prepare.add_argument("--sources", type=Path, required=True)
+    prepare.add_argument("--task", type=Path, required=True)
+    prepare.add_argument("--gate-summary", type=Path, required=True)
+    prepare.add_argument("--mutation-summary", type=Path, required=True)
+    prepare.add_argument("--context-qualification", type=Path, required=True)
+    prepare.add_argument("--sources", type=Path)
     prepare.add_argument("--candidate", type=Path, required=True)
     prepare.add_argument("--profile", choices=("COMPACT", "STANDARD", "DEEP"), required=True)
     prepare.add_argument("--token-budget", type=int, required=True)
     prepare.add_argument("--model", required=True)
     prepare.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh"), required=True)
+    prepare.add_argument("--observed-at", required=True)
+    prepare.add_argument("--sources-output", required=True)
     prepare.add_argument("--projection-output", required=True)
     prepare.add_argument("--receipt-output", required=True)
-    for signal in (
-        "gate_failed", "gate_missing", "surviving_mutant", "conflicting_oracle",
-        "prompt_injection_risk", "authority_incomplete", "provenance_incomplete",
-        "reviewer_uncertain", "selector_uncertain",
-    ):
-        prepare.add_argument("--" + signal.replace("_", "-"), action="store_true")
     prepare.set_defaults(handler=_prepare_review)
 
     assemble = subparsers.add_parser("assemble-manifest")
@@ -991,6 +1167,8 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--output", required=True)
     review.add_argument("--execution-output", required=True)
     review.add_argument("--context-execution-output", required=True)
+    review.add_argument("--stdout-output", required=True)
+    review.add_argument("--stderr-output", required=True)
     review.add_argument("--codex", default="codex")
     review.add_argument("--workflow-system", default="local")
     review.add_argument("--run-id", required=True)

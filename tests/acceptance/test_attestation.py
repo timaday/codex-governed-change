@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import shutil
 from copy import deepcopy
 from pathlib import Path
 
@@ -10,6 +11,44 @@ from codex_governance.canonical import canonical_json_bytes
 class AttestationAcceptanceTest(unittest.TestCase):
     REPOSITORY = "repo:example/project"
     CANDIDATE = "sha256:" + "a" * 64
+
+    def test_producer_identity_covers_the_complete_framed_package(self) -> None:
+        from codex_governance.attestation import (
+            gate_implementation_sha256,
+            mutation_implementation_sha256,
+            producer_implementation_manifest,
+        )
+
+        source = Path("src/codex_governance")
+        expected_paths = sorted(
+            path.relative_to(source).as_posix() for path in source.rglob("*.py")
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "codex_governance"
+            shutil.copytree(source, package)
+            gate_baseline = gate_implementation_sha256(package)
+            mutation_baseline = mutation_implementation_sha256(package)
+            self.assertNotEqual(gate_baseline, mutation_baseline)
+            manifest = producer_implementation_manifest("gate", package)
+            self.assertEqual(
+                expected_paths, [item["path"] for item in manifest["files"]]
+            )
+            self.assertTrue(
+                all(set(item) == {"path", "bytes", "sha256"} for item in manifest["files"])
+            )
+            for relative in expected_paths:
+                target = package.joinpath(*relative.split("/"))
+                original = target.read_bytes()
+                target.write_bytes(original + b"\n# producer identity drift\n")
+                with self.subTest(relative=relative):
+                    self.assertNotEqual(
+                        gate_baseline, gate_implementation_sha256(package)
+                    )
+                    self.assertNotEqual(
+                        mutation_baseline,
+                        mutation_implementation_sha256(package),
+                    )
+                target.write_bytes(original)
 
     def statement(self) -> dict:
         from codex_governance.attestation import build_provenance_statement
@@ -30,7 +69,7 @@ class AttestationAcceptanceTest(unittest.TestCase):
             started_at="2026-08-26T10:00:00Z",
             ended_at="2026-08-26T10:01:00Z",
             result="PASS",
-            limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000},
+            limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60},
             artifacts=[{"name": "result", "sha256": "sha256:" + "5" * 64}],
             limitations=["unsigned provenance"],
         )

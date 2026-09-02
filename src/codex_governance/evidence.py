@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import stat
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +17,13 @@ from codex_governance.canonical import (
     sha256_canonical,
     verify_content_address,
 )
-from codex_governance.candidate import verify_candidate_identity
+from codex_governance.artifacts import read_bounded_repository_file
+from codex_governance.candidate import GitCliRepositoryAdapter, verify_candidate_identity
+from codex_governance.context import (
+    build_protected_context_sources,
+    build_repository_inventory,
+    compile_context,
+)
 from codex_governance.domain.model import DispositionState
 from codex_governance.admission import evaluate_admission
 from codex_governance.assurance import evaluate_assurance_claim
@@ -36,14 +41,25 @@ from codex_governance.mutation import (
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
     evaluate_mutation_record,
-    load_curated_corpus,
     mutated_source_identity,
+    parse_curated_corpus,
 )
-from codex_governance.qualification import reviewer_qualification_state
+from codex_governance.qualification import (
+    qualification_evidence_valid,
+    reviewer_qualification_state,
+)
 from codex_governance.rapid_review import evaluate_rapid_review
-from codex_governance.reviewer import REVIEWER_ENVIRONMENT_ALLOWLIST
+from codex_governance.reviewer import (
+    REVIEWER_ENVIRONMENT_ALLOWLIST,
+    parse_codex_jsonl_evidence,
+    reviewer_observation_facts,
+    reviewer_stream_is_portable,
+)
 from codex_governance.rst_operations import evaluate_operational_rst
-from codex_governance.sandbox import validate_sandbox_capability
+from codex_governance.sandbox import (
+    sandbox_execution_identity,
+    validate_sandbox_capability,
+)
 from codex_governance.schema import load_json, validate_instance, validate_semantics
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.locators import resolve_evidence_locator
@@ -72,28 +88,12 @@ def repository_reference(
     }
 
 
-def _safe_repository_file(repository: Path, relative_path: str, max_bytes: int) -> Path:
-    normalized = normalize_repo_path(relative_path)
-    root = repository.resolve()
-    target = root.joinpath(*normalized.split("/"))
-    current = root
-    for part in normalized.split("/"):
-        current = current / part
-        info = current.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            raise ValueError("evidence reference contains a symlink")
-    target.resolve().relative_to(root)
-    info = target.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
-        raise ValueError("evidence reference is not a bounded regular file")
-    return target
-
-
 def read_reference(
     *, repository: Path, reference: Mapping[str, Any], max_bytes: int = 8_000_000
 ) -> bytes:
-    path = _safe_repository_file(repository, str(reference.get("path")), max_bytes)
-    data = path.read_bytes()
+    data = read_bounded_repository_file(
+        repository, str(reference.get("path")), max_bytes=max_bytes
+    )
     if sha256_bytes(data) != require_sha256(reference.get("sha256")):
         raise ValueError("evidence reference digest mismatch")
     return data
@@ -167,6 +167,13 @@ def assemble_evidence_manifest(
     mutant_records: Sequence[Mapping[str, str]],
     reviewer_qualification: Mapping[str, str],
     rapid_review_qualification: Mapping[str, str],
+    reviewer_qualification_cases: Mapping[str, str],
+    rapid_review_qualification_cases: Mapping[str, str],
+    reviewer_qualification_corpus: Mapping[str, str],
+    reviewer_qualification_label_decision: Mapping[str, str],
+    context_sources: Mapping[str, str],
+    context_projection: Mapping[str, str],
+    context_qualification: Mapping[str, str],
     context_receipt: Mapping[str, str],
     context_execution_receipt: Mapping[str, str],
     reviewer_result: Mapping[str, str],
@@ -186,7 +193,7 @@ def assemble_evidence_manifest(
     created_at: str | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "repository_id": repository_id,
         "candidate_id": require_sha256(candidate_id, name="candidate_id"),
         "task_contract": dict(task_contract),
@@ -207,6 +214,15 @@ def assemble_evidence_manifest(
         "mutant_records": [dict(item) for item in mutant_records],
         "reviewer_qualification": dict(reviewer_qualification),
         "rapid_review_qualification": dict(rapid_review_qualification),
+        "reviewer_qualification_cases": dict(reviewer_qualification_cases),
+        "rapid_review_qualification_cases": dict(rapid_review_qualification_cases),
+        "reviewer_qualification_corpus": dict(reviewer_qualification_corpus),
+        "reviewer_qualification_label_decision": dict(
+            reviewer_qualification_label_decision
+        ),
+        "context_sources": dict(context_sources),
+        "context_projection": dict(context_projection),
+        "context_qualification": dict(context_qualification),
         "context_receipt": dict(context_receipt),
         "context_execution_receipt": dict(context_execution_receipt),
         "reviewer_execution": dict(reviewer_execution),
@@ -258,8 +274,11 @@ def evaluate_manifest(
         return DispositionState.UNKNOWN, ["MANIFEST_IDENTITY_INVALID"]
     try:
         now = parse_rfc3339(evaluated_at)
+        manifest_created = parse_rfc3339(str(manifest.get("created_at")))
     except (TypeError, ValueError):
         return DispositionState.UNKNOWN, ["EVALUATION_TIME_INVALID"]
+    if now < manifest_created:
+        return DispositionState.UNKNOWN, ["EVALUATION_PRECEDES_MANIFEST"]
 
     upstream: dict[str, str] = {}
     defeaters: dict[str, list[str]] = {
@@ -338,6 +357,9 @@ def evaluate_manifest(
             {"name": "output-schema", "sha256": execution.get("output_schema_sha256")},
             {"name": "launcher", "sha256": execution.get("launcher_sha256")},
             {"name": "qualification", "sha256": execution.get("qualification_id")},
+            {"name": "context-source-bundle", "sha256": manifest["context_sources"]["sha256"]},
+            {"name": "context-projection", "sha256": manifest["context_projection"]["sha256"]},
+            {"name": "context-qualification", "sha256": context_receipt.get("context_qualification_id")},
             {"name": "prepared-context", "sha256": execution.get("input_context_receipt_sha256")},
             {"name": "post-run-context", "sha256": execution.get("context_execution_receipt_sha256")},
         ]
@@ -365,6 +387,66 @@ def evaluate_manifest(
             and isinstance(execution["tools"][0].get("version"), str)
             and execution["tools"][0]["version"].startswith("codex-cli ")
             and execution.get("materials") == expected_materials
+        )
+
+    def reviewer_execution_reconstructs(
+        execution: Mapping[str, Any], output_reference: Mapping[str, Any]
+    ) -> bool:
+        try:
+            stdout = read_reference(repository=repository, reference=execution["stdout"])
+            stderr = read_reference(repository=repository, reference=execution["stderr"])
+            output_bytes = read_reference(
+                repository=repository, reference=output_reference
+            )
+            parsed_output = json.loads(output_bytes)
+            parsed_stream = parse_codex_jsonl_evidence(stdout)
+            final_message = json.loads(str(parsed_stream["final_message"]))
+            primitive = execution["observation"]
+            derived = reviewer_observation_facts(primitive)
+        except (KeyError, OSError, TypeError, UnicodeError, ValueError):
+            return False
+        required_true = (
+            "stdin_delivery_complete",
+            "capture_threads_completed",
+            "process_cleanup_complete",
+            "observation_complete",
+            "output_valid",
+            "bindings_match",
+            "execution_valid",
+        )
+        return bool(
+            sha256_bytes(stdout) == execution.get("stdout_sha256")
+            and sha256_bytes(stderr) == execution.get("stderr_sha256")
+            and sha256_bytes(output_bytes) == execution.get("reviewer_output_sha256")
+            and execution.get("stdout", {}).get("sha256")
+            == execution.get("stdout_sha256")
+            and execution.get("stderr", {}).get("sha256")
+            == execution.get("stderr_sha256")
+            and reviewer_stream_is_portable(stdout)
+            and reviewer_stream_is_portable(stderr)
+            and parsed_stream.get("jsonl_valid") is True
+            and parsed_stream.get("usage_observed") is True
+            and parsed_stream.get("thread_id") == execution.get("codex_thread_id")
+            and final_message == parsed_output
+            and isinstance(primitive, Mapping)
+            and primitive.get("stdout", {}).get("bytes_normalized") == len(stdout)
+            and primitive.get("stderr", {}).get("bytes_normalized") == len(stderr)
+            and primitive.get("output", {}).get("bytes") == len(output_bytes)
+            and all(execution.get(key) == value for key, value in derived.items())
+            and all(derived[key] is True for key in required_true)
+            and derived["output_truncated"] is False
+            and execution.get("return_code") == primitive.get("return_code") == 0
+            and execution.get("timed_out") == primitive.get("timed_out") is False
+            and execution.get("usage_observed") is True
+            and all(
+                execution.get(key) == parsed_stream.get(key)
+                for key in (
+                    "input_tokens",
+                    "cached_input_tokens",
+                    "output_tokens",
+                    "reasoning_output_tokens",
+                )
+            )
         )
     task_approved = any(
         decision_applies(
@@ -438,7 +520,9 @@ def evaluate_manifest(
         expected_command: Sequence[str], expected_gate_id: str,
         expected_gate_definition_sha256: str,
         expected_implementation_sha256: str,
+        expected_timeout_seconds: int,
         expected_max_output_bytes: int,
+        expected_shell: bool = False,
     ) -> bool:
         capability_sha = result.get("sandbox_capability_sha256")
         capability = capability_by_sha.get(str(capability_sha))
@@ -450,6 +534,25 @@ def evaluate_manifest(
         predicate = statement.get("predicate", {}) if isinstance(statement, Mapping) else {}
         environment = predicate.get("environment", {}) if isinstance(predicate, Mapping) else {}
         producer = predicate.get("producer", {}) if isinstance(predicate, Mapping) else {}
+        sandbox_command = (
+            ["sh", "-c", expected_command[0]]
+            if expected_shell
+            else list(expected_command)
+        )
+        try:
+            expected_execution_identity = sandbox_execution_identity(
+                provider=policy["sandbox"]["provider"],
+                provider_version=capability["provider_version"],
+                image=policy["sandbox"]["image"],
+                command=sandbox_command,
+                process_limit=int(policy["sandbox"]["process_limit"]),
+                memory_bytes=int(policy["sandbox"]["memory_bytes"]),
+                cpu_seconds=expected_timeout_seconds,
+                timeout_seconds=expected_timeout_seconds,
+                output_bytes=expected_max_output_bytes,
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
         try:
             chronology_valid = (
                 parse_rfc3339(str(capability.get("verified_at")))
@@ -543,8 +646,17 @@ def evaluate_manifest(
             and result.get("source_identity") == source_identity
             and result.get("execution_identity") == capability.get("execution_identity")
             and capability.get("source_identity") == source_identity
+            and capability.get("provider") == policy["sandbox"]["provider"]
+            and capability.get("image") == policy["sandbox"]["image"]
+            and capability.get("command") == sandbox_command
+            and capability.get("process_limit") == policy["sandbox"]["process_limit"]
+            and capability.get("memory_bytes") == policy["sandbox"]["memory_bytes"]
+            and capability.get("cpu_seconds") == expected_timeout_seconds
+            and capability.get("timeout_seconds") == expected_timeout_seconds
+            and capability.get("output_bytes") == expected_max_output_bytes
             and capability.get("implementation_sha256")
             == expected_implementation_sha256
+            and result.get("execution_identity") == expected_execution_identity
             and result.get("execution_identity") == environment.get("execution_identity")
             and source_identity == environment.get("source_identity")
             and capability_sha == environment.get("sandbox_capability_sha256")
@@ -553,12 +665,27 @@ def evaluate_manifest(
             and predicate.get("gate_definition_sha256")
             == expected_gate_definition_sha256
             and predicate.get("result") == result.get("status")
+            and predicate.get("limits")
+            == {
+                "timeout_seconds": expected_timeout_seconds,
+                "max_output_bytes": expected_max_output_bytes,
+                "process_limit": policy["sandbox"]["process_limit"],
+                "memory_bytes": policy["sandbox"]["memory_bytes"],
+                "cpu_seconds": expected_timeout_seconds,
+            }
+            and any(
+                tool.get("name") == policy["sandbox"]["provider"]
+                and tool.get("version") == capability.get("provider_version")
+                for tool in predicate.get("tools", ())
+                if isinstance(tool, Mapping)
+            )
             and producer.get("builder_id") == "codex-governed-change"
             and producer.get("implementation_sha256")
             == expected_implementation_sha256
             and producer.get("version") == PRODUCER_VERSION
         )
 
+    gate_documents: list[dict[str, Any]] = []
     try:
         capabilities = [load(reference, "sandbox-capability") for reference in manifest["sandbox_capabilities"]]
         capability_by_sha = {
@@ -590,7 +717,6 @@ def evaluate_manifest(
         ):
             raise ValueError("gate set mismatch")
         gate_states: list[str] = []
-        gate_documents: list[dict[str, Any]] = []
         for item in gate_items:
             result = load(item["reference"], "gate-result")
             gate_documents.append(result)
@@ -610,7 +736,9 @@ def evaluate_manifest(
                 expected_gate_id=item["gate_id"],
                 expected_gate_definition_sha256=sha256_canonical(definition),
                 expected_implementation_sha256=gate_implementation_sha256(),
+                expected_timeout_seconds=int(definition["timeout_seconds"]),
                 expected_max_output_bytes=int(definition["max_output_bytes"]),
+                expected_shell=bool(definition["shell"]),
             ):
                 gate_states.append("UNKNOWN")
             else:
@@ -637,6 +765,7 @@ def evaluate_manifest(
     else:
         upstream["gates"] = "success"
 
+    mutation_records: list[dict[str, Any]] = []
     try:
         corpus_reference = manifest["mutation_corpus"]
         expected_corpus_path = normalize_repo_path(policy["mutation"]["corpus_path"])
@@ -644,9 +773,7 @@ def evaluate_manifest(
             raise ValueError("mutation corpus path is not protected policy")
         corpus_bytes = read_reference(repository=repository, reference=corpus_reference)
         corpus_document = json.loads(corpus_bytes.decode("utf-8"))
-        corpus = load_curated_corpus(
-            repository.joinpath(*expected_corpus_path.split("/"))
-        )
+        corpus = parse_curated_corpus(corpus_bytes)
         if corpus_document != corpus:
             raise ValueError("mutation corpus bytes changed during reconstruction")
         corpus_by_id = {item["mutant_id"]: item for item in corpus["mutants"]}
@@ -666,6 +793,9 @@ def evaluate_manifest(
                     {"gate_id": "mutation-baseline", "command": baseline_command}
                 ),
                 expected_implementation_sha256=mutation_implementation_sha256(),
+                expected_timeout_seconds=max(
+                    int(item["timeout_seconds"]) for item in policy["gates"]
+                ),
                 expected_max_output_bytes=mutation_max_output_bytes,
             )
         )
@@ -737,6 +867,9 @@ def evaluate_manifest(
                         }
                     ),
                     expected_implementation_sha256=mutation_implementation_sha256(),
+                    expected_timeout_seconds=max(
+                        int(item["timeout_seconds"]) for item in policy["gates"]
+                    ),
                     expected_max_output_bytes=mutation_max_output_bytes,
                 )
                 and killed_exact
@@ -771,14 +904,66 @@ def evaluate_manifest(
         upstream["mutation"] = "success"
 
     try:
+        context_sources = load(manifest["context_sources"], "context-source-bundle")
+        context_projection = load(
+            manifest["context_projection"], "context-projection"
+        )
+        context_qualification = load(
+            manifest["context_qualification"], "context-qualification"
+        )
         context_receipt = load(manifest["context_receipt"], "context-receipt")
         context_execution = load(
             manifest["context_execution_receipt"],
             "context-execution-receipt",
         )
+        affected_closure = GitCliRepositoryAdapter(
+            repository
+        ).conservative_affected_closure(
+            candidate=current_candidate,
+            evidence_root=policy["evidence_root"],
+        )
+        repository_inventory = build_repository_inventory(
+            repository,
+            affected_closure=affected_closure,
+            changed_paths=current_candidate["changed_paths"],
+        )
+        reconstructed_sources = build_protected_context_sources(
+            candidate=current_candidate,
+            task=task,
+            policy=policy,
+            repository_inventory=repository_inventory,
+            affected_closure=affected_closure,
+            gate_results=gate_documents,
+            mutation_records=mutation_records,
+            created_at=context_sources["created_at"],
+        )
+        reconstructed = compile_context(
+            sources=reconstructed_sources,
+            candidate=current_candidate,
+            requested_profile=context_sources["requested_profile"],
+            token_budget=context_sources["token_budget"],
+            changed_paths=current_candidate["changed_paths"],
+            affected_closure=affected_closure,
+            model=context_sources["model"],
+            reasoning_effort=context_sources["reasoning_effort"],
+            context_qualification=context_qualification,
+            protected_qualification_ids=policy["context"]["qualification_ids"],
+        )
         context_ok = (
-            verify_content_address(context_receipt, "receipt_id")
+            verify_content_address(context_sources, "source_bundle_id")
+            and verify_content_address(context_projection, "projection_id")
+            and verify_content_address(context_qualification, "qualification_id")
+            and verify_content_address(context_receipt, "receipt_id")
             and verify_content_address(context_execution, "execution_receipt_id")
+            and context_sources == reconstructed["source_bundle"]
+            and context_projection == reconstructed["projection"]
+            and context_receipt == reconstructed["receipt"]
+            and manifest["context_sources"]["sha256"]
+            == context_receipt.get("source_bundle_sha256")
+            and manifest["context_projection"]["sha256"]
+            == context_receipt.get("projection_sha256")
+            and context_qualification["qualification_id"]
+            == context_receipt.get("context_qualification_id")
             and context_receipt.get("repository_id") == repository_id
             and context_receipt.get("candidate_id") == current_candidate_id
             and context_receipt.get("truncation_status") == "NONE"
@@ -805,16 +990,47 @@ def evaluate_manifest(
 
     try:
         qualification = load(manifest["reviewer_qualification"], "reviewer-qualification")
+        qualification_cases = load(
+            manifest["reviewer_qualification_cases"],
+            "reviewer-qualification-cases",
+        )
+        qualification_corpus = load(
+            manifest["reviewer_qualification_corpus"],
+            "reviewer-qualification-corpus",
+        )
+        qualification_label_decision = load(
+            manifest["reviewer_qualification_label_decision"],
+            "reviewer-qualification-label-decision",
+        )
         identity = {
             field: qualification.get(field)
             for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "model", "reasoning_effort")
         }
-        qualification_ok = reviewer_qualification_state(
+        qualification_ok = qualification_evidence_valid(
+            mode="conformance",
+            record=qualification,
+            case_evidence=qualification_cases,
+            corpus=qualification_corpus,
+            label_decision=qualification_label_decision,
+            artifact_reader=lambda reference: read_reference(
+                repository=repository, reference=reference
+            ),
+            schema_root=schema_root,
+            protected_repository_id=repository_id,
+            verified_decision_ids=verified_decision_ids,
+            evaluated_at=evaluated_at,
+        ) and reviewer_qualification_state(
             identity,
             qualification,
             protected_qualification_id=policy.get("reviewer", {})
             .get("qualification_ids", {})
             .get("conformance"),
+            protected_corpus_sha256=policy.get("reviewer", {}).get(
+                "qualification_corpus_sha256"
+            ),
+            protected_label_decision_id=policy.get("reviewer", {}).get(
+                "qualification_label_decision_id"
+            ),
         ) is DispositionState.READY_FOR_HUMAN
         reviewer = load(manifest["reviewer_result"], "reviewer-result")
         reviewer_execution = load(
@@ -832,6 +1048,14 @@ def evaluate_manifest(
             and reviewer.get("model") == qualification.get("model")
             and reviewer.get("retrieval_expansions")
             == context_execution.get("retrieval_expansions")
+            and {"exact_diff", "affected_closure", "governance_and_evidence"}
+            <= set(reviewer.get("reviewed_surfaces", ()))
+            and reviewer.get("affected_closure")
+            == context_projection.get("assurance_kernel", {}).get(
+                "affected_closure"
+            )
+            and set(current_candidate.get("changed_paths", ()))
+            <= set(reviewer.get("affected_closure", ()))
             and reviewer_execution.get("repository_id") == repository_id
             and reviewer_execution.get("task_contract_sha256") == task_sha
             and reviewer_execution.get("effective_policy_sha256") == policy_sha
@@ -868,8 +1092,25 @@ def evaluate_manifest(
             and reviewer_execution.get("bindings_match") is True
             and reviewer_execution.get("output_truncated") is False
             and model_usage_reconciles(reviewer_execution, context_execution)
+            and reviewer_execution_reconstructs(
+                reviewer_execution, manifest["reviewer_result"]
+            )
         )
         reviewer_verdict = reviewer.get("verdict") if reviewer_exact and qualification_ok else "UNKNOWN"
+        claims = reviewer.get("claims", ())
+        if reviewer_verdict == "NO_BLOCKING_FINDING_OBSERVED" and (
+            not claims
+            or any(
+                claim.get("classification") not in {
+                    "DIRECTLY_OBSERVED",
+                    "VERIFIED_WITHIN_SCOPE",
+                }
+                for claim in claims
+                if isinstance(claim, Mapping)
+            )
+            or any(not isinstance(claim, Mapping) for claim in claims)
+        ):
+            reviewer_verdict = "UNKNOWN"
         if reviewer.get("missing_evidence") or reviewer.get("findings"):
             reviewer_verdict = "BLOCK" if reviewer.get("findings") else "UNKNOWN"
         reviewer_references = [
@@ -946,6 +1187,10 @@ def evaluate_manifest(
             rapid_qualification = load(
                 manifest["rapid_review_qualification"], "reviewer-qualification"
             )
+            rapid_qualification_cases = load(
+                manifest["rapid_review_qualification_cases"],
+                "reviewer-qualification-cases",
+            )
             rapid_identity = {
                 field: rapid_qualification.get(field)
                 for field in (
@@ -953,12 +1198,31 @@ def evaluate_manifest(
                     "codex_cli_version", "model", "reasoning_effort",
                 )
             }
-            rapid_qualification_ok = reviewer_qualification_state(
+            rapid_qualification_ok = qualification_evidence_valid(
+                mode="rapid_review",
+                record=rapid_qualification,
+                case_evidence=rapid_qualification_cases,
+                corpus=qualification_corpus,
+                label_decision=qualification_label_decision,
+                artifact_reader=lambda reference: read_reference(
+                    repository=repository, reference=reference
+                ),
+                schema_root=schema_root,
+                protected_repository_id=repository_id,
+                verified_decision_ids=verified_decision_ids,
+                evaluated_at=evaluated_at,
+            ) and reviewer_qualification_state(
                 rapid_identity,
                 rapid_qualification,
                 protected_qualification_id=policy.get("reviewer", {})
                 .get("qualification_ids", {})
                 .get("rapid_review"),
+                protected_corpus_sha256=policy.get("reviewer", {}).get(
+                    "qualification_corpus_sha256"
+                ),
+                protected_label_decision_id=policy.get("reviewer", {}).get(
+                    "qualification_label_decision_id"
+                ),
             ) is DispositionState.READY_FOR_HUMAN
             rapid_execution_references = list(
                 manifest.get("rapid_review_executions", ())
@@ -1002,6 +1266,10 @@ def evaluate_manifest(
                 for reference, session in zip(
                     session_references, sessions, strict=True
                 )
+            }
+            session_artifact_reference_by_sha = {
+                reference["sha256"]: reference
+                for reference in session_references
             }
             context_reference_by_sha = {
                 reference["sha256"]: document
@@ -1087,6 +1355,12 @@ def evaluate_manifest(
                         execution,
                         context_reference_by_sha[
                             execution["context_execution_receipt_sha256"]
+                        ],
+                    )
+                    and reviewer_execution_reconstructs(
+                        execution,
+                        session_artifact_reference_by_sha[
+                            execution["reviewer_output_sha256"]
                         ],
                     )
                     for execution in rapid_executions

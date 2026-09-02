@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-01
+Status date: 2026-09-02
 
 ## Current disposition
 
@@ -15,7 +15,7 @@ release or enforcement claim.
 | Claim | Classification | Evidence |
 |---|---|---|
 | The blueprint files are structurally complete | `VERIFIED_WITHIN_SCOPE` | Local blueprint validator passed; immutable public-commit CI remains pending |
-| The normative JSON examples match the protected schema subset | `VERIFIED_WITHIN_SCOPE` | Twenty-nine mapped schema/example pairs pass syntax, semantic lifecycle and content-address checks |
+| The normative JSON examples match the protected schema subset | `VERIFIED_WITHIN_SCOPE` | Thirty-five mapped schema/example pairs pass syntax, semantic lifecycle and content-address checks |
 | The governed-change skill has valid frontmatter and metadata | `VERIFIED_WITHIN_SCOPE` | The skill-creator structural validator passed locally |
 | The skill and strict-review workflow work in a fresh live Codex GPT-5.6 Sol run | `UNKNOWN` | Fake-process isolation is verified and an isolated ChatGPT-authenticated `gpt-5.6-sol` access probe succeeded; exact-candidate corpus qualification and strict review remain pending, so no qualifying review result exists yet |
 | The standalone governance CLI works | `VERIFIED_WITHIN_SCOPE` | Scope, identity, gates, mutation, context, manifest assembly, review, import, evaluation, status, verification and hook boundaries are implemented and locally tested |
@@ -74,18 +74,32 @@ The portability assertion was corrected to accept an explicitly empty dependency
 list while still rejecting any runtime dependency. All earlier executable results
 are invalidated by subsequent candidate changes and must be rerun.
 
-The successor working-copy checkpoint on 2026-09-01 observed:
+The successor working-copy checkpoint on 2026-09-02 observed:
 
-- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 29
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
   schema/example pairs.
-- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 198 tests passed
-  (149 acceptance and 49 unit tests);
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 224 tests passed
+  (162 acceptance and 62 unit tests);
   no skips or expected failures were reported.
 - `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
   all 23 curated mutants `KILLED` for corpus
-  `sha256:65593a54afd00f5ab6594a0857f077ddc55d4407155b91d8a2f2e84579e12196`.
+  `sha256:ea59494b38c57876fd2b4b828c740f24ac1c25c28667ceebcf313abacb35a515`.
   The runner labels this local proof as
   non-admission evidence.
+
+A fresh read-only Codex audit of an earlier working-copy candidate returned a
+schema-valid blocking assessment, but its retained stream was truncated and its
+usage evidence unavailable. The attempt is therefore `UNKNOWN`, not qualifying
+review evidence. Its nine reported risks were nevertheless treated as findings
+and remediated in the current successor candidate. A new exact-candidate review
+is required.
+
+The reviewer sandbox deliberately denies cross-process signalling. When a test
+runner is itself nested inside that sandbox, descendant-cleanup tests that need
+to signal their fixtures fail closed because the outer boundary removes that
+capability; they are never skipped or converted to success. Protected
+deterministic qualification must run those tests in its declared signal-capable
+runner before the separate read-only model lane begins.
 
 These observations are invalidated by any later candidate mutation and remain
 working-copy evidence until protected T24 reconstruction is complete.

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "policy_id", "lkg_governance_commit", "evidence_root", "governance_paths", "decision_source", "protected_minimums", "sandbox", "context", "mutation", "reviewer", "gates", "producer_version"],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "policy_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
     "lkg_governance_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
@@ -51,13 +51,23 @@
     "context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["default_profile", "compact_tokens", "standard_tokens", "deep_tokens", "projection_version"],
+      "required": ["default_profile", "compact_tokens", "standard_tokens", "deep_tokens", "projection_version", "qualification_ids"],
       "properties": {
         "default_profile": { "enum": ["COMPACT", "STANDARD", "DEEP"] },
         "compact_tokens": { "type": "integer", "minimum": 1 },
         "standard_tokens": { "type": "integer", "minimum": 1 },
         "deep_tokens": { "type": "integer", "minimum": 1 },
-        "projection_version": { "type": "string", "minLength": 1 }
+        "projection_version": { "type": "string", "minLength": 1 },
+        "qualification_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["COMPACT", "STANDARD", "DEEP"],
+          "properties": {
+            "COMPACT": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "STANDARD": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "DEEP": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        }
       }
     },
     "mutation": {
@@ -73,12 +83,14 @@
     "reviewer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "reasoning_effort", "timeout_seconds", "max_output_bytes", "qualification_ids"],
+      "required": ["model", "reasoning_effort", "timeout_seconds", "max_output_bytes", "qualification_corpus_sha256", "qualification_label_decision_id", "qualification_ids"],
       "properties": {
         "model": { "type": "string", "minLength": 1 },
         "reasoning_effort": { "enum": ["high", "xhigh"] },
         "timeout_seconds": { "type": "integer", "minimum": 1 },
         "max_output_bytes": { "type": "integer", "minimum": 1 },
+        "qualification_corpus_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "qualification_label_decision_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "qualification_ids": {
           "type": "object",
           "additionalProperties": false,

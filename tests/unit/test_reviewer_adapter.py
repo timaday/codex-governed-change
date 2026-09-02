@@ -10,6 +10,11 @@ import time
 import unittest
 from pathlib import Path
 
+try:
+    import resource
+except ImportError:  # pragma: no cover - unavailable on Windows
+    resource = None
+
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import sha256_bytes
 from codex_governance.domain.model import ReviewerVerdict
@@ -23,6 +28,7 @@ from codex_governance.reviewer import (
     launch_reviewer,
     observe_codex_cli_version,
     prepare_sanitized_harness,
+    reviewer_stream_is_portable,
     resolve_reviewer_runtime_read_roots,
     sanitized_invocation_descriptor,
 )
@@ -88,7 +94,9 @@ class ReviewerAdapterTest(unittest.TestCase):
             "effective-policy.json": b"policy\n",
             "gates.json": gates,
             "context-receipt.json": b"receipt\n",
+            "context-sources.json": b"sources\n",
             "context-projection.json": projection,
+            "context-qualification.json": b"context qualification\n",
             "reviewer-qualification.json": b"qualification\n",
             "raw-gate.json": raw_gate,
             "raw-log.bin": raw_log,
@@ -114,8 +122,15 @@ class ReviewerAdapterTest(unittest.TestCase):
             "reviewer_prompt_sha256": self.PROMPT,
             "context_receipt_path": "evidence/context-receipt.json",
             "context_receipt_sha256": sha256_bytes(documents["context-receipt.json"]),
+            "context_sources_path": "evidence/context-sources.json",
+            "context_sources_sha256": sha256_bytes(documents["context-sources.json"]),
             "context_projection_path": "evidence/context-projection.json",
             "context_projection_sha256": sha256_bytes(documents["context-projection.json"]),
+            "context_qualification_path": "evidence/context-qualification.json",
+            "context_qualification_sha256": sha256_bytes(
+                documents["context-qualification.json"]
+            ),
+            "context_qualification_id": "sha256:" + "4" * 64,
             "reviewer_qualification_path": "evidence/reviewer-qualification.json",
             "reviewer_qualification_sha256": sha256_bytes(
                 documents["reviewer-qualification.json"]
@@ -434,6 +449,57 @@ Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
         )
         self.assertEqual(f"-1:{errno.EPERM}", marker.read_text(encoding="utf-8"))
 
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and resource is not None
+        and platform.machine().lower() in {"aarch64", "x86_64"},
+        "supported Linux seccomp contract",
+    )
+    def test_signal_guard_denies_parent_resource_limit_mutation(self) -> None:
+        marker = self.harness["root"] / "prlimit-result"
+        handshake_read, handshake_write = os.pipe()
+        os.set_inheritable(handshake_write, True)
+        machine = platform.machine().lower()
+        syscall_number = reviewer_signal_guard.PRLIMIT64_SYSCALLS[machine]
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        unsigned_max = (1 << (8 * __import__("ctypes").sizeof(__import__("ctypes").c_ulong))) - 1
+        soft_value = unsigned_max if soft == resource.RLIM_INFINITY else soft
+        hard_value = unsigned_max if hard == resource.RLIM_INFINITY else hard
+        probe = f"""import ctypes, errno, os, resource
+from pathlib import Path
+class Rlimit(ctypes.Structure):
+    _fields_ = [('soft', ctypes.c_ulong), ('hard', ctypes.c_ulong)]
+limit = Rlimit({soft_value}, {hard_value})
+libc = ctypes.CDLL(None, use_errno=True)
+ctypes.set_errno(0)
+result = libc.syscall(
+    {syscall_number}, os.getppid(), resource.RLIMIT_NOFILE,
+    ctypes.byref(limit), ctypes.c_void_p(),
+)
+Path({str(marker)!r}).write_text(f'{{result}}:{{ctypes.get_errno()}}')
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                os.fspath(Path(reviewer_signal_guard.__file__)),
+                str(handshake_write),
+                "--",
+                sys.executable,
+                "-c",
+                probe,
+            ],
+            close_fds=True,
+            pass_fds=(handshake_write,),
+        )
+        os.close(handshake_write)
+        try:
+            handshake = json.loads(os.read(handshake_read, 4096).decode("ascii"))
+        finally:
+            os.close(handshake_read)
+        self.assertEqual(0, process.wait(timeout=5))
+        self.assertTrue(handshake["resource_limit_changes_blocked"])
+        self.assertEqual(f"-1:{errno.EPERM}", marker.read_text(encoding="utf-8"))
+
     def test_snapshot_is_exact_bounded_data_under_an_outer_git_root(self) -> None:
         candidate = self.harness["candidate"]
         self.assertEqual("working\n", (candidate / "tracked.txt").read_text(encoding="utf-8"))
@@ -608,6 +674,110 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertNotIn("OPENAI_API_KEY", sanitized)
         self.assertNotIn("UNDECLARED_SECRET", sanitized)
 
+    def test_reviewer_streams_are_retained_without_machine_runtime_values(self) -> None:
+        fake = self.fake_codex(
+            """import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+inputs = json.loads(sys.stdin.read().split('PERMITTED_INPUTS ', 1)[1])
+output = Path(args[args.index('--output-last-message') + 1])
+payload = {
+  'schema_version': '2.0.0', 'repository_id': inputs['repository_id'],
+  'candidate_id': inputs['candidate_id'],
+  'task_contract_sha256': inputs['task_contract_sha256'],
+  'effective_policy_sha256': inputs['effective_policy_sha256'],
+  'gate_manifest_sha256': inputs['gate_manifest_sha256'],
+  'context_receipt_sha256': inputs['context_receipt_sha256'],
+  'reviewer_prompt_sha256': inputs['reviewer_prompt_sha256'],
+  'qualification_id': inputs['reviewer_qualification_id'],
+  'model': 'fake-gpt', 'invocation_id': 'fake:portable-stream',
+  'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
+  'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
+  'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
+  'claims': [], 'limitations': []
+}
+output.write_text(json.dumps(payload), encoding='utf-8')
+print(json.dumps({'type': 'thread.started', 'thread_id': 'portable-stream'}))
+print(json.dumps({'type': 'item.completed', 'text': os.environ['HOME'] + ' ' + str(output)}))
+print(json.dumps({'type': 'turn.completed', 'usage': {
+  'input_tokens': 1, 'cached_input_tokens': 0,
+  'output_tokens': 1, 'reasoning_output_tokens': 0
+}}))
+print(os.environ['CODEX_HOME'] + ' ' + str(output), file=sys.stderr)
+"""
+        )
+        environment = dict(os.environ)
+        environment["HOME"] = "/machine/private/home"
+        environment["CODEX_HOME"] = "/machine/private/codex"
+        result = launch_reviewer(
+            command=self.command(fake),
+            stdin_text=self.stdin(),
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            expected_bindings={"repository_id": self.inputs["repository_id"]},
+            timeout_seconds=2,
+            environment=environment,
+        )
+        self.assertTrue(result["execution_valid"])
+        for stream in (result["stdout_bytes"], result["stderr_bytes"]):
+            self.assertNotIn(b"/machine/private", stream)
+            self.assertNotIn(os.fsencode(self.harness["root"]), stream)
+            self.assertIn(b"<REVIEWER_RUNTIME>", stream)
+        self.assertEqual(sha256_bytes(result["stdout_bytes"]), result["stdout_sha256"])
+        self.assertEqual(sha256_bytes(result["stderr_bytes"]), result["stderr_sha256"])
+
+    def test_ambiguous_reviewer_stream_values_are_redacted_and_unknown(self) -> None:
+        token = "gh" + "p_" + "Z" * 32
+        host_path = "/" + "var" + "/lib/private-runner/state"
+        endpoint = "192" + ".168.50.7:8443"
+        fake = self.fake_codex(
+            """
+import json, pathlib, sys
+args = sys.argv[1:]
+output = pathlib.Path(args[args.index('--output-last-message') + 1])
+candidate = %r
+payload = {
+  'schema_version': '2.0.0', 'repository_id': 'repo:example/project',
+  'candidate_id': candidate, 'task_contract_sha256': %r,
+  'effective_policy_sha256': %r, 'gate_manifest_sha256': %r,
+  'context_receipt_sha256': %r, 'reviewer_prompt_sha256': %r,
+  'qualification_id': %r, 'model': 'fake-gpt',
+  'invocation_id': 'fake:redaction', 'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
+  'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
+  'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
+  'claims': [], 'limitations': []
+}
+output.write_text(json.dumps(payload), encoding='utf-8')
+print(json.dumps({'type': 'thread.started', 'thread_id': 'redaction'}))
+print(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(payload)}}))
+print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}))
+print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
+"""
+            % (
+                self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
+                self.inputs["context_receipt_sha256"], self.PROMPT,
+                self.inputs["reviewer_qualification_id"], token, host_path,
+                endpoint,
+            )
+        )
+        result = launch_reviewer(
+            command=self.command(fake), stdin_text=self.stdin(),
+            schema_path=self.harness["schema"], output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            expected_bindings={"repository_id": self.inputs["repository_id"]},
+            timeout_seconds=2,
+        )
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertFalse(result["execution_valid"])
+        self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
+        for original in (token, host_path, endpoint):
+            self.assertNotIn(original.encode(), result["stderr_bytes"])
+            self.assertFalse(reviewer_stream_is_portable(original.encode()))
+        self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
+
     def test_runtime_profile_is_bounded_and_rejects_filesystem_root(self) -> None:
         install = Path(self.temporary.name) / "runtime" / "bin"
         install.mkdir(parents=True)
@@ -666,10 +836,30 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             output_path=self.harness["output"],
             expected_candidate_id=self.CANDIDATE,
             candidate_supplier=lambda: self.CANDIDATE,
-            timeout_seconds=0.1,
+            timeout_seconds=0.5,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
         self.assertFalse(result["execution_valid"])
+        self.assertFalse(result["observation_complete"])
+        self.assertTrue(result["capture_threads_completed"])
+        self.assertTrue(result["process_cleanup_complete"])
+
+    def test_unread_full_stdin_is_bounded_by_the_reviewer_deadline(self) -> None:
+        retains_stdin = self.fake_codex("import time\ntime.sleep(30)\n")
+        started = time.monotonic()
+        result = launch_reviewer(
+            command=self.command(retains_stdin),
+            stdin_text="x" * 2_000_000,
+            schema_path=self.harness["schema"],
+            output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            timeout_seconds=0.5,
+        )
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertTrue(result["timed_out"])
+        self.assertFalse(result["stdin_delivery_complete"])
         self.assertFalse(result["observation_complete"])
         self.assertTrue(result["capture_threads_completed"])
         self.assertTrue(result["process_cleanup_complete"])
@@ -744,6 +934,18 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "output_tokens": 3,
             "reasoning_output_tokens": 1,
             "limitations": [],
+            "observation": {
+                "parent_exit_observed": True,
+                "return_code": 0,
+                "timed_out": False,
+                "candidate_unchanged": True,
+                "stdin": {"complete": True, "bytes_expected": 10, "bytes_written": 10},
+                "stdout": {"bytes_observed": 20, "bytes_captured": 20, "bytes_normalized": 20, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
+                "stderr": {"bytes_observed": 0, "bytes_captured": 0, "bytes_normalized": 0, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
+                "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True},
+                "process_cleanup_complete": True,
+                "output": {"present": True, "regular": True, "bytes": 30, "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
+            },
         }
 
         def statement(execution=facts, context="sha256:" + "4" * 64):
@@ -758,6 +960,9 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 qualification_id="sha256:" + "7" * 64,
                 model="fake-gpt",
                 reasoning_effort="xhigh",
+                context_source_bundle_sha256="sha256:" + "9" * 64,
+                context_projection_sha256="sha256:" + "1" * 64,
+                context_qualification_id="sha256:" + "2" * 64,
                 input_context_receipt_sha256="sha256:" + "8" * 64,
                 context_execution_receipt_sha256=context,
                 workflow_system="unit",
@@ -766,20 +971,25 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 timeout_seconds=60,
                 max_output_bytes=1000,
                 codex_cli_version="codex-cli 0.149.1",
+                stdout_reference={"path": "evidence/stdout.bin", "sha256": execution["stdout_sha256"]},
+                stderr_reference={"path": "evidence/stderr.bin", "sha256": execution["stderr_sha256"]},
                 execution=execution,
             )
 
         baseline = statement()["execution_id"]
         for field, value in (
             ("output_sha256", "sha256:" + "9" * 64),
-            ("return_code", 7),
-            ("observation_complete", False),
             ("usage_observed", False),
             ("input_tokens", 11),
         ):
             changed = dict(facts, **{field: value})
             with self.subTest(field=field):
                 self.assertNotEqual(baseline, statement(changed)["execution_id"])
+        changed_observation = json.loads(json.dumps(facts))
+        changed_observation["observation"]["return_code"] = 7
+        self.assertNotEqual(
+            baseline, statement(changed_observation)["execution_id"]
+        )
         self.assertNotEqual(baseline, statement(context="sha256:" + "a" * 64)["execution_id"])
 
     def test_escaping_candidate_symlink_is_rejected_before_review(self) -> None:
@@ -847,7 +1057,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             self.inputs,
             context_projection_sha256=sha256_bytes(projection),
         )
-        with self.assertRaisesRegex(ValueError, "evidence source contains a symlink"):
+        with self.assertRaisesRegex(ValueError, "symlink"):
             prepare_sanitized_harness(
                 candidate_repository=self.repository,
                 harness_root=Path(self.temporary.name) / "evidence-symlink-harness",
@@ -857,6 +1067,113 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 expected_candidate=self.candidate,
                 evidence_root="evidence",
             )
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO contract is unavailable")
+    def test_reviewer_materialization_rejects_fifo_without_blocking(self) -> None:
+        mutation = self.repository / "evidence/mutation.json"
+        mutation.unlink()
+        os.mkfifo(mutation)
+        projection = json.dumps(
+            {
+                "evidence_index": [
+                    {
+                        "reference": "evidence/mutation.json",
+                        "sha256": "sha256:" + "1" * 64,
+                    }
+                ]
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+        (self.repository / "evidence/context-projection.json").write_bytes(projection)
+        inputs = dict(
+            self.inputs,
+            context_projection_sha256=sha256_bytes(projection),
+        )
+        started = time.monotonic()
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            prepare_sanitized_harness(
+                candidate_repository=self.repository,
+                harness_root=Path(self.temporary.name) / "fifo-harness",
+                fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+                output_schema_path=Path("schemas/reviewer-result.schema.json"),
+                permitted_inputs=inputs,
+                expected_candidate=self.candidate,
+                evidence_root="evidence",
+            )
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_reviewer_materialization_rejects_oversized_replacement(self) -> None:
+        mutation = self.repository / "evidence/mutation.json"
+        with mutation.open("wb") as stream:
+            stream.truncate(64_000_001)
+        projection = json.dumps(
+            {
+                "evidence_index": [
+                    {
+                        "reference": "evidence/mutation.json",
+                        "sha256": "sha256:" + "1" * 64,
+                    }
+                ]
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+        (self.repository / "evidence/context-projection.json").write_bytes(projection)
+        inputs = dict(
+            self.inputs,
+            context_projection_sha256=sha256_bytes(projection),
+        )
+        with self.assertRaisesRegex(ValueError, "size bound"):
+            prepare_sanitized_harness(
+                candidate_repository=self.repository,
+                harness_root=Path(self.temporary.name) / "oversize-harness",
+                fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+                output_schema_path=Path("schemas/reviewer-result.schema.json"),
+                permitted_inputs=inputs,
+                expected_candidate=self.candidate,
+                evidence_root="evidence",
+            )
+
+    def test_reviewer_materialization_rejects_parent_swap(self) -> None:
+        from unittest.mock import patch
+
+        parent = self.repository / "evidence"
+        moved = self.repository / "original-evidence"
+        outside = Path(self.temporary.name) / "outside-evidence"
+        outside.mkdir()
+        (outside / "mutation.json").write_bytes(b"untrusted")
+        real_open = os.open
+        swapped = False
+
+        def replace_parent(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if not swapped and path == "mutation.json" and dir_fd is not None:
+                parent.rename(moved)
+                parent.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            return real_open(path, flags, mode, dir_fd=dir_fd)
+
+        with (
+            patch(
+                "codex_governance.artifacts.secure_repository_reads_available",
+                return_value=True,
+            ),
+            patch(
+                "codex_governance.artifacts.os.open", side_effect=replace_parent
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "binding changed"):
+                prepare_sanitized_harness(
+                    candidate_repository=self.repository,
+                    harness_root=Path(self.temporary.name) / "swap-harness",
+                    fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+                    output_schema_path=Path(
+                        "schemas/reviewer-result.schema.json"
+                    ),
+                    permitted_inputs=self.inputs,
+                    expected_candidate=self.candidate,
+                    evidence_root="evidence",
+                )
+        self.assertTrue(swapped)
 
     def test_completed_rapid_session_requires_exact_charter_binding(self) -> None:
         payload = json.loads(

@@ -22,6 +22,12 @@ Do not request or reveal hidden chain-of-thought. Return concise findings and ev
 7. For specification changes, inspect traceability, alternatives, Three Amigos coverage, relevant specialists, NFRs, acceptance criteria, test strategy, RST risks/oracles/charters, assumptions and unknowns.
 8. Record every material reviewed surface and limitation.
 
+For conformance output, `reviewed_surfaces` MUST include the literal tokens
+`exact_diff`, `affected_closure`, and `governance_and_evidence`. Report
+`affected_closure` as the exact sorted closure in the protected context
+projection, not a sample or summary. A success verdict requires at least one
+reviewed claim and no claim classified `UNVERIFIED` or `UNKNOWN`.
+
 ## Chartered RST-inspired rapid-review mode
 
 When `PERMITTED_INPUTS.review_mode` is `rapid_review`, validate the exact candidate-bound risk assessment and charter before investigating. Treat HTSM, FEW HICCUPPS, and other checklists as fallible guidewords, not rules or proof. Conduct direct experiments with explicit oracles, explain the threatened stakeholder value, test counter-hypotheses where practical, and report coverage, deliberate/accidental omissions, obstacles, follow-up charters, and residual risks. A consumed timebox, completed checklist, session count, or empty findings list cannot establish success.

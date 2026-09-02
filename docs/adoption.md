@@ -115,12 +115,16 @@ valid/ready bounded outcome, `1` for a confirmed block and `2` for unknown or
 incomplete evidence. Use `codex-governance COMMAND --help` for the portable
 argument contract. Evidence paths are repository-relative; do not place user,
 home-directory, host or local endpoint values in policy or committed artifacts.
-`prepare-review` requires `--repository`, `--policy` and `--candidate`; it
-re-identifies the exact candidate and derives a conservative Git-visible
-dependency/caller/contract/test closure. Callers cannot supply an aggregate or
-restricted replacement for the changed-file inventory or closure. Each `review` call also requires a
-portable workflow run ID and writes three linked outputs: the schema-bound model
-result, reviewer-execution statement, and post-run context-execution receipt.
+`prepare-review` requires the repository, policy, task, candidate, complete gate
+and mutation summaries, protected context qualification, protected observation
+time, profile/model/effort and exact policy-selected budget. It re-identifies the
+candidate, derives and hashes the complete conservative Git-visible closure, and
+writes separate source-bundle, projection and prepared-receipt artifacts. Any
+optional caller source document must equal that protected reconstruction exactly;
+it cannot replace the inventory, closure or adverse evidence. Each `review` call
+requires all three context references plus the protected context-qualification
+reference, a portable workflow run ID, and writes the schema-bound model result,
+reviewer-execution statement, and post-run context-execution receipt.
 The reference CI runs conformance and every protected rapid-review input, then
 passes all three artifact families to the final reconstruction job.
 

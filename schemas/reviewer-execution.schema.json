@@ -4,9 +4,9 @@
   "title": "Fresh reviewer execution statement",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "execution_id", "repository_id", "task_contract_sha256", "effective_policy_sha256", "candidate_id", "review_mode", "prompt_sha256", "output_schema_sha256", "launcher_sha256", "qualification_id", "model", "reasoning_effort", "input_context_receipt_sha256", "context_execution_receipt_sha256", "reviewer_output_sha256", "candidate_before", "candidate_after", "invocation", "argv_sha256", "stdin_sha256", "codex_thread_id", "workflow", "limits", "tools", "materials", "environment_keys", "started_at", "ended_at", "latency_ms", "return_code", "timed_out", "observation_complete", "capture_threads_completed", "process_cleanup_complete", "execution_valid", "output_valid", "bindings_match", "output_truncated", "stdout_sha256", "stderr_sha256", "usage_observed", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "limitations"],
+  "required": ["schema_version", "execution_id", "repository_id", "task_contract_sha256", "effective_policy_sha256", "candidate_id", "review_mode", "prompt_sha256", "output_schema_sha256", "launcher_sha256", "qualification_id", "model", "reasoning_effort", "input_context_receipt_sha256", "context_execution_receipt_sha256", "reviewer_output_sha256", "candidate_before", "candidate_after", "observation", "invocation", "argv_sha256", "stdin_sha256", "codex_thread_id", "workflow", "limits", "tools", "materials", "environment_keys", "started_at", "ended_at", "latency_ms", "return_code", "timed_out", "stdin_delivery_complete", "observation_complete", "capture_threads_completed", "process_cleanup_complete", "execution_valid", "output_valid", "bindings_match", "output_truncated", "stdout_sha256", "stderr_sha256", "stdout", "stderr", "usage_observed", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "limitations"],
   "properties": {
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "execution_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
@@ -24,6 +24,7 @@
     "reviewer_output_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "candidate_before": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "candidate_after": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "observation": { "$ref": "#/$defs/observation" },
     "invocation": {
       "type": "object", "additionalProperties": false,
       "required": ["process", "fresh", "ephemeral", "ignore_user_config", "ignore_rules", "sandbox", "filesystem_read_scope", "host_root_readable", "tool_network_enabled", "tool_environment", "approval_policy", "hooks_enabled", "subagents_enabled", "schema_bound", "json_events", "author_context_available", "persisted_reasoning_available", "candidate_configuration_active", "connectors_available", "unrelated_mcp_available", "model", "reasoning_effort", "reviewer_prompt_sha256", "environment_values_recorded"],
@@ -94,6 +95,7 @@
     "latency_ms": { "type": "integer", "minimum": 0 },
     "return_code": { "type": "integer" },
     "timed_out": { "type": "boolean" },
+    "stdin_delivery_complete": { "type": "boolean" },
     "observation_complete": { "type": "boolean" },
     "capture_threads_completed": { "type": "boolean" },
     "process_cleanup_complete": { "type": "boolean" },
@@ -103,6 +105,8 @@
     "output_truncated": { "type": "boolean" },
     "stdout_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "stderr_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "stdout": { "$ref": "#/$defs/reference" },
+    "stderr": { "$ref": "#/$defs/reference" },
     "usage_observed": { "type": "boolean" },
     "input_tokens": { "type": "integer", "minimum": 0 },
     "cached_input_tokens": { "type": "integer", "minimum": 0 },
@@ -111,6 +115,80 @@
     "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
   },
   "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "stdinObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "bytes_expected", "bytes_written"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "bytes_expected": { "type": "integer", "minimum": 0 },
+        "bytes_written": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "streamObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytes_observed", "bytes_captured", "bytes_normalized", "thread_completed", "eof", "read_failed", "truncated", "ambiguous_redaction"],
+      "properties": {
+        "bytes_observed": { "type": "integer", "minimum": 0 },
+        "bytes_captured": { "type": "integer", "minimum": 0 },
+        "bytes_normalized": { "type": "integer", "minimum": 0 },
+        "thread_completed": { "type": "boolean" },
+        "eof": { "type": "boolean" },
+        "read_failed": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "ambiguous_redaction": { "type": "boolean" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_exit_observed", "return_code", "timed_out", "candidate_unchanged", "stdin", "stdout", "stderr", "supervisor", "process_cleanup_complete", "output"],
+      "properties": {
+        "parent_exit_observed": { "type": "boolean" },
+        "return_code": { "type": "integer" },
+        "timed_out": { "type": "boolean" },
+        "candidate_unchanged": { "type": "boolean" },
+        "stdin": { "$ref": "#/$defs/stdinObservation" },
+        "stdout": { "$ref": "#/$defs/streamObservation" },
+        "stderr": { "$ref": "#/$defs/streamObservation" },
+        "supervisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["boundary_available", "boundary_kind", "descendants_observed", "cleanup_complete"],
+          "properties": {
+            "boundary_available": { "type": "boolean" },
+            "boundary_kind": { "enum": ["pid_namespace", "seccomp_signal_guard", "unavailable"] },
+            "descendants_observed": { "type": "boolean" },
+            "cleanup_complete": { "type": "boolean" }
+          }
+        },
+        "process_cleanup_complete": { "type": "boolean" },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present", "regular", "bytes", "schema_valid", "candidate_matches", "bindings_match", "truncated"],
+          "properties": {
+            "present": { "type": "boolean" },
+            "regular": { "type": "boolean" },
+            "bytes": { "type": "integer", "minimum": 0 },
+            "schema_valid": { "type": "boolean" },
+            "candidate_matches": { "type": "boolean" },
+            "bindings_match": { "type": "boolean" },
+            "truncated": { "type": "boolean" }
+          }
+        }
+      }
+    },
     "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
   }
 }
