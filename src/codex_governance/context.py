@@ -444,7 +444,7 @@ def compile_context(
         _source_reference("rubric", "disposition_contract", sources["disposition_contract"]),
     ]
     receipt: dict[str, Any] = {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "repository_id": sources["repository_id"],
         "candidate_id": sources["candidate_id"],
         "projection_version": "1.0.0",

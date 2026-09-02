@@ -25,6 +25,7 @@ permissions:
 env:
   GOVERNANCE_REPOSITORY: timaday/codex-governed-change
   POLICY: authority/.governance/effective-policy.json
+  PROPOSED_POLICY: authority/.governance/proposed-policy.json
   ARTIFACT_ROOT: candidate/artifacts/governance
   ARTIFACT_REPOSITORY_ROOT: artifacts/governance
   TASK: candidate/artifacts/governance/task-contract.json
@@ -109,6 +110,7 @@ jobs:
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas run-gates \
             --repository candidate \
             --policy "$POLICY" \
+            --proposed-policy "$PROPOSED_POLICY" \
             --task "$TASK" \
             --candidate "$CANDIDATE" \
             --reviewer-prompt "$REVIEWER_PROMPT" \

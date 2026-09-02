@@ -582,8 +582,11 @@ REVIEWER_AMBIGUOUS_PATTERNS = (
 REVIEWER_PORTABLE_SOURCE_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[5:]
 REVIEWER_SOURCE_EXPRESSION = re.compile(
     rb"(?i)\b(?P<name>api[_-]?key|token|secret|password|passwd|authorization)"
-    rb"\s*[:=]\s*(?P=name)\.[A-Za-z_][A-Za-z0-9_]*\([^\s,;]*"
+    rb"\s*[:=]\s*(?P=name)\.[A-Za-z_][A-Za-z0-9_]*\("
+    rb"(?P<argument>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
+    rb"(?:\)|$)"
 )
+REVIEWER_CREDENTIAL_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[:5]
 
 
 def reviewer_portable_source_literals(
@@ -601,7 +604,11 @@ def reviewer_portable_source_literals(
             literals.update(match.group(0) for match in pattern.finditer(data))
         for match in REVIEWER_AMBIGUOUS_PATTERNS[1].finditer(data):
             literal = match.group(0)
-            if REVIEWER_SOURCE_EXPRESSION.fullmatch(literal):
+            expression = REVIEWER_SOURCE_EXPRESSION.fullmatch(literal)
+            if expression is not None and not any(
+                pattern.search(expression.group("argument"))
+                for pattern in REVIEWER_CREDENTIAL_PATTERNS
+            ):
                 literals.add(literal)
 
     for data in protected_sources:

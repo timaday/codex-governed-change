@@ -196,7 +196,7 @@ def observe_container_provider(executable: str) -> str:
 def validate_sandbox_capability(report: Mapping[str, Any]) -> list[str]:
     """Validate a supervisor-produced report; an assertion alone is not proof."""
     errors: list[str] = []
-    if report.get("schema_version") != "1.0.0":
+    if report.get("schema_version") != "2.0.0":
         errors.append("unsupported sandbox capability schema")
     if not verify_content_address(report, "capability_id"):
         errors.append("sandbox capability ID does not reconstruct")
@@ -450,7 +450,7 @@ def build_container_invocation(
     )
     report = content_address(
         {
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "provider": executable,
             "provider_version": provider_version,
             "image": image,
@@ -471,7 +471,7 @@ def build_container_invocation(
             "timeout_seconds": timeout_seconds,
             "output_bytes": output_bytes,
             "verified_at": verified_at,
-            "limitations": ["unsigned local capability report"],
+            "limitations": [],
         },
         "capability_id",
     )

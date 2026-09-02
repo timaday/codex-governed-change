@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "statement_id": "sha256:d1b4f299fbb7eab117f1102fbd34f9b283d4fbe4eb96a23ec697f2b4c9d5ab74",
+  "schema_version": "2.0.0",
+  "statement_id": "sha256:4202b0864abaf0a87bb9de5944b072fe02ffcca317275ebce742965269ed8145",
   "_type": "https://in-toto.io/Statement/v1",
   "subject": [
     {"name": "repo:example/codex-governed-change", "digest": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},

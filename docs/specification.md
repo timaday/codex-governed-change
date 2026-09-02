@@ -522,8 +522,11 @@ reference the proposed policy, authenticated LKG-promotion decision and rollback
 evidence. Rollback evidence contains typed references to a policy-defined
 rollback gate result, sandbox capability and provenance statement. Admission
 descriptor-resolves and fully reconstructs those nested artifacts, raw streams,
-producer identity and chronology, rejects limitations, binds the rollback target
-to the authenticated base, and then runs the previous-LKG promotion predicate;
+producer identity and chronology, rejects limitations, and requires the policy
+argv, executed gate argv, provenance material and exact machine-readable success
+line to agree on the authenticated base target. A protected producer runs this
+rehearsal separately from the ordinary task-selected gate set and emits the
+nested typed rollback evidence before the previous-LKG promotion predicate runs;
 ordinary governance authorization or digest-shaped proof alone is insufficient.
 
 ## 16. Sandboxed execution and provenance
@@ -697,12 +700,14 @@ manifests, not embeddings or a vector database.
 ## 19. Schema lifecycle and portability
 
 Schemas define supported versions and migration behavior. The qualification
-evidence additions are breaking: `effective-policy`, `evidence-manifest`, and
-`reviewer-qualification` are `2.0.0`; `reviewer-qualification-cases` is `3.0.0`
+evidence additions are breaking: `effective-policy`, `reviewer-qualification`,
+`context-receipt`, `sandbox-capability`, and `provenance-statement` are `2.0.0`;
+`evidence-manifest` is `3.0.0`; `reviewer-qualification-cases` is `3.0.0`
 with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `2.0.0` with
 mandatory typed case classes; and `reviewer-execution` is `3.0.0` with primitive
 observation plus direct stream references. Migration from each immediately
-preceding version is explicit. Syntax validation is
+preceding version is executable and explicit; an old document is accepted only
+as migration input and never as current admission evidence. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time
 ordering, digest/reference relationships and lifecycle constraints. Unsupported
 or ambiguous versions block. The domain remains independent of JSON, Git,

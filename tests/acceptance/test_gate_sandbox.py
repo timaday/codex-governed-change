@@ -25,7 +25,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             output_bytes=1000,
         )
         return content_address({
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "provider": "docker",
             "provider_version": "fixture",
             "image": "python@sha256:" + "c" * 64,
@@ -160,6 +160,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
         self.assertIn("--name", invocation.argv)
         self.assertIn("--cidfile", invocation.argv)
         self.assertEqual(candidate_copy.parent, invocation.container_id_file.parent)
+        self.assertEqual([], invocation.capability_report["limitations"])
         self.assertEqual([], __import__(
             "codex_governance.sandbox", fromlist=["validate_sandbox_capability"]
         ).validate_sandbox_capability(invocation.capability_report))

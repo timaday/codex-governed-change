@@ -94,7 +94,7 @@ def build_provenance_statement(
         raise ValueError("invalid repository identity or provenance time order")
     require_sha256(candidate_id, name="candidate_id")
     document: dict[str, Any] = {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "_type": STATEMENT_TYPE,
         "subject": [
             {"name": repository_id, "digest": {"sha256": _hex_digest(repository_digest)}},
@@ -130,6 +130,8 @@ def verify_provenance_statement(
     repository_digest: str | None = None,
 ) -> bool:
     if not verify_content_address(statement, "statement_id"):
+        return False
+    if statement.get("schema_version") != "2.0.0":
         return False
     if statement.get("_type") != STATEMENT_TYPE or statement.get("predicateType") != PREDICATE_TYPE:
         return False

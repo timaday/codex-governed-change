@@ -85,7 +85,7 @@ class GateRunnerTest(unittest.TestCase):
             )
             report = content_address(
                 {
-                    "schema_version": "1.0.0",
+                    "schema_version": "2.0.0",
                     "provider": "docker",
                     "provider_version": "test",
                     "image": "python@sha256:" + "a" * 64,
@@ -144,7 +144,7 @@ class GateRunnerTest(unittest.TestCase):
         command = [sys.executable, "-c", "import time; time.sleep(10)"]
         report = content_address(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "2.0.0",
                 "provider": "docker",
                 "provider_version": "fixture",
                 "image": "python@sha256:" + "a" * 64,

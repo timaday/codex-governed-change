@@ -57,6 +57,7 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
             self.assertIn(current, self.workflow)
         self.assertIn("qualification-matched", self.workflow)
         self.assertIn('--candidate "$CANDIDATE"', self.workflow)
+        self.assertIn('--proposed-policy "$PROPOSED_POLICY"', self.workflow)
         self.assertIn("--execution-output", self.workflow)
         self.assertIn("--context-execution-output", self.workflow)
         self.assertIn("--stdout-output", self.workflow)

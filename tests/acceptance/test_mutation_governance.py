@@ -61,6 +61,8 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "unverified-reviewer-reference", "risk-downgrade",
             "protected-risk-floor-downgrade",
             "old-policy-self-replacement", "missing-provenance",
+            "nested-source-credential", "rollback-output-unbound",
+            "legacy-context-schema",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

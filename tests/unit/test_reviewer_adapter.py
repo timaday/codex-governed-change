@@ -829,6 +829,12 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
         source_literal = "/" + "var" + "/lib/public-example"
         source_expression = b'token = token.replace("~1"'
         credential_literal = ("gh" + "p_" + "Q" * 32).encode("utf-8")
+        nested_token = (
+            'token = token.replace("' + "sk" + "-" + "Q" * 32 + '")'
+        ).encode("utf-8")
+        nested_assignment = (
+            'token = token.replace("api_' + "key=" + "Q" * 32 + '")'
+        ).encode("utf-8")
         fake = self.fake_codex(
             """
 import json, pathlib, sys
@@ -873,10 +879,14 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 source_literal.encode("utf-8"),
                 source_expression,
                 credential_literal,
+                nested_token,
+                nested_assignment,
             ),
         )
         self.assertIn(source_expression, literals)
         self.assertNotIn(credential_literal, literals)
+        self.assertNotIn(nested_token, literals)
+        self.assertNotIn(nested_assignment, literals)
         result = launch_reviewer(
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],

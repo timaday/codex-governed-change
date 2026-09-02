@@ -41,6 +41,9 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "protected-risk-floor-downgrade",
         "old-policy-self-replacement",
         "missing-provenance",
+        "nested-source-credential",
+        "rollback-output-unbound",
+        "legacy-context-schema",
     }
 )
 

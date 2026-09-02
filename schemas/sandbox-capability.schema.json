@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "capability_id", "provider", "provider_version", "image", "command", "implementation_sha256", "source_identity", "execution_identity", "disposable", "secrets_present", "network_mode", "candidate_copy_writable", "protected_paths_writable", "evidence_paths_writable", "supervisor_paths_writable", "process_limit", "memory_bytes", "cpu_seconds", "timeout_seconds", "output_bytes", "verified_at", "limitations"],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "capability_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "provider": { "enum": ["docker", "podman"] },
     "provider_version": { "type": "string", "minLength": 1 },

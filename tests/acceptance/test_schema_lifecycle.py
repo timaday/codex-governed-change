@@ -1,5 +1,6 @@
 import json
 import unittest
+from copy import deepcopy
 from datetime import timezone
 from pathlib import Path
 
@@ -42,12 +43,107 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             "reviewer-qualification",
             "reviewer-qualification-cases",
             "reviewer-qualification-corpus",
+            "context-receipt",
+            "sandbox-capability",
+            "provenance-statement",
         ):
             with self.subTest(kind=kind):
                 self.assertEqual(
                     "explicit_required", migration_policy(kind, "1.0.0", "2.0.0")
                 )
         self.assertEqual("unsupported", migration_policy("reviewer-result", "0.1.0", "2.0.0"))
+
+    def test_breaking_v1_evidence_migrates_explicitly_to_current_v2(self) -> None:
+        from codex_governance.canonical import content_address
+        from codex_governance.lifecycle import (
+            migrate_context_receipt_v1_to_v2,
+            migrate_provenance_statement_v1_to_v2,
+            migrate_sandbox_capability_v1_to_v2,
+        )
+        from codex_governance.schema import load_json, validate_instance
+
+        cases = []
+
+        receipt = json.loads(Path("examples/context-receipt.json").read_text())
+        qualification = receipt.pop("context_qualification_id")
+        source_bundle = receipt.pop("source_bundle_sha256")
+        receipt["schema_version"] = "1.0.0"
+        receipt = content_address(receipt, "receipt_id")
+        receipt_schema = load_json(Path("schemas/context-receipt.schema.json"))
+        legacy_receipt_schema = deepcopy(receipt_schema)
+        legacy_receipt_schema["properties"]["schema_version"]["const"] = "1.0.0"
+        for field in ("context_qualification_id", "source_bundle_sha256"):
+            legacy_receipt_schema["required"].remove(field)
+            legacy_receipt_schema["properties"].pop(field)
+        cases.append(
+            (
+                "context-receipt",
+                receipt,
+                legacy_receipt_schema,
+                migrate_context_receipt_v1_to_v2(
+                    receipt,
+                    context_qualification_id=qualification,
+                    source_bundle_sha256=source_bundle,
+                ),
+            )
+        )
+
+        capability = json.loads(Path("examples/sandbox-capability.json").read_text())
+        image = capability.pop("image")
+        command = capability.pop("command")
+        capability["schema_version"] = "1.0.0"
+        capability = content_address(capability, "capability_id")
+        capability_schema = load_json(Path("schemas/sandbox-capability.schema.json"))
+        legacy_capability_schema = deepcopy(capability_schema)
+        legacy_capability_schema["properties"]["schema_version"]["const"] = "1.0.0"
+        legacy_capability_schema["properties"]["provider"] = {
+            "type": "string",
+            "minLength": 1,
+        }
+        for field in ("image", "command"):
+            legacy_capability_schema["required"].remove(field)
+            legacy_capability_schema["properties"].pop(field)
+        cases.append(
+            (
+                "sandbox-capability",
+                capability,
+                legacy_capability_schema,
+                migrate_sandbox_capability_v1_to_v2(
+                    capability, image=image, command=command
+                ),
+            )
+        )
+
+        statement = json.loads(Path("examples/provenance-statement.json").read_text())
+        cpu_seconds = statement["predicate"]["limits"].pop("cpu_seconds")
+        statement["schema_version"] = "1.0.0"
+        statement = content_address(statement, "statement_id")
+        statement_schema = load_json(Path("schemas/provenance-statement.schema.json"))
+        legacy_statement_schema = deepcopy(statement_schema)
+        legacy_statement_schema["properties"]["schema_version"]["const"] = "1.0.0"
+        legacy_limits = legacy_statement_schema["properties"]["predicate"][
+            "properties"
+        ]["limits"]
+        legacy_limits["required"].remove("cpu_seconds")
+        legacy_limits["properties"].pop("cpu_seconds")
+        cases.append(
+            (
+                "provenance-statement",
+                statement,
+                legacy_statement_schema,
+                migrate_provenance_statement_v1_to_v2(
+                    statement, cpu_seconds=cpu_seconds
+                ),
+            )
+        )
+
+        for kind, legacy, legacy_schema, migrated in cases:
+            schema = load_json(Path("schemas") / f"{kind}.schema.json")
+            with self.subTest(kind=kind):
+                self.assertEqual([], validate_instance(legacy, legacy_schema))
+                self.assertNotEqual([], validate_instance(legacy, schema))
+                self.assertEqual([], validate_instance(migrated, schema))
+                self.assertEqual("2.0.0", migrated["schema_version"])
 
     def test_complete_rfc3339_and_real_calendar_values_are_required(self) -> None:
         from codex_governance.lifecycle import parse_rfc3339

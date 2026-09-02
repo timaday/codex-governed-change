@@ -137,6 +137,11 @@ Every manifest also carries the protected-source-authenticated LKG-policy
 decision that binds the effective policy to the exact task, candidate and base.
 Rollback evidence uses nested gate-result, capability and provenance references;
 all must be retained and reconstructable, and any limitation blocks promotion.
+For a governance candidate, `run-gates` additionally requires
+`--proposed-policy`. It runs the protected policy's `rollback-rehearsal`
+separately from the task gate manifest, requires its command target to equal the
+candidate base, and publishes the typed rollback-evidence reference in its
+summary. The proposed policy must bind its LKG commit to the candidate head.
 
 ## 8. Reviewer isolation verification
 

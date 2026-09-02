@@ -122,6 +122,21 @@ values without permitting nested or standalone credentials. The `db46cc4`
 review and the 235-test checkpoint are stale after these changes; deterministic
 gates, mutation and a new exact-candidate fresh review must be rerun.
 
+A further fresh read-only audit of immutable commit `d5075db` was bound to the
+correct candidate, but its formal process disposition was `UNKNOWN` because the
+normalized retained stream still contained an ambiguous machine- or
+credential-shaped value. Its five concrete findings were retained: a nested
+credential could enter the source-expression exception; rollback success was
+not bound to the executed argv and stdout target; the protected producer had no
+production rollback-evidence path; three breaking public representations still
+used version `1.0.0`; and the local review task understated affected surfaces.
+The current successor narrows the source-expression grammar, binds rollback
+policy/command/output to the authenticated base, produces separate typed
+rollback evidence, versions and migrates the three representations, and expands
+the exact local review scope. The `d5075db` audit and every earlier deterministic
+result are stale for this successor; exact-candidate gates, curated mutation and
+a new fresh review remain required.
+
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
 to signal their fixtures fail closed because the outer boundary removes that

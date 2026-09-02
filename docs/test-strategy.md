@@ -155,7 +155,11 @@ both reject them.
 Previous-LKG tests substitute policy/base bindings and omit or tamper with the
 authenticated LKG-policy decision. Rollback tests replace each nested gate,
 capability, provenance and raw-stream artifact with a digest-shaped or stale
-value, change the target or chronology, and add limitations. Reviewer deadline
+value, change the declared target, executed argv, success-line target or
+chronology, and add limitations. A production-path test runs the separately
+selected rollback producer and reconstructs its emitted rollback evidence.
+Reviewer source-literal tests nest credential-shaped arguments inside otherwise
+allowlisted same-name expressions. Reviewer deadline
 tests stall pre/post identity Git observations and snapshot Git helpers. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
@@ -173,6 +177,11 @@ Reviewer CLI tests place symlinks, FIFOs, oversized leaves and parent swaps at
 permitted-input paths and prove the validated bytes are the same bytes copied to
 the harness. Qualification tests replace or omit every per-case context artifact
 and re-address the outer case record; reconstruction must still reject it.
+
+Schema lifecycle tests construct valid legacy `context-receipt`,
+`sandbox-capability` and `provenance-statement` documents, prove current schemas
+reject them, execute the explicit `1.0.0` to `2.0.0` migration with protected
+bindings, and validate the re-addressed result against the current schema.
 
 The required-workflow oracle captures current UTC inside the trusted disposition
 job. A rerun after a decision or waiver expires fails even when the original

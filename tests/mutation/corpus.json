@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:ea59494b38c57876fd2b4b828c740f24ac1c25c28667ceebcf313abacb35a515",
+  "corpus_id": "sha256:54445d31753dc2b3f31f4a35317ee2dc9a925212098c06352c9b77a2d791ca0b",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -209,6 +209,33 @@
       "operator": "accept provenance whose identity does not reconstruct",
       "requirement_id": "GOV-061",
       "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_attestation", "-v"]
+    },
+    {
+      "mutant_id": "nested-source-credential",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "                for pattern in REVIEWER_CREDENTIAL_PATTERNS",
+      "new": "                for pattern in ()",
+      "operator": "allow a nested credential through the source-literal exception",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl", "-v"]
+    },
+    {
+      "mutant_id": "rollback-output-unbound",
+      "path": "src/codex_governance/evidence.py",
+      "old": "            and (expected_stdout is None or raw_streams[\"stdout\"] == expected_stdout)",
+      "new": "            and True",
+      "operator": "accept rollback output naming a different target",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_governance_candidate_requires_admission_path_lkg_promotion", "-v"]
+    },
+    {
+      "mutant_id": "legacy-context-schema",
+      "path": "schemas/context-receipt.schema.json",
+      "old": "    \"schema_version\": { \"const\": \"2.0.0\" },",
+      "new": "    \"schema_version\": { \"const\": \"1.0.0\" },",
+      "operator": "silently accept the breaking legacy context representation",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_schema_lifecycle", "-v"]
     }
   ]
 }

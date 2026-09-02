@@ -581,6 +581,7 @@ def evaluate_manifest(
         expected_timeout_seconds: int,
         expected_max_output_bytes: int,
         expected_shell: bool = False,
+        expected_stdout: bytes | None = None,
     ) -> bool:
         capability_sha = result.get("sandbox_capability_sha256")
         capability = capability_by_sha.get(str(capability_sha))
@@ -628,7 +629,7 @@ def evaluate_manifest(
             or len(artifacts) != 2
         ):
             return False
-        raw_streams: dict[str, str] = {}
+        raw_streams: dict[str, bytes] = {}
         try:
             for artifact in artifacts:
                 if not isinstance(artifact, Mapping):
@@ -655,7 +656,7 @@ def evaluate_manifest(
                 )
                 if len(data) != declared_bytes:
                     return False
-                raw_streams[str(stream)] = sha256_bytes(data)
+                raw_streams[str(stream)] = data
         except (OSError, TypeError, ValueError):
             return False
         if set(raw_streams) != {"stdout", "stderr"}:
@@ -676,12 +677,13 @@ def evaluate_manifest(
             )
         )
         provenance_artifacts = [
-            {"name": "stdout", "sha256": raw_streams["stdout"]},
-            {"name": "stderr", "sha256": raw_streams["stderr"]},
+            {"name": "stdout", "sha256": sha256_bytes(raw_streams["stdout"])},
+            {"name": "stderr", "sha256": sha256_bytes(raw_streams["stderr"])},
             {"name": "sandbox-capability", "sha256": capability_sha},
         ]
         return bool(
             status_matches_termination
+            and (expected_stdout is None or raw_streams["stdout"] == expected_stdout)
             and chronology_valid
             and predicate.get("artifacts") == provenance_artifacts
             and isinstance(capability, Mapping)
@@ -846,6 +848,16 @@ def evaluate_manifest(
             )
             rollback_definition = gate_policy["rollback-rehearsal"]
             rollback_target = str(current_candidate["base_commit"])
+            rollback_command = [
+                "python3",
+                "scripts/rehearse_rollback.py",
+                rollback_target,
+            ]
+            rollback_stdout = (
+                f"ROLLBACK_REHEARSAL=PASS target={rollback_target}\n".encode(
+                    "ascii"
+                )
+            )
             proposed_sha = sha256_canonical(proposed_policy)
             required_materials = {
                 ("rollback-target-commit", sha256_bytes(rollback_target.encode())),
@@ -875,13 +887,15 @@ def evaluate_manifest(
                 and rollback_capability.get("limitations") == []
                 and rollback_provenance.get("predicate", {}).get("limitations")
                 == []
+                and rollback_definition.get("command") == rollback_command
+                and rollback_definition.get("shell") is False
                 and parse_rfc3339(rollback_gate["ended_at"])
                 <= parse_rfc3339(rollback_evidence["created_at"])
                 <= parse_rfc3339(promotion_decision["issued_at"])
                 and execution_evidence_valid(
                     rollback_gate,
                     source_identity=current_candidate_id,
-                    expected_command=rollback_definition["command"],
+                    expected_command=rollback_command,
                     expected_gate_id="rollback-rehearsal",
                     expected_gate_definition_sha256=sha256_canonical(
                         rollback_definition
@@ -894,6 +908,7 @@ def evaluate_manifest(
                         "max_output_bytes"
                     ],
                     expected_shell=bool(rollback_definition["shell"]),
+                    expected_stdout=rollback_stdout,
                 )
             )
             promotion_state = (

@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "receipt_id": "sha256:4987f3ca166d7a40c3447c2576e9ae55250f2732a0f38689ea3e2c0856b6d089",
+  "schema_version": "2.0.0",
+  "receipt_id": "sha256:2a62cb0d7f2ba26d7e4efc5951829415f7bab123720bc5e86c8e4e83d6de69f6",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "projection_version": "1.0.0",

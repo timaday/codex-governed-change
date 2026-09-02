@@ -25,6 +25,7 @@ from codex_governance.attestation import (
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import (
     canonical_json_bytes,
+    content_address,
     normalize_repo_path,
     require_sha256,
     sha256_bytes,
@@ -49,6 +50,7 @@ from codex_governance.evidence import (
     repository_reference,
 )
 from codex_governance.gate import run_gate
+from codex_governance.governance import is_governance_path
 from codex_governance.hook import decide_stop
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.locking import PipelineLock
@@ -322,6 +324,42 @@ def _run_gates(args: argparse.Namespace) -> int:
     gate_ids = list(task["required_gate_ids"])
     if any(item not in available for item in gate_ids):
         raise ValueError("task requests an unavailable protected gate")
+    governed_paths = [
+        path
+        for path in candidate["changed_paths"]
+        if is_governance_path(path, governance_paths=policy["governance_paths"])
+    ]
+    proposed_policy: dict[str, Any] | None = None
+    proposed_policy_sha256: str | None = None
+    rollback_definition: dict[str, Any] | None = None
+    rollback_command: list[str] | None = None
+    if governed_paths:
+        if args.proposed_policy is None:
+            raise ValueError("governance gates require a proposed policy")
+        if "rollback-rehearsal" in gate_ids:
+            raise ValueError("rollback rehearsal is separate from task-selected gates")
+        proposed_policy = _validated(
+            args.proposed_policy, args.schema_root, "effective-policy"
+        )
+        proposed_policy_sha256 = sha256_canonical(proposed_policy)
+        rollback_definition = available.get("rollback-rehearsal")
+        rollback_command = [
+            "python3",
+            "scripts/rehearse_rollback.py",
+            candidate["base_commit"],
+        ]
+        if (
+            policy["lkg_governance_commit"] != candidate["base_commit"]
+            or task["profile"] != "governance"
+            or candidate.get("head_commit") is None
+            or proposed_policy["repository_id"] != policy["repository_id"]
+            or proposed_policy["lkg_governance_commit"] != candidate["head_commit"]
+            or not isinstance(rollback_definition, dict)
+            or rollback_definition.get("profiles") != ["governance"]
+            or rollback_definition.get("command") != rollback_command
+            or rollback_definition.get("shell") is not False
+        ):
+            raise ValueError("rollback policy is not bound to the candidate base and head")
     store = args._cli_output_store
     prefix = f"{candidate_prefix(candidate['candidate_id'])}/runs/{args.run_id}-{args.attempt}"
     adapter = GitCliRepositoryAdapter(args.repository)
@@ -344,10 +382,14 @@ def _run_gates(args: argparse.Namespace) -> int:
             provider_version = None
         gate_references: dict[str, dict[str, str]] = {}
         results: list[dict[str, Any]] = []
+        rollback_result: dict[str, Any] | None = None
+        rollback_result_reference: dict[str, str] | None = None
+        rollback_capability_reference: dict[str, str] | None = None
+        rollback_provenance_reference: dict[str, str] | None = None
         for gate_id, candidate_copy in iter_fresh_gate_copies(
             repository=args.repository,
             supervisor=supervisor,
-            gate_ids=gate_ids,
+            gate_ids=[*gate_ids, *(["rollback-rehearsal"] if governed_paths else [])],
             evidence_root=policy["evidence_root"],
         ):
             gate = available[gate_id]
@@ -414,6 +456,22 @@ def _run_gates(args: argparse.Namespace) -> int:
                         {"name": "candidate", "sha256": candidate["candidate_id"]},
                         {"name": "task-contract", "sha256": task_sha},
                         {"name": "effective-policy", "sha256": policy_sha},
+                        *(
+                            [
+                                {
+                                    "name": "rollback-target-commit",
+                                    "sha256": sha256_bytes(
+                                        candidate["base_commit"].encode("ascii")
+                                    ),
+                                },
+                                {
+                                    "name": "proposed-policy",
+                                    "sha256": proposed_policy_sha256,
+                                },
+                            ]
+                            if gate_id == "rollback-rehearsal"
+                            else []
+                        ),
                     ],
                 },
                 candidate_supplier=current_candidate,
@@ -426,12 +484,26 @@ def _run_gates(args: argparse.Namespace) -> int:
             )
             relative = f"{gate_prefix}/result.json"
             result_sha = sha256_bytes(canonical_json_bytes(result))
-            gate_references[gate_id] = repository_reference(
+            result_reference = repository_reference(
                 evidence_root=policy["evidence_root"],
                 relative_path=relative,
                 sha256=result_sha,
             )
-            results.append(result)
+            if gate_id == "rollback-rehearsal":
+                rollback_result = result
+                rollback_result_reference = result_reference
+                capability_relative = f"{gate_prefix}/sandbox-capability.json"
+                rollback_capability_reference = repository_reference(
+                    evidence_root=policy["evidence_root"],
+                    relative_path=capability_relative,
+                    sha256=sha256_bytes(store.read_bytes(capability_relative)),
+                )
+                rollback_provenance_reference = dict(
+                    result["provenance_statement"]
+                )
+            else:
+                gate_references[gate_id] = result_reference
+                results.append(result)
     manifest = assemble_gate_manifest(
         repository_id=policy["repository_id"],
         task_contract_sha256=task_sha,
@@ -442,6 +514,53 @@ def _run_gates(args: argparse.Namespace) -> int:
     )
     manifest_relative = f"{prefix}/gate-manifest.json"
     manifest_sha = store.write_bytes(manifest_relative, canonical_json_bytes(manifest))
+    rollback_reference: dict[str, str] | None = None
+    if governed_paths:
+        assert proposed_policy_sha256 is not None
+        assert rollback_result is not None
+        assert rollback_result_reference is not None
+        assert rollback_capability_reference is not None
+        assert rollback_provenance_reference is not None
+        expected_stdout = (
+            f"ROLLBACK_REHEARSAL=PASS target={candidate['base_commit']}\n".encode(
+                "ascii"
+            )
+        )
+        rollback_stdout = store.read_bytes(
+            f"{prefix}/gates/rollback-rehearsal/stdout.bin"
+        )
+        if (
+            rollback_result["status"] == "PASS"
+            and rollback_result["limitations"] == []
+            and rollback_stdout == expected_stdout
+        ):
+            rollback_evidence = content_address(
+                {
+                    "schema_version": "2.0.0",
+                    "repository_id": policy["repository_id"],
+                    "task_contract_sha256": task_sha,
+                    "candidate_id": candidate["candidate_id"],
+                    "previous_lkg_policy_sha256": policy_sha,
+                    "proposed_policy_sha256": proposed_policy_sha256,
+                    "rollback_target_commit": candidate["base_commit"],
+                    "gate_result": rollback_result_reference,
+                    "sandbox_capability": rollback_capability_reference,
+                    "provenance_statement": rollback_provenance_reference,
+                    "status": "PASS",
+                    "created_at": rollback_result["ended_at"],
+                    "limitations": [],
+                },
+                "rollback_evidence_id",
+            )
+            rollback_relative = f"{prefix}/rollback-evidence.json"
+            rollback_sha = store.write_bytes(
+                rollback_relative, canonical_json_bytes(rollback_evidence)
+            )
+            rollback_reference = repository_reference(
+                evidence_root=policy["evidence_root"],
+                relative_path=rollback_relative,
+                sha256=rollback_sha,
+            )
     summary = {
         "repository_id": policy["repository_id"],
         "candidate_id": candidate["candidate_id"],
@@ -455,12 +574,18 @@ def _run_gates(args: argparse.Namespace) -> int:
             for item in results
         ],
     }
+    if governed_paths:
+        summary["rollback_evidence"] = rollback_reference
     if args.output:
         _write_cli_output(args, "output", summary)
     _emit(summary)
-    if any(item["status"] == "FAIL" for item in results):
+    all_results = [*results, *([rollback_result] if rollback_result else [])]
+    if any(item["status"] == "FAIL" for item in all_results):
         return EXIT_BLOCK
-    return EXIT_READY if all(item["status"] == "PASS" for item in results) else EXIT_UNKNOWN
+    complete = all(item["status"] == "PASS" for item in all_results) and (
+        not governed_paths or rollback_reference is not None
+    )
+    return EXIT_READY if complete else EXIT_UNKNOWN
 
 
 def _prepare_review(args: argparse.Namespace) -> int:
@@ -1202,6 +1327,7 @@ def _parser() -> argparse.ArgumentParser:
     gates.add_argument("--policy", type=Path, required=True)
     gates.add_argument("--task", type=Path, required=True)
     gates.add_argument("--candidate", type=Path, required=True)
+    gates.add_argument("--proposed-policy", type=Path)
     gates.add_argument("--reviewer-prompt", type=Path, required=True)
     gates.add_argument("--run-id", required=True)
     gates.add_argument("--attempt", type=int, default=1)

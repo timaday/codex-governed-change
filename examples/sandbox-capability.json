@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "capability_id": "sha256:9f57cb1bc3c366e65ce5c94d46e92da16c67f136c69920bb70c1d6dba277319f",
+  "schema_version": "2.0.0",
+  "capability_id": "sha256:380371602cd075377814313ff96e21cc7b5193009d83b16348983760646feedd",
   "provider": "docker",
   "provider_version": "1.0",
   "image": "python@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

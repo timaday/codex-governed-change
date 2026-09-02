@@ -689,7 +689,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         capability = content_address(
             {
-                "schema_version": "1.0.0", "provider": "docker",
+                "schema_version": "2.0.0", "provider": "docker",
                 "provider_version": "fixture", "implementation_sha256": gate_implementation_sha256(),
                 "image": policy["sandbox"]["image"],
                 "command": ["python3", "-m", "unittest"],
@@ -799,7 +799,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             mutation_capability = content_address(
                 {
-                    "schema_version": "1.0.0", "provider": "docker",
+                    "schema_version": "2.0.0", "provider": "docker",
                     "provider_version": "fixture", "implementation_sha256": mutation_implementation_sha256(),
                     "image": policy["sandbox"]["image"], "command": command,
                     "source_identity": source_identity, "execution_identity": execution_identity,
@@ -1415,7 +1415,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         capability = content_address(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "2.0.0",
                 "provider": "docker",
                 "provider_version": "fixture",
                 "implementation_sha256": gate_implementation_sha256(),
@@ -1443,9 +1443,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         capability_ref = self.write(
             "rollback/capability.json", capability, "sandbox-capability"
         )
-        stdout_ref = self.raw("rollback/stdout.bin", b"rollback ok\n")
-        stderr_ref = self.raw("rollback/stderr.bin", b"")
         target = policy["lkg_governance_commit"]
+        rollback_stdout = (
+            f"ROLLBACK_REHEARSAL=PASS target={target}\n".encode("ascii")
+        )
+        stdout_ref = self.raw("rollback/stdout.bin", rollback_stdout)
+        stderr_ref = self.raw("rollback/stderr.bin", b"")
         provenance = build_provenance_statement(
             repository_id=self.REPOSITORY_ID,
             candidate_id=self.CANDIDATE_ID,
@@ -1517,7 +1520,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 {
                     "stream": "stdout",
                     "path": stdout_ref["path"],
-                    "bytes": 12,
+                    "bytes": len(rollback_stdout),
                     "sha256": stdout_ref["sha256"],
                     "truncated": False,
                 },
@@ -2002,12 +2005,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "dummy-capability-digest",
             "dummy-provenance-digest",
             "readdressed-stream",
+            "wrong-command-target",
+            "wrong-success-target",
             "limitation",
             "target",
             "chronology",
         ):
             variant = deepcopy(promoted_manifest)
             rollback_variant = deepcopy(rollback)
+            replacement_capability_ref = None
+            replacement_provenance_ref = None
             if defect == "missing-gate":
                 rollback_variant["gate_result"] = {
                     "path": "evidence/rollback/missing-gate.json",
@@ -2047,6 +2054,99 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     gate,
                     "gate-result",
                 )
+            elif defect in {"wrong-command-target", "wrong-success-target"}:
+                gate = json.loads(
+                    (self.repository / rollback_gate_ref["path"]).read_text()
+                )
+                provenance = json.loads(
+                    (self.repository / rollback_provenance_ref["path"]).read_text()
+                )
+                if defect == "wrong-command-target":
+                    capability = json.loads(
+                        (
+                            self.repository / rollback_capability_ref["path"]
+                        ).read_text()
+                    )
+                    wrong_command = [
+                        "python3",
+                        "scripts/rehearse_rollback.py",
+                        "2" * 40,
+                    ]
+                    capability["command"] = wrong_command
+                    capability["execution_identity"] = sandbox_execution_identity(
+                        provider=capability["provider"],
+                        provider_version=capability["provider_version"],
+                        image=capability["image"],
+                        command=wrong_command,
+                        process_limit=capability["process_limit"],
+                        memory_bytes=capability["memory_bytes"],
+                        cpu_seconds=capability["cpu_seconds"],
+                        timeout_seconds=capability["timeout_seconds"],
+                        output_bytes=capability["output_bytes"],
+                    )
+                    capability = content_address(capability, "capability_id")
+                    replacement_capability_ref = self.write(
+                        "rollback/wrong-command-capability.json",
+                        capability,
+                        "sandbox-capability",
+                    )
+                    gate["command"] = wrong_command
+                    gate["execution_identity"] = capability["execution_identity"]
+                    gate["sandbox_capability_sha256"] = (
+                        replacement_capability_ref["sha256"]
+                    )
+                    provenance["predicate"]["environment"][
+                        "execution_identity"
+                    ] = capability["execution_identity"]
+                    provenance["predicate"]["environment"][
+                        "sandbox_capability_sha256"
+                    ] = replacement_capability_ref["sha256"]
+                    next(
+                        item
+                        for item in provenance["predicate"]["artifacts"]
+                        if item["name"] == "sandbox-capability"
+                    )["sha256"] = replacement_capability_ref["sha256"]
+                else:
+                    wrong_stdout = (
+                        "ROLLBACK_REHEARSAL=PASS target=" + "2" * 40 + "\n"
+                    ).encode("ascii")
+                    stream = self.raw(
+                        "rollback/wrong-target-stdout.bin", wrong_stdout
+                    )
+                    stdout = next(
+                        item
+                        for item in gate["artifacts"]
+                        if item["stream"] == "stdout"
+                    )
+                    stdout.update(
+                        path=stream["path"],
+                        sha256=stream["sha256"],
+                        bytes=len(wrong_stdout),
+                    )
+                    next(
+                        item
+                        for item in provenance["predicate"]["artifacts"]
+                        if item["name"] == "stdout"
+                    )["sha256"] = stream["sha256"]
+                provenance = content_address(provenance, "statement_id")
+                replacement_provenance_ref = self.write(
+                    f"rollback/{defect}-provenance.json",
+                    provenance,
+                    "provenance-statement",
+                )
+                gate["provenance_statement"] = replacement_provenance_ref
+                rollback_variant["gate_result"] = self.write(
+                    f"rollback/{defect}-result.json",
+                    gate,
+                    "gate-result",
+                )
+                rollback_variant["provenance_statement"] = (
+                    replacement_provenance_ref
+                )
+                if replacement_capability_ref is not None:
+                    rollback_variant["sandbox_capability"] = (
+                        replacement_capability_ref
+                    )
             elif defect == "dummy-capability-digest":
                 rollback_variant["sandbox_capability"] = {
                     "path": rollback_capability_ref["path"],
@@ -2066,6 +2166,20 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             rollback_variant = content_address(
                 rollback_variant, "rollback_evidence_id"
             )
+            if replacement_capability_ref is not None:
+                variant["sandbox_capabilities"] = [
+                    replacement_capability_ref
+                    if item == rollback_capability_ref
+                    else item
+                    for item in variant["sandbox_capabilities"]
+                ]
+            if replacement_provenance_ref is not None:
+                variant["provenance_statements"] = [
+                    replacement_provenance_ref
+                    if item == rollback_provenance_ref
+                    else item
+                    for item in variant["provenance_statements"]
+                ]
             rollback_variant_ref = self.write(
                 f"rollback-evidence-{defect}.json",
                 rollback_variant,

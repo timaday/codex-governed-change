@@ -419,10 +419,12 @@ candidate and base commit and its `lkg_governance_commit` equals that base. Its
 `governance_paths` enumerate the complete trusted implementation and deployment
 closure. A matching candidate requires separately referenced proposed-policy,
 promotion-decision and rollback artifacts. Rollback evidence references a
-policy-defined rollback gate result, capability and provenance statement;
-admission re-hashes and reconstructs their raw streams, execution semantics,
-producer identity, chronology, target and absence of limitations before invoking
-the LKG promotion predicate.
+policy-defined rollback gate result, capability and provenance statement; the
+protected producer runs that gate separately from task-selected gates and binds
+the proposed policy plus authenticated base. Admission re-hashes and reconstructs
+their raw streams, execution semantics, producer identity, chronology, exact
+argv, machine-readable target and absence of limitations before invoking the LKG
+promotion predicate.
 
 CI uses the kernel from the previous protected LKG governance commit. Its final
 job runs regardless of direct dependency status, validates that every dependency

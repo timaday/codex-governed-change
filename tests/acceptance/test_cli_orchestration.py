@@ -641,6 +641,341 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             ),
         )
 
+    def test_governance_gate_producer_emits_separate_typed_rollback_evidence(self) -> None:
+        from codex_governance import cli
+        from codex_governance.artifacts import FilesystemArtifactStore
+        from codex_governance.attestation import (
+            build_provenance_statement,
+            gate_implementation_sha256,
+        )
+        from codex_governance.sandbox import sandbox_execution_identity
+        from codex_governance.schema import load_json, validate_instance
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            (repository / "schemas").mkdir(parents=True)
+            (repository / "scripts").mkdir()
+            (repository / "schemas/change.json").write_text(
+                '{"version":1}\n', encoding="utf-8"
+            )
+            (repository / "scripts/rehearse_rollback.py").write_text(
+                "print('fixture')\n", encoding="utf-8"
+            )
+            environment = dict(os.environ)
+            environment.update(
+                GIT_AUTHOR_NAME="fixture",
+                GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                GIT_COMMITTER_NAME="fixture",
+                GIT_COMMITTER_EMAIL="fixture@example.invalid",
+            )
+            subprocess.run(
+                ["git", "init", "-q", str(repository)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "add", "."],
+                check=True,
+                env=environment,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "-qm", "base"],
+                check=True,
+                env=environment,
+            )
+            base = subprocess.check_output(
+                ["git", "-C", str(repository), "rev-parse", "HEAD"],
+                text=True,
+            ).strip()
+            (repository / "schemas/change.json").write_text(
+                '{"version":2}\n', encoding="utf-8"
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "add", "."],
+                check=True,
+                env=environment,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "-qm", "candidate"],
+                check=True,
+                env=environment,
+            )
+            head = subprocess.check_output(
+                ["git", "-C", str(repository), "rev-parse", "HEAD"],
+                text=True,
+            ).strip()
+
+            policy = json.loads(
+                (self.ROOT / "examples/effective-policy.json").read_text()
+            )
+            policy.update(
+                repository_id="repo:example/rollback-producer",
+                lkg_governance_commit=base,
+            )
+            rollback_definition = next(
+                item
+                for item in policy["gates"]
+                if item["gate_id"] == "rollback-rehearsal"
+            )
+            rollback_definition["command"] = [
+                "python3",
+                "scripts/rehearse_rollback.py",
+                base,
+            ]
+            proposed_policy = json.loads(json.dumps(policy))
+            proposed_policy["policy_id"] = "POLICY-PROPOSED-FIXTURE"
+            proposed_policy["lkg_governance_commit"] = head
+            next(
+                item
+                for item in proposed_policy["gates"]
+                if item["gate_id"] == "rollback-rehearsal"
+            )["command"][-1] = head
+            policy_path = root / "policy.json"
+            proposed_path = root / "proposed-policy.json"
+            policy_path.write_bytes(canonical_json_bytes(policy))
+            proposed_path.write_bytes(canonical_json_bytes(proposed_policy))
+
+            candidate = GitCliRepositoryAdapter(repository).identify(
+                repository_id=policy["repository_id"],
+                mode="commit",
+                base_commit=base,
+                head_commit=head,
+                effective_policy_sha256=sha256_canonical(policy),
+                evidence_root=policy["evidence_root"],
+            )
+            candidate_path = root / "candidate.json"
+            candidate_path.write_bytes(canonical_json_bytes(candidate))
+            task = json.loads((self.ROOT / "examples/task-contract.json").read_text())
+            task.update(
+                repository_id=policy["repository_id"],
+                base_commit=base,
+                profile="governance",
+                affected_surfaces=[
+                    {"path": "schemas/", "reason": "governance fixture"}
+                ],
+                required_gate_ids=["blueprint-quality"],
+                unknowns=[],
+                governance_change_requested=True,
+            )
+            task_path = root / "task.json"
+            task_path.write_bytes(canonical_json_bytes(task))
+            task_sha = sha256_canonical(task)
+            store = FilesystemArtifactStore(
+                repository=repository,
+                root=Path(policy["evidence_root"]),
+            )
+            emitted = []
+
+            def fake_run_gate(**arguments):
+                gate_id = arguments["gate_id"]
+                command = list(arguments["command"])
+                artifact_store = arguments["artifact_store"]
+                prefix = arguments["artifact_prefix"]
+                candidate_id = arguments["candidate_supplier"]()
+                timeout_seconds = int(arguments["timeout_seconds"])
+                max_output_bytes = arguments["max_output_bytes"]
+                execution_identity = sandbox_execution_identity(
+                    provider="docker",
+                    provider_version="fixture",
+                    image=policy["sandbox"]["image"],
+                    command=command,
+                    process_limit=policy["sandbox"]["process_limit"],
+                    memory_bytes=policy["sandbox"]["memory_bytes"],
+                    cpu_seconds=timeout_seconds,
+                    timeout_seconds=timeout_seconds,
+                    output_bytes=max_output_bytes,
+                )
+                capability = content_address(
+                    {
+                        "schema_version": "2.0.0",
+                        "provider": "docker",
+                        "provider_version": "fixture",
+                        "image": policy["sandbox"]["image"],
+                        "command": command,
+                        "implementation_sha256": gate_implementation_sha256(),
+                        "source_identity": candidate_id,
+                        "execution_identity": execution_identity,
+                        "disposable": True,
+                        "secrets_present": False,
+                        "network_mode": "none",
+                        "candidate_copy_writable": True,
+                        "protected_paths_writable": False,
+                        "evidence_paths_writable": False,
+                        "supervisor_paths_writable": False,
+                        "process_limit": policy["sandbox"]["process_limit"],
+                        "memory_bytes": policy["sandbox"]["memory_bytes"],
+                        "cpu_seconds": timeout_seconds,
+                        "timeout_seconds": timeout_seconds,
+                        "output_bytes": max_output_bytes,
+                        "verified_at": "2026-08-26T09:59:59Z",
+                        "limitations": [],
+                    },
+                    "capability_id",
+                )
+                capability_sha = artifact_store.write_bytes(
+                    f"{prefix}/sandbox-capability.json",
+                    canonical_json_bytes(capability),
+                )
+                stdout = (
+                    f"ROLLBACK_REHEARSAL=PASS target={base}\n".encode("ascii")
+                    if gate_id == "rollback-rehearsal"
+                    else b"PASS\n"
+                )
+                stdout_sha = artifact_store.write_bytes(
+                    f"{prefix}/stdout.bin", stdout
+                )
+                stderr_sha = artifact_store.write_bytes(
+                    f"{prefix}/stderr.bin", b""
+                )
+                provenance_context = arguments["provenance_context"]
+                provenance = build_provenance_statement(
+                    repository_id=policy["repository_id"],
+                    candidate_id=candidate_id,
+                    repository_digest=candidate_id,
+                    task_contract_sha256=task_sha,
+                    effective_policy_sha256=sha256_canonical(policy),
+                    gate_definition_sha256=provenance_context[
+                        "gate_definition_sha256"
+                    ],
+                    reviewer_prompt_sha256=provenance_context[
+                        "reviewer_prompt_sha256"
+                    ],
+                    producer=provenance_context["producer"],
+                    workflow=provenance_context["workflow"],
+                    tools=provenance_context["tools"],
+                    environment={
+                        "source_identity": candidate_id,
+                        "execution_identity": execution_identity,
+                        "sandbox_capability_sha256": capability_sha,
+                    },
+                    materials=provenance_context["materials"],
+                    started_at="2026-08-26T10:00:00Z",
+                    ended_at="2026-08-26T10:00:01Z",
+                    result="PASS",
+                    limits={
+                        "timeout_seconds": timeout_seconds,
+                        "max_output_bytes": max_output_bytes,
+                        "process_limit": policy["sandbox"]["process_limit"],
+                        "memory_bytes": policy["sandbox"]["memory_bytes"],
+                        "cpu_seconds": timeout_seconds,
+                    },
+                    artifacts=[
+                        {"name": "stdout", "sha256": stdout_sha},
+                        {"name": "stderr", "sha256": stderr_sha},
+                        {"name": "sandbox-capability", "sha256": capability_sha},
+                    ],
+                    limitations=[],
+                )
+                provenance_sha = artifact_store.write_bytes(
+                    f"{prefix}/provenance.json",
+                    canonical_json_bytes(provenance),
+                )
+                result = {
+                    "schema_version": "1.0.0",
+                    "repository_id": policy["repository_id"],
+                    "task_contract_sha256": task_sha,
+                    "gate_id": gate_id,
+                    "profile": "governance",
+                    "candidate_before": candidate_id,
+                    "candidate_after": candidate_id,
+                    "source_identity": candidate_id,
+                    "execution_identity": execution_identity,
+                    "sandbox_capability_sha256": capability_sha,
+                    "command": command,
+                    "started_at": "2026-08-26T10:00:00Z",
+                    "ended_at": "2026-08-26T10:00:01Z",
+                    "duration_ms": 1000,
+                    "termination": {"kind": "exited", "exit_code": 0},
+                    "artifacts": [
+                        {
+                            "stream": "stdout",
+                            "path": f"artifacts/governance/{prefix}/stdout.bin",
+                            "bytes": len(stdout),
+                            "sha256": stdout_sha,
+                            "truncated": False,
+                        },
+                        {
+                            "stream": "stderr",
+                            "path": f"artifacts/governance/{prefix}/stderr.bin",
+                            "bytes": 0,
+                            "sha256": stderr_sha,
+                            "truncated": False,
+                        },
+                    ],
+                    "redactions": [],
+                    "observation_complete": True,
+                    "status": "PASS",
+                    "limitations": [],
+                    "provenance_statement": {
+                        "path": f"artifacts/governance/{prefix}/provenance.json",
+                        "sha256": provenance_sha,
+                    },
+                    "producer_version": "0.1.0",
+                }
+                artifact_store.write_bytes(
+                    f"{prefix}/result.json", canonical_json_bytes(result)
+                )
+                return result
+
+            arguments = Namespace(
+                repository=repository,
+                policy=policy_path,
+                proposed_policy=proposed_path,
+                task=task_path,
+                candidate=candidate_path,
+                reviewer_prompt=self.ROOT / ".codex/review/reviewer.prompt.md",
+                schema_root=self.ROOT / "schemas",
+                run_id="rollback-producer-fixture",
+                attempt=1,
+                workflow_system="protected-fixture",
+                observed_at="2026-08-26T09:59:59Z",
+                output=None,
+                _cli_output_store=store,
+            )
+            with (
+                patch.object(cli, "observe_container_provider", return_value="fixture"),
+                patch.object(cli, "build_container_invocation", return_value=object()),
+                patch.object(cli, "run_gate", side_effect=fake_run_gate),
+                patch.object(cli, "_emit", side_effect=emitted.append),
+            ):
+                self.assertEqual(0, cli._run_gates(arguments))
+
+            summary = emitted[-1]
+            self.assertEqual(
+                [{"gate_id": "blueprint-quality", "status": "PASS"}],
+                summary["results"],
+            )
+            rollback_reference = summary["rollback_evidence"]
+            self.assertIsNotNone(rollback_reference)
+            rollback = json.loads(
+                (repository / rollback_reference["path"]).read_text()
+            )
+            self.assertEqual(
+                [],
+                validate_instance(
+                    rollback,
+                    load_json(self.ROOT / "schemas/rollback-evidence.schema.json"),
+                ),
+            )
+            self.assertEqual(base, rollback["rollback_target_commit"])
+            gate = json.loads(
+                (repository / rollback["gate_result"]["path"]).read_text()
+            )
+            self.assertEqual(
+                ["python3", "scripts/rehearse_rollback.py", base], gate["command"]
+            )
+            stdout = next(
+                item for item in gate["artifacts"] if item["stream"] == "stdout"
+            )
+            self.assertEqual(
+                f"ROLLBACK_REHEARSAL=PASS target={base}\n".encode("ascii"),
+                (repository / stdout["path"]).read_bytes(),
+            )
+            arguments.proposed_policy = None
+            with self.assertRaisesRegex(ValueError, "require a proposed policy"):
+                cli._run_gates(arguments)
+
     def test_manifest_assembly_is_content_addressed_and_schema_valid(self) -> None:
         example = json.loads(
             (self.ROOT / "examples/evidence-manifest.json").read_text(encoding="utf-8")
