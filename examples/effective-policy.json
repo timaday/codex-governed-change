@@ -4,7 +4,7 @@
   "policy_id": "POLICY-REFERENCE-001",
   "lkg_governance_commit": "1111111111111111111111111111111111111111",
   "evidence_root": "artifacts/governance",
-  "governance_paths": ["AGENTS.md", ".agents/", ".codex/", ".github/workflows/", "schemas/", "scripts/", "tests/acceptance/", "docs/requirements.md", "docs/specification.md", "docs/decisions/"],
+  "governance_paths": ["AGENTS.md", "IMPLEMENTATION_STATUS.md", "IMPLEMENT_WITH_GPT_5_6.md", "pyproject.toml", ".agents/", ".codex/", ".github/", "src/codex_governance/", "schemas/", "scripts/", "tests/", "docs/requirements.md", "docs/specification.md", "docs/architecture.md", "docs/test-strategy.md", "docs/threat-model.md", "docs/traceability.md", "docs/decisions/"],
   "decision_source": {"kind": "protected_files", "protected_path": "decisions"},
   "protected_minimums": [
     {"path_prefix": "src/", "risk_profile": "standard", "gate_ids": ["blueprint-quality", "acceptance", "unit", "packaging"]},

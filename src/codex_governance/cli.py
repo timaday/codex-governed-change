@@ -13,7 +13,10 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, NoReturn
 
-from codex_governance.artifacts import FilesystemArtifactStore
+from codex_governance.artifacts import (
+    FilesystemArtifactStore,
+    read_bounded_repository_file,
+)
 from codex_governance.attestation import (
     gate_implementation_sha256,
     mutation_implementation_sha256,
@@ -60,6 +63,7 @@ from codex_governance.reviewer import (
     observe_codex_cli_version,
     prepare_sanitized_harness,
     reviewer_launcher_sha256,
+    reviewer_portable_source_literals,
     reviewer_stream_is_portable,
 )
 from codex_governance.sandbox import (
@@ -222,6 +226,27 @@ def _validated(path: Path, schema_root: Path, name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("validated document must be an object")
     return value
+
+
+def _repository_argument_path(repository: Path, path: Path) -> str:
+    """Map an argument path into the repository without resolving symlinks."""
+    root = repository.absolute()
+    absolute = path.absolute() if path.is_absolute() else (root / path).absolute()
+    try:
+        relative = absolute.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("authoritative CLI input must be repository-relative") from exc
+    return normalize_repo_path(relative)
+
+
+def _read_repository_argument(
+    repository: Path, path: Path, *, max_bytes: int = 8_000_000
+) -> bytes:
+    return read_bounded_repository_file(
+        repository,
+        _repository_argument_path(repository, path),
+        max_bytes=max_bytes,
+    )
 
 
 def _state_exit(state: DispositionState | str) -> int:
@@ -573,13 +598,13 @@ def _prepare_review(args: argparse.Namespace) -> int:
     _write_cli_output(args, "projection_output", compiled["projection"])
     _write_cli_output(args, "receipt_output", compiled["receipt"])
     result = {
-        "state": compiled["state"].value,
+        "state": compiled["state"],
         "profile": compiled["receipt"]["profile"],
         "projection_sha256": compiled["receipt"]["projection_sha256"],
         "receipt_id": compiled["receipt"]["receipt_id"],
     }
     _emit(result)
-    return _state_exit(compiled["state"])
+    return EXIT_READY if compiled["state"] == "CONTEXT_READY" else EXIT_UNKNOWN
 
 
 def _assemble_manifest(args: argparse.Namespace) -> int:
@@ -636,15 +661,58 @@ def _mutate(args: argparse.Namespace) -> int:
 
 
 def _review(args: argparse.Namespace) -> int:
-    candidate = _validated(args.candidate, args.schema_root, "candidate")
-    policy = _validated(args.policy, args.schema_root, "effective-policy")
-    permitted = _document(args.permitted_inputs)
+    schema_cache: dict[str, Mapping[str, Any]] = {}
+
+    def validated_bytes(data: bytes, name: str) -> dict[str, Any]:
+        try:
+            value = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("authoritative reviewer input is not valid JSON") from exc
+        schema = schema_cache.get(name)
+        if schema is None:
+            schema_bytes = _read_repository_argument(
+                args.repository,
+                args.schema_root / f"{name}.schema.json",
+            )
+            try:
+                loaded_schema = json.loads(schema_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("protected reviewer schema is not valid JSON") from exc
+            if not isinstance(loaded_schema, Mapping):
+                raise ValueError("protected reviewer schema must be an object")
+            schema = loaded_schema
+            schema_cache[name] = schema
+        errors = validate_instance(value, schema)
+        errors.extend(validate_semantics(value, name))
+        if errors or not isinstance(value, dict):
+            raise ValueError("authoritative reviewer input fails its protected schema")
+        return value
+
+    candidate = validated_bytes(
+        _read_repository_argument(args.repository, args.candidate), "candidate"
+    )
+    policy = validated_bytes(
+        _read_repository_argument(args.repository, args.policy), "effective-policy"
+    )
+    permitted_bytes = _read_repository_argument(
+        args.repository, args.permitted_inputs
+    )
+    try:
+        permitted = json.loads(permitted_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("reviewer permitted inputs are not valid JSON") from exc
+    if not isinstance(permitted, dict):
+        raise ValueError("reviewer permitted inputs must be an object")
     review_mode = permitted.get("review_mode")
     if review_mode not in {"conformance", "rapid_review"}:
         raise ValueError("review mode is unavailable")
     policy_sha = sha256_canonical(policy)
-    prompt_sha = sha256_bytes(args.prompt.read_bytes())
-    schema_sha = sha256_bytes(args.output_schema.read_bytes())
+    prompt_bytes = _read_repository_argument(args.repository, args.prompt)
+    output_schema_bytes = _read_repository_argument(
+        args.repository, args.output_schema
+    )
+    prompt_sha = sha256_bytes(prompt_bytes)
+    schema_sha = sha256_bytes(output_schema_bytes)
     expected_bindings = {
         "repository_id": policy["repository_id"],
         "candidate_id": candidate["candidate_id"],
@@ -655,38 +723,36 @@ def _review(args: argparse.Namespace) -> int:
     if any(permitted.get(key) != value for key, value in expected_bindings.items()):
         raise ValueError("reviewer permitted-input binding mismatch")
 
-    def evidence_path(key: str) -> Path:
-        relative = normalize_repo_path(permitted[key])
-        return args.repository.joinpath(*relative.split("/"))
+    prepared_evidence: dict[str, bytes] = {}
 
-    task = _validated(
-        evidence_path("task_contract_path"), args.schema_root, "task-contract"
+    def evidence_document(path_key: str, schema_name: str) -> dict[str, Any]:
+        relative = normalize_repo_path(permitted[path_key])
+        digest_key = path_key.removesuffix("_path") + "_sha256"
+        data = read_bounded_repository_file(
+            args.repository, relative, max_bytes=8_000_000
+        )
+        if sha256_bytes(data) != permitted.get(digest_key):
+            raise ValueError("reviewer evidence digest mismatch")
+        prepared_evidence[relative] = data
+        return validated_bytes(data, schema_name)
+
+    permitted_policy = evidence_document(
+        "effective_policy_path", "effective-policy"
     )
-    gate_manifest = _validated(
-        evidence_path("gate_manifest_path"), args.schema_root, "gate-manifest"
+    task = evidence_document("task_contract_path", "task-contract")
+    gate_manifest = evidence_document("gate_manifest_path", "gate-manifest")
+    receipt = evidence_document("context_receipt_path", "context-receipt")
+    context_sources = evidence_document(
+        "context_sources_path", "context-source-bundle"
     )
-    receipt = _validated(
-        evidence_path("context_receipt_path"), args.schema_root, "context-receipt"
+    context_projection = evidence_document(
+        "context_projection_path", "context-projection"
     )
-    context_sources = _validated(
-        evidence_path("context_sources_path"),
-        args.schema_root,
-        "context-source-bundle",
+    context_qualification = evidence_document(
+        "context_qualification_path", "context-qualification"
     )
-    context_projection = _validated(
-        evidence_path("context_projection_path"),
-        args.schema_root,
-        "context-projection",
-    )
-    context_qualification = _validated(
-        evidence_path("context_qualification_path"),
-        args.schema_root,
-        "context-qualification",
-    )
-    qualification = _validated(
-        evidence_path("reviewer_qualification_path"),
-        args.schema_root,
-        "reviewer-qualification",
+    qualification = evidence_document(
+        "reviewer_qualification_path", "reviewer-qualification"
     )
     codex_cli_version = observe_codex_cli_version(args.codex)
     identity = {
@@ -712,22 +778,15 @@ def _review(args: argparse.Namespace) -> int:
         is not DispositionState.READY_FOR_HUMAN
         or permitted.get("reviewer_qualification_id")
         != qualification.get("qualification_id")
+        or permitted_policy != policy
         or task.get("repository_id") != policy["repository_id"]
         or task.get("base_commit") != candidate["base_commit"]
         or gate_manifest.get("repository_id") != policy["repository_id"]
         or gate_manifest.get("task_contract_sha256")
         != permitted.get("task_contract_sha256")
         or gate_manifest.get("candidate_id") != candidate["candidate_id"]
-        or sha256_bytes(evidence_path("gate_manifest_path").read_bytes())
-        != permitted.get("gate_manifest_sha256")
         or receipt.get("candidate_id") != candidate["candidate_id"]
         or receipt.get("repository_id") != policy["repository_id"]
-        or sha256_bytes(evidence_path("context_sources_path").read_bytes())
-        != permitted.get("context_sources_sha256")
-        or sha256_bytes(evidence_path("context_projection_path").read_bytes())
-        != permitted.get("context_projection_sha256")
-        or sha256_bytes(evidence_path("context_qualification_path").read_bytes())
-        != permitted.get("context_qualification_sha256")
         or context_sources.get("repository_id") != policy["repository_id"]
         or context_sources.get("candidate_id") != candidate["candidate_id"]
         or context_sources.get("effective_policy_sha256") != policy_sha
@@ -770,16 +829,8 @@ def _review(args: argparse.Namespace) -> int:
             model=args.model,
         )
     else:
-        risk = _validated(
-            evidence_path("risk_assessment_path"),
-            args.schema_root,
-            "risk-assessment",
-        )
-        charter = _validated(
-            evidence_path("review_charter_path"),
-            args.schema_root,
-            "review-charter",
-        )
+        risk = evidence_document("risk_assessment_path", "risk-assessment")
+        charter = evidence_document("review_charter_path", "review-charter")
         if (
             risk.get("repository_id") != policy["repository_id"]
             or risk.get("candidate_id") != candidate["candidate_id"]
@@ -797,6 +848,19 @@ def _review(args: argparse.Namespace) -> int:
             qualification_id=qualification["qualification_id"],
             model=args.model,
         )
+    for key, raw_path in permitted.items():
+        if not key.endswith("_path") or key == "candidate_path":
+            continue
+        relative = normalize_repo_path(raw_path)
+        if relative in prepared_evidence:
+            continue
+        digest_key = key.removesuffix("_path") + "_sha256"
+        data = read_bounded_repository_file(
+            args.repository, relative, max_bytes=8_000_000
+        )
+        if sha256_bytes(data) != permitted.get(digest_key):
+            raise ValueError("reviewer evidence digest mismatch")
+        prepared_evidence[relative] = data
     adapter = GitCliRepositoryAdapter(args.repository)
 
     def current_candidate() -> str:
@@ -818,6 +882,9 @@ def _review(args: argparse.Namespace) -> int:
             permitted_inputs=permitted,
             expected_candidate=candidate,
             evidence_root=policy["evidence_root"],
+            prepared_evidence=prepared_evidence,
+            fixed_prompt_bytes=prompt_bytes,
+            output_schema_bytes=output_schema_bytes,
         )
         command = build_reviewer_command(
             codex_executable=args.codex,
@@ -842,6 +909,15 @@ def _review(args: argparse.Namespace) -> int:
             review_mode=review_mode,
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
+            portable_source_literals=reviewer_portable_source_literals(
+                harness["candidate"],
+                protected_sources=(
+                    prompt_bytes,
+                    output_schema_bytes,
+                    permitted_bytes,
+                    *prepared_evidence.values(),
+                ),
+            ),
         )
         if not reviewer_stream_is_portable(
             result["stdout_bytes"]

@@ -20,6 +20,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual("explicit_required", migration_policy("reviewer-result", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "2.0.0", "3.0.0"))
+        self.assertEqual(
+            "explicit_required",
+            migration_policy("reviewer-qualification-cases", "2.0.0", "3.0.0"),
+        )
         for kind in (
             "effective-policy",
             "evidence-manifest",

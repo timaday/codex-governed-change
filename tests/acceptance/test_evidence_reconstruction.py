@@ -39,7 +39,7 @@ from codex_governance.qualification import (
     bootstrap_qualification_record,
     qualification_candidate_document,
     qualification_charter_document,
-    qualification_context_execution_document,
+    qualification_context_documents,
     qualification_policy_document,
     qualification_task_document,
 )
@@ -329,6 +329,34 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "process_cleanup_complete": True,
                     "output": {"present": True, "regular": True, "bytes": len(result_bytes), "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
                 }
+                context_execution_facts = {
+                    "model": identity["model"],
+                    "reasoning_effort": identity["reasoning_effort"],
+                    "usage_observed": True,
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_output_tokens": 1,
+                    "latency_ms": 1,
+                    "ended_at": self.ENDED,
+                    "limitations": [],
+                }
+                context_documents = qualification_context_documents(
+                    mode=mode,
+                    case=case,
+                    task=task,
+                    policy=policy,
+                    candidate=candidate,
+                    reviewer_output_sha256=sha256_bytes(result_bytes),
+                    execution=context_execution_facts,
+                )
+                context_references = {
+                    name: self.raw(
+                        prefix + "/" + name.replace("_", "-") + ".json",
+                        canonical_json_bytes(document),
+                    )
+                    for name, document in context_documents.items()
+                }
                 execution = build_reviewer_execution_statement(
                     repository_id=evaluation_repository,
                     task_contract_sha256=task_sha,
@@ -340,20 +368,21 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     qualification_id=bootstrap["qualification_id"],
                     model=identity["model"],
                     reasoning_effort=identity["reasoning_effort"],
-                    context_source_bundle_sha256="sha256:" + "3" * 64,
-                    context_projection_sha256="sha256:" + "4" * 64,
-                    context_qualification_id="sha256:" + "5" * 64,
-                    input_context_receipt_sha256="sha256:" + "6" * 64,
-                    context_execution_receipt_sha256=sha256_bytes(
-                        canonical_json_bytes(
-                            qualification_context_execution_document(
-                                mode=mode,
-                                case_id=case["case_id"],
-                                input_context_receipt_sha256="sha256:" + "6" * 64,
-                                reviewer_output_sha256=sha256_bytes(result_bytes),
-                            )
-                        )
-                    ),
+                    context_source_bundle_sha256=context_references[
+                        "context_sources"
+                    ]["sha256"],
+                    context_projection_sha256=context_references[
+                        "context_projection"
+                    ]["sha256"],
+                    context_qualification_id=context_documents[
+                        "context_qualification"
+                    ]["qualification_id"],
+                    input_context_receipt_sha256=context_references[
+                        "context_receipt"
+                    ]["sha256"],
+                    context_execution_receipt_sha256=context_references[
+                        "context_execution_receipt"
+                    ]["sha256"],
                     workflow_system="unit-qualification",
                     run_id=mode + "-fixture",
                     attempt=1,
@@ -405,6 +434,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         "task_contract_sha256": task_sha,
                         "effective_policy_sha256": policy_sha,
                         "candidate": candidate,
+                        **context_references,
                         "reviewer_output": result_reference,
                         "reviewer_execution": self.raw(
                             prefix + "/execution.json",
@@ -416,7 +446,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 )
             return content_address(
                 {
-                    "schema_version": "2.0.0",
+                    "schema_version": "3.0.0",
                     "mode": mode,
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -557,6 +587,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             governance_change_requested=False,
             unknowns=[],
         )
+        if candidate_changed_paths is not None:
+            task["affected_surfaces"] = [
+                {"path": path, "reason": "fixture protected change"}
+                for path in candidate_changed_paths
+            ]
+            task["governance_change_requested"] = True
         task_ref = self.write("task.json", task, "task-contract")
         task_sha = task_ref["sha256"]
         candidate_components = {
@@ -1596,6 +1632,106 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(DispositionState.BLOCK, state)
         self.assertTrue(any("governance" in reason.lower() for reason in reasons), reasons)
+
+    def test_governance_candidate_requires_admission_path_lkg_promotion(self) -> None:
+        manifest = self.complete_manifest(
+            candidate_changed_paths=["schemas/disposition.schema.json"]
+        )
+        policy = json.loads(
+            (self.repository / manifest["effective_policy"]["path"]).read_text()
+        )
+        task_decision = json.loads(
+            (
+                self.repository
+                / manifest["authenticated_decisions"][0]["path"]
+            ).read_text()
+        )
+        governance_decision = content_address(
+            task_decision
+            | {
+                "decision_type": "governance_authorization",
+                "scope": ["schemas/"],
+            },
+            "decision_id",
+        )
+        governance_ref = self.write(
+            "governance-decision.json",
+            governance_decision,
+            "authenticated-decision",
+        )
+        manifest["authenticated_decisions"].append(governance_ref)
+        missing_promotion_manifest = content_address(manifest, "manifest_id")
+        verified = self.verified_decision_ids(missing_promotion_manifest) | {
+            governance_decision["decision_id"]
+        }
+        missing_state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=missing_promotion_manifest,
+            schema_root=self.ROOT / "schemas",
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=frozenset(verified),
+        )
+        self.assertNotEqual(DispositionState.READY_FOR_HUMAN, missing_state)
+
+        proposed_policy = deepcopy(policy)
+        proposed_policy["policy_id"] = "POLICY-PROPOSED-FIXTURE"
+        proposed_ref = self.write(
+            "proposed-policy.json", proposed_policy, "effective-policy"
+        )
+        rollback = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": self.REPOSITORY_ID,
+                "task_contract_sha256": manifest["task_contract"]["sha256"],
+                "candidate_id": self.CANDIDATE_ID,
+                "previous_lkg_policy_sha256": manifest["effective_policy"]["sha256"],
+                "proposed_policy_sha256": proposed_ref["sha256"],
+                "rollback_target_commit": "1" * 40,
+                "gate_result_sha256": "sha256:" + "2" * 64,
+                "sandbox_capability_sha256": "sha256:" + "3" * 64,
+                "provenance_statement_sha256": "sha256:" + "4" * 64,
+                "status": "PASS",
+                "created_at": self.AT,
+                "limitations": [],
+            },
+            "rollback_evidence_id",
+        )
+        rollback_ref = self.write(
+            "rollback-evidence.json", rollback, "rollback-evidence"
+        )
+        promotion_decision = content_address(
+            task_decision
+            | {
+                "decision_type": "lkg_promotion",
+                "scope": [
+                    f"promote:{proposed_ref['sha256']}",
+                    f"rollback:{rollback['rollback_evidence_id']}",
+                ],
+            },
+            "decision_id",
+        )
+        promotion_ref = self.write(
+            "promotion-decision.json",
+            promotion_decision,
+            "authenticated-decision",
+        )
+        manifest["authenticated_decisions"].append(promotion_ref)
+        manifest["proposed_policy"] = proposed_ref
+        manifest["lkg_promotion_decision"] = promotion_ref
+        manifest["rollback_evidence"] = rollback_ref
+        promoted_manifest = content_address(manifest, "manifest_id")
+        promoted_state, reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=promoted_manifest,
+            schema_root=self.ROOT / "schemas",
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=frozenset(
+                verified | {promotion_decision["decision_id"]}
+            ),
+        )
+        self.assertEqual(DispositionState.READY_FOR_HUMAN, promoted_state, reasons)
 
 
 if __name__ == "__main__":

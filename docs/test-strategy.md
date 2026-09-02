@@ -140,14 +140,23 @@ redaction forces `UNKNOWN` without persisting the canary.
 
 Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
 IPv4/local endpoints and generic host paths. Exact-value normalization is
-reported; ambiguous pattern normalization forces `UNKNOWN`, and no original
-bytes may enter retained evidence.
+reported; an exact immutable-source literal is replaced by its distinct portable
+token without invalidating JSONL, ambiguous pattern normalization forces
+`UNKNOWN`, and no original bytes may enter retained evidence.
 
 Context reconstruction tests independently alter every protected source class,
 adverse signal, inventory/closure entry, profile qualification, source bundle,
 projection, inclusion/exclusion reason and metric while re-addressing outer
 documents. Every mismatch blocks. Reviewer-result tests omit changed/closure
 paths and introduce unresolved mandatory claims under a success verdict.
+
+Governance-integrity tests mutate each previous-LKG TCB class, including trusted
+Python implementation sources, and require both governance authorization and an
+admission-path LKG promotion with exact proposed-policy and rollback references.
+Reviewer CLI tests place symlinks, FIFOs, oversized leaves and parent swaps at
+permitted-input paths and prove the validated bytes are the same bytes copied to
+the harness. Qualification tests replace or omit every per-case context artifact
+and re-address the outer case record; reconstruction must still reject it.
 
 The required-workflow oracle captures current UTC inside the trusted disposition
 job. A rerun after a decision or waiver expires fails even when the original

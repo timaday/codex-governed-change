@@ -44,21 +44,21 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-038 | T12 | `test_rapid_review.py`, `test_reviewer_isolation.py` |
 | GOV-039 | T11, T12 | `test_rapid_review.py`, `test_disposition_policy.py` |
 | GOV-040 | T11, T12 | `test_rapid_review.py`, `test_candidate_identity.py` |
-| GOV-041 | T14, T22, T23 | `test_reference_monitor.py`, `test_ci_admission.py` |
+| GOV-041 | T14, T21, T22, T23 | `test_reference_monitor.py`, context `CONTEXT_READY` terminology oracle, `test_ci_admission.py` |
 | GOV-042 | T23 | `test_ci_admission.py`, `test_governance_integrity.py` |
-| GOV-043 | T13, T23 | `test_trusted_authority.py`, `test_governance_integrity.py` |
+| GOV-043 | T13, T23, T24 | `test_trusted_authority.py`, previous-LKG complete-TCB source mutation coverage in `test_governance_integrity.py` and admission reconstruction |
 | GOV-044 | T17 | `test_gate_sandbox.py`, reconstructed image/command/limit identity, bounded-create, delayed-create, exact-ID timeout/removal and cleanup-time rename/substitution tests |
 | GOV-045 | T16 | `test_attestation.py`, `test_candidate_identity.py` |
 | GOV-046 | T16, T17, T20 | `test_attestation.py`, complete producer-closure identity, `test_gate_sandbox.py`, `test_reviewer_isolation.py`, `test_evidence_reconstruction.py` |
 | GOV-047 | T16, T24 | `test_attestation.py`, `test_gate_evidence.py`, `test_pipeline_lock.py`, directory-lock hardlink/leaf-replacement and CLI no-replacement tests |
 | GOV-048 | T14, T24 | `test_trusted_authority.py`, `test_disposition_policy.py`, authenticated qualification-label decision, trusted-current-time and rerun-after-expiry tests |
 | GOV-049 | T14, T24 | `test_trusted_authority.py`, `test_workflow_profiles.py`, protected risk-floor reconstruction tests |
-| GOV-050 | T14, T23 | `test_trusted_authority.py`, `test_ci_admission.py` |
+| GOV-050 | T14, T23, T24 | `test_trusted_authority.py`, admission-path proposed-policy/promotion/rollback reconstruction tests, `test_ci_admission.py` |
 | GOV-051 | T14, T22 | `test_assurance_case.py`, `test_reference_monitor.py` |
-| GOV-052 | T15, T20 | `test_assurance_case.py` descriptor-bound swap/symlink/FIFO/oversize tests, reviewer-materialization race/special-file tests, `test_reviewer_isolation.py` |
+| GOV-052 | T15, T20 | `test_assurance_case.py` descriptor-bound swap/symlink/FIFO/oversize tests, end-to-end reviewer CLI/materialization single-read race/special-file tests, `test_reviewer_isolation.py` |
 | GOV-053 | T14 | `test_assurance_case.py`, `test_disposition_policy.py` |
 | GOV-054 | T20 | `test_reviewer_isolation.py`, permission-profile canary, unit x32-ABI-denial process test, `test_context_compiler.py` |
-| GOV-055 | T20, T24 | `test_reviewer_qualification.py`, mandatory seeded-defect/prompt-injection/control classes, deterministic synthetic-candidate and typed corpus/case/normalized-stream/JSONL-result/primitive-observation/execution reconstruction, portability and protected label-decision tests |
+| GOV-055 | T20, T24 | `test_reviewer_qualification.py`, mandatory seeded-defect/prompt-injection/control classes, deterministic synthetic-candidate plus per-case source/projection/qualification/prepared/post-run context and typed corpus/case/normalized-stream/JSONL-result/primitive-observation/execution reconstruction, portability and protected label-decision tests |
 | GOV-056 | T20 | `test_reviewer_qualification.py`, `test_workflow_profiles.py` |
 | GOV-057 | T18 | `test_rapid_review.py`, `test_rst_operations.py` |
 | GOV-058 | T19 | `test_mutation_governance.py` |
@@ -68,7 +68,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-062 | T13, T16, T23 | `test_public_portability.py`, clean-environment gate |
 | GOV-TOKEN-001 | T21, T24 | `test_context_compiler.py`, `test_cli_orchestration.py`, protected-source and forged-signal tests |
 | GOV-TOKEN-002 | T21, T24 | `test_context_qualification.py`, `test_reviewer_qualification.py`, profile/version qualification identity tests |
-| GOV-TOKEN-003 | T15, T20, T21 | `test_context_compiler.py`, `test_reviewer_isolation.py`, source/projection reconstruction and tampering tests in `test_evidence_reconstruction.py`, schema/example checks |
+| GOV-TOKEN-003 | T15, T20, T21 | `test_context_compiler.py`, `test_reviewer_isolation.py`, source/projection reconstruction and tampering tests in `test_evidence_reconstruction.py`, qualification-case dummy-digest/context-artifact tests, schema/example checks |
 | GOV-TOKEN-004 | T21 | `test_context_compiler.py`, `test_reference_monitor.py` |
 
 ## Coverage rules

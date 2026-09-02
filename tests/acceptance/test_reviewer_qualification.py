@@ -153,7 +153,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             bootstrap_qualification_record,
             qualification_candidate_document,
             qualification_charter_document,
-            qualification_context_execution_document,
+            qualification_context_documents,
             qualification_evidence_valid,
             qualification_policy_document,
             qualification_task_document,
@@ -303,6 +303,27 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
                 self.assertTrue(execution_facts["execution_valid"])
                 execution_facts["reviewer_prompt_sha256"] = identity["prompt_sha256"]
+                context_execution_facts = dict(execution_facts)
+                context_execution_facts.update(
+                    model=identity["model"],
+                    reasoning_effort=identity["reasoning_effort"],
+                )
+                context_documents = qualification_context_documents(
+                    mode="conformance",
+                    case=case,
+                    task=task,
+                    policy=policy,
+                    candidate=candidate,
+                    reviewer_output_sha256=sha256_bytes(result_bytes),
+                    execution=context_execution_facts,
+                )
+                context_references = {
+                    name: store(
+                        prefix + "/" + name.replace("_", "-") + ".json",
+                        canonical_json_bytes(document),
+                    )
+                    for name, document in context_documents.items()
+                }
                 stdout_reference = store(
                     prefix + "/stdout.bin", execution_facts["stdout_bytes"]
                 )
@@ -320,20 +341,21 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     qualification_id=bootstrap["qualification_id"],
                     model=identity["model"],
                     reasoning_effort=identity["reasoning_effort"],
-                    context_source_bundle_sha256="sha256:" + "6" * 64,
-                    context_projection_sha256="sha256:" + "7" * 64,
-                    context_qualification_id="sha256:" + "8" * 64,
-                    input_context_receipt_sha256="sha256:" + "9" * 64,
-                    context_execution_receipt_sha256=sha256_bytes(
-                        canonical_json_bytes(
-                            qualification_context_execution_document(
-                                mode="conformance",
-                                case_id=case["case_id"],
-                                input_context_receipt_sha256="sha256:" + "9" * 64,
-                                reviewer_output_sha256=sha256_bytes(result_bytes),
-                            )
-                        )
-                    ),
+                    context_source_bundle_sha256=context_references[
+                        "context_sources"
+                    ]["sha256"],
+                    context_projection_sha256=context_references[
+                        "context_projection"
+                    ]["sha256"],
+                    context_qualification_id=context_documents[
+                        "context_qualification"
+                    ]["qualification_id"],
+                    input_context_receipt_sha256=context_references[
+                        "context_receipt"
+                    ]["sha256"],
+                    context_execution_receipt_sha256=context_references[
+                        "context_execution_receipt"
+                    ]["sha256"],
                     workflow_system="unit",
                     run_id="qualification",
                     attempt=1,
@@ -356,6 +378,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         "task_contract_sha256": task_sha,
                         "effective_policy_sha256": policy_sha,
                         "candidate": candidate,
+                        **context_references,
                         "reviewer_output": store(prefix + "/result.json", result_bytes),
                         "reviewer_execution": store(
                             prefix + "/execution.json", canonical_json_bytes(execution)
@@ -366,7 +389,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
             case_evidence = content_address(
                 {
-                    "schema_version": "2.0.0",
+                    "schema_version": "3.0.0",
                     "mode": "conformance",
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -442,6 +465,33 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         | {
                             "record": substituted_record,
                             "case_evidence": substituted_cases,
+                        }
+                    )
+                )
+            )
+            dummy_context_cases = deepcopy(case_evidence)
+            dummy_context_cases["observations"][0]["context_projection"][
+                "sha256"
+            ] = "sha256:" + "0" * 64
+            dummy_context_cases = content_address(
+                dummy_context_cases, "case_evidence_id"
+            )
+            dummy_context_record = content_address(
+                record
+                | {
+                    "case_evidence_sha256": sha256_bytes(
+                        canonical_json_bytes(dummy_context_cases)
+                    )
+                },
+                "qualification_id",
+            )
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **(
+                        arguments
+                        | {
+                            "record": dummy_context_record,
+                            "case_evidence": dummy_context_cases,
                         }
                     )
                 )

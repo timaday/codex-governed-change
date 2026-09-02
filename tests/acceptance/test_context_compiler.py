@@ -7,7 +7,6 @@ from pathlib import Path
 
 from codex_governance.candidate import GitCliRepositoryAdapter, candidate_id_from_components
 from codex_governance.canonical import content_address, sha256_bytes
-from codex_governance.domain.model import DispositionState
 
 
 class ContextCompilerAcceptanceTest(unittest.TestCase):
@@ -183,7 +182,12 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
     def test_insufficient_kernel_budget_blocks_without_truncation(self) -> None:
         compiled = self.compile(budget=1)
         self.assertEqual("CONTEXT_BUDGET_INSUFFICIENT", compiled["receipt"]["truncation_status"])
-        self.assertEqual(DispositionState.UNKNOWN, compiled["state"])
+        self.assertEqual("UNKNOWN", compiled["state"])
+
+    def test_context_success_uses_non_authoritative_component_state(self) -> None:
+        compiled = self.compile(budget=64000)
+        self.assertEqual("CONTEXT_READY", compiled["state"])
+        self.assertNotEqual("READY_FOR_HUMAN", compiled["state"])
 
     def test_unchanged_evidence_is_referenced_not_duplicated(self) -> None:
         compiled = self.compile()

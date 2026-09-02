@@ -12,6 +12,8 @@ class GovernanceIntegrityAcceptanceTest(unittest.TestCase):
         "schemas/disposition.schema.json",
         ".github/workflows/governed-change.yml",
         ".github/CODEOWNERS",
+        "src/codex_governance/evidence.py",
+        "tests/unit/test_reviewer_adapter.py",
     ]
 
     def test_ordinary_candidate_cannot_change_acceptance_authority(self) -> None:
@@ -36,12 +38,23 @@ class GovernanceIntegrityAcceptanceTest(unittest.TestCase):
             )
         )
 
-    def test_ordinary_source_change_is_not_misclassified(self) -> None:
+    def test_previous_lkg_path_set_is_the_classifier_authority(self) -> None:
+        protected = ["src/trusted/", "policy.json"]
+        self.assertEqual(
+            DispositionState.BLOCK,
+            classify_governance_change(
+                changed_paths=["src/trusted/candidate.py"],
+                task_profile="code",
+                governance_change_authorized=False,
+                governance_paths=protected,
+            ),
+        )
         self.assertIsNone(
             classify_governance_change(
                 changed_paths=["src/codex_governance/candidate.py"],
                 task_profile="code",
                 governance_change_authorized=False,
+                governance_paths=protected,
             )
         )
 

@@ -227,9 +227,14 @@ from those observations. No host path or environment value is persisted.
 The retained stream bytes are the complete bounded captures after one fixed
 trusted normalization pass replaces supervisor-only paths and allowlisted
 parent-environment values with `<REVIEWER_RUNTIME>`; their digests bind those
-portable bytes. Recognized credential, endpoint and generic host-path patterns
-are removed before persistence and make the execution `UNKNOWN` because their
-causal meaning cannot be reconstructed safely.
+portable bytes. Endpoint- or host-path-shaped decoded values in command-
+execution events proven to occur byte-for-byte in the immutable candidate or
+protected reviewer inputs are replaced with `<REVIEWER_SOURCE_LITERAL>`;
+credentials and final agent output are not eligible for that exception. Other
+credential, endpoint and generic host-path patterns are removed before
+persistence and make the execution `UNKNOWN` because their causal meaning
+cannot be reconstructed safely. JSONL events are parsed and deterministically
+re-serialized so either replacement remains valid structured evidence.
 
 The reviewer parent exit and result file are insufficient until a bounded stdin
 writer finishes within one absolute monotonic deadline shared by process wait,
@@ -400,11 +405,19 @@ values. It has no filesystem, process, network, credential, repository-setting,
 merge, deployment or waiver-granting adapter. The application resolves all
 references and authenticated decisions first, then presents fixed assurance
 claims and defeaters. Only this kernel may produce `READY_FOR_HUMAN`.
+Context preparation instead emits `CONTEXT_READY`; this state is only a
+prerequisite observation and has no admission authority.
 
 Content-addressed decision bytes are not authentication. Every decision policy
 also requires its `decision_id` in the explicit result of the protected
 decision-source adapter. The default set is empty; absence or mismatch therefore
 cannot be recovered from issuer prose embedded in the decision.
+
+The previous LKG effective policy is also the classifier authority: its
+`governance_paths` enumerate the complete trusted implementation and deployment
+closure. A matching candidate requires separately referenced proposed-policy,
+promotion-decision and rollback artifacts, and admission invokes the LKG
+promotion predicate before the governance prerequisite can succeed.
 
 CI uses the kernel from the previous protected LKG governance commit. Its final
 job runs regardless of direct dependency status, validates that every dependency

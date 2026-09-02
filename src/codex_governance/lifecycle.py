@@ -54,6 +54,11 @@ def migration_policy(kind: str, from_version: str, to_version: str) -> str:
         to_version,
     ) in {("1.0.0", "2.0.0"), ("2.0.0", "3.0.0")}:
         return "explicit_required"
+    if kind == "reviewer-qualification-cases" and (
+        from_version,
+        to_version,
+    ) == ("2.0.0", "3.0.0"):
+        return "explicit_required"
     if from_version == to_version and from_version in {"1.0.0", "2.0.0", "3.0.0"}:
         return "identity"
     return "unsupported"

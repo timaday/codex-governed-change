@@ -318,9 +318,15 @@ Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
 proxy and other allowlisted parent-environment values with a fixed portable
 token. Parsing and execution-statement digests use those normalized captured
-bytes. Recognized credential-, endpoint- or generic host-path-shaped values are
-also replaced before persistence, but that ambiguous transformation permanently
-forces `UNKNOWN`. Truncation, retained machine values or malformed JSONL block.
+bytes. An endpoint- or generic host-path-shaped value in a Codex command-
+execution event whose exact decoded bytes already occur in the immutable
+candidate or protected reviewer inputs is a portable source literal and is
+replaced by a distinct fixed token. The exception does not apply to credentials
+or the final agent message. Other recognized shaped values are replaced before
+persistence, and that ambiguous transformation permanently forces `UNKNOWN`.
+JSONL normalization MUST parse and re-serialize complete events so replacement
+cannot corrupt escaping. Truncation, retained machine values or malformed JSONL
+block.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
@@ -485,6 +491,11 @@ qualified fresh-context review, and visible residual risks, waivers and unknowns
 Each claim contains supporting and refuting typed evidence, limitations and
 unresolved defeaters. Model prose is never an argument rule.
 
+Prerequisite components use component-specific success vocabulary. In
+particular, deterministic context preparation emits `CONTEXT_READY` or
+`UNKNOWN`; it never emits `READY_FOR_HUMAN` and cannot be mistaken for the
+admission decision.
+
 For a fixed authenticated authority set, the policy is monotonic: adding a
 failure, unknown or defeater; removing required evidence; changing repository,
 candidate, policy, producer or environment; or making evidence stale can never
@@ -497,6 +508,11 @@ candidate/base where applicable, policy digest, exact scope, authenticated
 issuer, issued/expiry times and single-use consumption where applicable.
 Protected changed-surface policy computes a minimum risk profile and gate set.
 Task input may add scrutiny; reducing the floor requires an applicable decision.
+The previous LKG policy supplies the exact TCB path set used for classification.
+When any changed path intersects that set, the evidence manifest must separately
+reference the proposed policy, authenticated LKG-promotion decision and rollback
+evidence. Admission descriptor-resolves those artifacts and runs the previous-LKG
+promotion predicate; ordinary governance authorization alone is insufficient.
 
 ## 16. Sandboxed execution and provenance
 
@@ -670,8 +686,8 @@ manifests, not embeddings or a vector database.
 
 Schemas define supported versions and migration behavior. The qualification
 evidence additions are breaking: `effective-policy`, `evidence-manifest`, and
-`reviewer-qualification` are `2.0.0`; `reviewer-qualification-cases` is `2.0.0`
-with full candidate evidence; `reviewer-qualification-corpus` is `2.0.0` with
+`reviewer-qualification` are `2.0.0`; `reviewer-qualification-cases` is `3.0.0`
+with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `2.0.0` with
 mandatory typed case classes; and `reviewer-execution` is `3.0.0` with primitive
 observation plus direct stream references. Migration from each immediately
 preceding version is explicit. Syntax validation is
@@ -692,7 +708,10 @@ use no-follow and nonblocking flags, then `fstat` proves a bounded regular file
 before bytes are read through that descriptor. Pathname validation followed by a
 later pathname read is not an admissible fallback; unavailable descriptor-bound
 access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
-materializing permitted evidence into the reviewer harness.
+materializing permitted evidence into the reviewer harness. The reviewer CLI
+reads each permitted artifact once, validates and hashes those retained bytes,
+and passes those same bytes to harness materialization; it must not reopen the
+pathname between validation and copy.
 
 Gate and mutation implementation identities hash a canonical manifest containing
 the repository-relative filename, byte length and SHA-256 digest of every Python
@@ -713,5 +732,11 @@ three-story debrief are complete; every finding and material residual risk has a
 valid authenticated disposition; both prepared and post-run context receipts are complete; governance
 integrity remains protected by the LKG policy; and no unresolved defeater or
 mandatory `UNKNOWN` remains.
+
+Every reviewer-qualification case is itself a governed model invocation. Its
+case evidence therefore contains separate typed references for the reconstructed
+source bundle, projection, context qualification, prepared receipt and post-run
+receipt in addition to output, execution and normalized streams. Digest-shaped
+self-report without those exact artifacts cannot qualify a reviewer identity.
 
 Nothing in this specification authorizes automatic merge or deployment.

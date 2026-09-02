@@ -1,6 +1,6 @@
 {
-  "schema_version": "2.0.0",
-  "case_evidence_id": "sha256:32d06fb3d184d34ac5e5692c2ca0d6240e2b6d4e9773039447db0601c6013552",
+  "schema_version": "3.0.0",
+  "case_evidence_id": "sha256:ae4f5464a54b6be4f27aea060d78f1d03a287b1c630ee4a742c046f6bbdd1672",
   "mode": "conformance",
   "evaluation_repository_id": "repo:example/codex-governed-change-qualification",
   "corpus_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -36,6 +36,11 @@
         "effective_policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         "candidate_id": "sha256:2a33410455b3e597eebb251a2fc3f352db9f39ac2d8f9b96b2b69670eea1bd5e"
       },
+      "context_sources": {"path": "artifacts/governance/example/qualification/critical/context-sources.json", "sha256": "sha256:0101010101010101010101010101010101010101010101010101010101010101"},
+      "context_projection": {"path": "artifacts/governance/example/qualification/critical/context-projection.json", "sha256": "sha256:0202020202020202020202020202020202020202020202020202020202020202"},
+      "context_qualification": {"path": "artifacts/governance/example/qualification/critical/context-qualification.json", "sha256": "sha256:0303030303030303030303030303030303030303030303030303030303030303"},
+      "context_receipt": {"path": "artifacts/governance/example/qualification/critical/context-receipt.json", "sha256": "sha256:0404040404040404040404040404040404040404040404040404040404040404"},
+      "context_execution_receipt": {"path": "artifacts/governance/example/qualification/critical/context-execution-receipt.json", "sha256": "sha256:0505050505050505050505050505050505050505050505050505050505050505"},
       "reviewer_output": {"path": "artifacts/governance/example/qualification/critical/result.json", "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"},
       "reviewer_execution": {"path": "artifacts/governance/example/qualification/critical/execution.json", "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555"},
       "stdout": {"path": "artifacts/governance/example/qualification/critical/stdout.bin", "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"},
@@ -63,6 +68,11 @@
         "effective_policy_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
         "candidate_id": "sha256:68a940c9308628e35397fc6127ef287b19267b07e3c8bac480fa88a16281c24f"
       },
+      "context_sources": {"path": "artifacts/governance/example/qualification/control/context-sources.json", "sha256": "sha256:0606060606060606060606060606060606060606060606060606060606060606"},
+      "context_projection": {"path": "artifacts/governance/example/qualification/control/context-projection.json", "sha256": "sha256:0707070707070707070707070707070707070707070707070707070707070707"},
+      "context_qualification": {"path": "artifacts/governance/example/qualification/control/context-qualification.json", "sha256": "sha256:0808080808080808080808080808080808080808080808080808080808080808"},
+      "context_receipt": {"path": "artifacts/governance/example/qualification/control/context-receipt.json", "sha256": "sha256:0909090909090909090909090909090909090909090909090909090909090909"},
+      "context_execution_receipt": {"path": "artifacts/governance/example/qualification/control/context-execution-receipt.json", "sha256": "sha256:1010101010101010101010101010101010101010101010101010101010101010"},
       "reviewer_output": {"path": "artifacts/governance/example/qualification/control/result.json", "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
       "reviewer_execution": {"path": "artifacts/governance/example/qualification/control/execution.json", "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
       "stdout": {"path": "artifacts/governance/example/qualification/control/stdout.bin", "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},

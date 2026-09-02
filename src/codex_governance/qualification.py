@@ -222,23 +222,118 @@ def qualification_charter_document(
     }
 
 
-def qualification_context_execution_document(
+def qualification_context_documents(
     *,
     mode: str,
-    case_id: str,
-    input_context_receipt_sha256: str,
+    case: Mapping[str, Any],
+    task: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    candidate: Mapping[str, Any],
     reviewer_output_sha256: str,
-) -> dict[str, Any]:
-    if mode not in {"conformance", "rapid_review"} or not case_id:
+    execution: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Rebuild one qualification case's complete governed context chain."""
+    if mode not in {"conformance", "rapid_review"} or not case.get("case_id"):
         raise ValueError("qualification context identity is invalid")
+    from codex_governance.context import (
+        build_protected_context_sources,
+        compile_context,
+        derive_context_signals,
+        finalize_context_receipt,
+        select_context_profile,
+    )
+
+    entries = candidate.get("untracked_entries")
+    if not isinstance(entries, list):
+        raise ValueError("qualification candidate inventory is unavailable")
+    inventory = [
+        {"path": item["path"], "state": "present", "sha256": item["sha256"]}
+        for item in entries
+    ]
+    changed_paths = list(candidate.get("changed_paths", ()))
+    if [item["path"] for item in inventory] != changed_paths:
+        raise ValueError("qualification candidate inventory is not exact")
+    created_at = "2026-08-26T10:00:00Z"
+    sources = build_protected_context_sources(
+        candidate=candidate,
+        task=task,
+        policy=policy,
+        repository_inventory=inventory,
+        affected_closure=changed_paths,
+        gate_results=[
+            {
+                "gate_id": "qualification-context",
+                "status": "PASS",
+                "limitations": [],
+            }
+        ],
+        mutation_records=[],
+        created_at=created_at,
+    )
+    profile = select_context_profile(
+        requested_profile="STANDARD",
+        changed_paths=changed_paths,
+        **derive_context_signals(sources),
+    )
+    context_qualification = content_address(
+        {
+            "schema_version": "1.0.0",
+            "projection_version": "1.0.0",
+            "profile": profile,
+            "baseline": {
+                "critical_recall": 1.0,
+                "false_passes": 0,
+                "traceability": 1.0,
+                "disposition_correct": True,
+                "tokens": 64000,
+            },
+            "candidate": {
+                "critical_recall": 1.0,
+                "false_passes": 0,
+                "traceability": 1.0,
+                "disposition_correct": True,
+                "tokens": 64000,
+            },
+            "qualified": True,
+            "created_at": created_at,
+            "limitations": [],
+        },
+        "qualification_id",
+    )
+    compiled = compile_context(
+        sources=sources,
+        candidate=candidate,
+        requested_profile="STANDARD",
+        token_budget=64000,
+        changed_paths=changed_paths,
+        affected_closure=changed_paths,
+        model=str(execution.get("model")),
+        reasoning_effort=str(execution.get("reasoning_effort")),
+        context_qualification=context_qualification,
+        protected_qualification_ids={profile: context_qualification["qualification_id"]},
+    )
+    prepared = compiled["receipt"]
+    post_run = finalize_context_receipt(
+        prepared,
+        review_mode=mode,
+        reviewer_output_sha256=require_sha256(reviewer_output_sha256),
+        retrieval_expansions=[],
+        usage_observed=execution.get("usage_observed") is True,
+        actual_input_tokens=int(execution.get("input_tokens", 0)),
+        actual_output_tokens=int(execution.get("output_tokens", 0)),
+        cached_input_tokens=int(execution.get("cached_input_tokens", 0)),
+        reasoning_output_tokens=int(execution.get("reasoning_output_tokens", 0)),
+        latency_ms=int(execution.get("latency_ms", 0)),
+        cost="unavailable",
+        created_at=str(execution.get("ended_at")),
+        limitations=list(execution.get("limitations", ())),
+    )
     return {
-        "schema_version": "qualification-1.0.0",
-        "mode": mode,
-        "case_id": case_id,
-        "input_context_receipt_sha256": require_sha256(
-            input_context_receipt_sha256
-        ),
-        "reviewer_output_sha256": require_sha256(reviewer_output_sha256),
+        "context_sources": compiled["source_bundle"],
+        "context_projection": compiled["projection"],
+        "context_qualification": context_qualification,
+        "context_receipt": prepared,
+        "context_execution_receipt": post_run,
     }
 
 
@@ -453,7 +548,17 @@ def qualification_evidence_valid(
         try:
             artifacts = {
                 name: artifact_reader(observation[name])
-                for name in ("reviewer_output", "reviewer_execution", "stdout", "stderr")
+                for name in (
+                    "context_sources",
+                    "context_projection",
+                    "context_qualification",
+                    "context_receipt",
+                    "context_execution_receipt",
+                    "reviewer_output",
+                    "reviewer_execution",
+                    "stdout",
+                    "stderr",
+                )
             }
             if any(
                 sha256_bytes(artifacts[name]) != observation[name].get("sha256")
@@ -462,6 +567,18 @@ def qualification_evidence_valid(
                 return False
             result = result_adapter.parse(artifacts["reviewer_output"])
             execution = execution_adapter.parse(artifacts["reviewer_execution"])
+            parsed_context = {
+                name: JsonRepresentationAdapter(
+                    schema_root / f"{schema_name}.schema.json"
+                ).parse(artifacts[name])
+                for name, schema_name in (
+                    ("context_sources", "context-source-bundle"),
+                    ("context_projection", "context-projection"),
+                    ("context_qualification", "context-qualification"),
+                    ("context_receipt", "context-receipt"),
+                    ("context_execution_receipt", "context-execution-receipt"),
+                )
+            }
         except (KeyError, OSError, TypeError, ValueError):
             return False
         if not isinstance(result, Mapping) or not isinstance(execution, Mapping):
@@ -497,20 +614,40 @@ def qualification_evidence_valid(
             candidate_id=candidate_id,
             case=case,
         )
-        expected_context_execution_sha256 = sha256_bytes(
-            canonical_json_bytes(
-                qualification_context_execution_document(
-                    mode=mode,
-                    case_id=str(case["case_id"]),
-                    input_context_receipt_sha256=str(
-                        execution.get("input_context_receipt_sha256")
-                    ),
-                    reviewer_output_sha256=str(
-                        observation["reviewer_output"].get("sha256")
-                    ),
-                )
+        try:
+            expected_context = qualification_context_documents(
+                mode=mode,
+                case=case,
+                task=task,
+                policy=policy,
+                candidate=candidate,
+                reviewer_output_sha256=str(
+                    observation["reviewer_output"].get("sha256")
+                ),
+                execution=execution,
             )
+        except (KeyError, TypeError, ValueError):
+            return False
+        expected_context_execution_sha256 = sha256_canonical(
+            expected_context["context_execution_receipt"]
         )
+        expected_context_receipt_sha256 = sha256_canonical(
+            expected_context["context_receipt"]
+        )
+        expected_materials = [
+            {"name": "task-contract", "sha256": task_sha256},
+            {"name": "effective-policy", "sha256": policy_sha256},
+            {"name": "candidate", "sha256": candidate_id},
+            {"name": "reviewer-prompt", "sha256": identity["prompt_sha256"]},
+            {"name": "output-schema", "sha256": identity["schema_sha256"]},
+            {"name": "launcher", "sha256": identity["launcher_sha256"]},
+            {"name": "qualification", "sha256": bootstrap["qualification_id"]},
+            {"name": "context-source-bundle", "sha256": observation["context_sources"]["sha256"]},
+            {"name": "context-projection", "sha256": observation["context_projection"]["sha256"]},
+            {"name": "context-qualification", "sha256": expected_context["context_qualification"]["qualification_id"]},
+            {"name": "prepared-context", "sha256": expected_context_receipt_sha256},
+            {"name": "post-run-context", "sha256": expected_context_execution_sha256},
+        ]
         output_bindings = {
             "repository_id": evaluation_repository_id,
             "task_contract_sha256": task_sha256,
@@ -582,6 +719,13 @@ def qualification_evidence_valid(
             or execution.get("reasoning_effort") != identity["reasoning_effort"]
             or execution.get("reviewer_output_sha256")
             != observation["reviewer_output"].get("sha256")
+            or any(
+                parsed_context.get(name) != document
+                for name, document in expected_context.items()
+            )
+            or execution.get("materials") != expected_materials
+            or execution.get("input_context_receipt_sha256")
+            != expected_context_receipt_sha256
             or execution.get("stdout") != observation.get("stdout")
             or execution.get("stderr") != observation.get("stderr")
             or execution.get("context_execution_receipt_sha256")

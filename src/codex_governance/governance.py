@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 
+from codex_governance.canonical import normalize_repo_path
 from codex_governance.domain.model import DispositionState
 
 
@@ -20,17 +21,29 @@ GOVERNANCE_PREFIXES = (
     "schemas/",
     "scripts/",
     "tests/acceptance/",
+    "tests/unit/",
+    "src/codex_governance/",
     "docs/requirements.md",
     "docs/specification.md",
     "docs/decisions/",
 )
+DEFAULT_GOVERNANCE_PATHS = tuple(sorted((*GOVERNANCE_PATHS, *GOVERNANCE_PREFIXES)))
 
 
-def is_governance_path(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    return normalized in GOVERNANCE_PATHS or any(
-        normalized.startswith(prefix) for prefix in GOVERNANCE_PREFIXES
-    )
+def is_governance_path(
+    path: str, *, governance_paths: Sequence[str] = DEFAULT_GOVERNANCE_PATHS
+) -> bool:
+    """Classify one path against the exact previous-LKG protected path set."""
+    normalized = normalize_repo_path(path)
+    for raw_protected in governance_paths:
+        prefix = raw_protected.endswith("/")
+        protected = normalize_repo_path(raw_protected[:-1] if prefix else raw_protected)
+        if prefix:
+            if normalized.startswith(protected + "/"):
+                return True
+        elif normalized == protected:
+            return True
+    return False
 
 
 def classify_governance_change(
@@ -38,10 +51,14 @@ def classify_governance_change(
     changed_paths: Sequence[str],
     task_profile: str,
     governance_change_authorized: bool,
+    governance_paths: Sequence[str] = DEFAULT_GOVERNANCE_PATHS,
 ) -> DispositionState | None:
     """Legacy classifier: booleans never authorize protected governance edits."""
     del task_profile, governance_change_authorized
-    governed = any(is_governance_path(path) for path in changed_paths)
+    governed = any(
+        is_governance_path(path, governance_paths=governance_paths)
+        for path in changed_paths
+    )
     if not governed:
         return None
     return DispositionState.BLOCK

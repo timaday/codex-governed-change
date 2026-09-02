@@ -25,6 +25,13 @@ uses full-SHA action references. A governance replacement is evaluated by the
 old LKG and becomes LKG only through authenticated promotion with rollback
 evidence.
 
+The old LKG policy's explicit `governance_paths` are the classifier input and
+cover the complete trusted implementation and deployment closure. Admission—not
+a standalone test helper—descriptor-resolves the proposed policy, promotion
+decision and rollback evidence and invokes the LKG-promotion predicate whenever
+the candidate touches that closure. Other prerequisites use their own success
+vocabulary; they cannot emit `READY_FOR_HUMAN`.
+
 ## Alternatives
 
 - **Trust the candidate workflow's last successful job**: rejected because a

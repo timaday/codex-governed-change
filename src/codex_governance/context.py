@@ -17,7 +17,6 @@ from codex_governance.canonical import (
     sha256_canonical,
     verify_content_address,
 )
-from codex_governance.domain.model import DispositionState
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.qualification import context_variant_qualified
 
@@ -466,7 +465,7 @@ def compile_context(
         "projection": projection,
         "receipt": receipt,
         "retrieval_index": dict(sorted(retrieval_index.items())),
-        "state": DispositionState.UNKNOWN if insufficient else DispositionState.READY_FOR_HUMAN,
+        "state": "UNKNOWN" if insufficient else "CONTEXT_READY",
     }
 
 

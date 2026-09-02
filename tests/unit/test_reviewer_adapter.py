@@ -28,6 +28,7 @@ from codex_governance.reviewer import (
     launch_reviewer,
     observe_codex_cli_version,
     prepare_sanitized_harness,
+    reviewer_portable_source_literals,
     reviewer_stream_is_portable,
     resolve_reviewer_runtime_read_roots,
     sanitized_invocation_descriptor,
@@ -778,6 +779,90 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
             self.assertFalse(reviewer_stream_is_portable(original.encode()))
         self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
 
+    def test_immutable_source_literal_is_portable_and_preserves_jsonl(self) -> None:
+        source_literal = "/" + "var" + "/lib/public-example"
+        credential_literal = ("gh" + "p_" + "Q" * 32).encode("utf-8")
+        fake = self.fake_codex(
+            """
+import json, pathlib, sys
+args = sys.argv[1:]
+output = pathlib.Path(args[args.index('--output-last-message') + 1])
+candidate = %r
+payload = {
+  'schema_version': '2.0.0', 'repository_id': 'repo:example/project',
+  'candidate_id': candidate, 'task_contract_sha256': %r,
+  'effective_policy_sha256': %r, 'gate_manifest_sha256': %r,
+  'context_receipt_sha256': %r, 'reviewer_prompt_sha256': %r,
+  'qualification_id': %r, 'model': 'fake-gpt',
+  'invocation_id': 'fake:source-literal',
+  'verdict': 'NO_BLOCKING_FINDING_OBSERVED',
+  'reviewed_surfaces': ['candidate'], 'affected_closure': ['candidate'],
+  'retrieval_expansions': [], 'findings': [], 'missing_evidence': [],
+  'claims': [], 'limitations': []
+}
+output.write_text(json.dumps(payload), encoding='utf-8')
+print(json.dumps({'type': 'thread.started', 'thread_id': 'source-literal'}))
+print(json.dumps({'type': 'item.completed', 'item': {
+  'type': 'command_execution',
+  'aggregated_output': %r + chr(34)
+}}))
+print(json.dumps({'type': 'item.completed', 'item': {
+  'type': 'agent_message', 'text': json.dumps(payload)
+}}))
+print(json.dumps({'type': 'turn.completed', 'usage': {
+  'input_tokens': 1, 'cached_input_tokens': 0,
+  'output_tokens': 1, 'reasoning_output_tokens': 0
+}}))
+"""
+            % (
+                self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
+                self.inputs["context_receipt_sha256"], self.PROMPT,
+                self.inputs["reviewer_qualification_id"], source_literal,
+            )
+        )
+        literals = reviewer_portable_source_literals(
+            self.repository,
+            protected_sources=(source_literal.encode("utf-8"), credential_literal),
+        )
+        self.assertNotIn(credential_literal, literals)
+        result = launch_reviewer(
+            command=self.command(fake), stdin_text=self.stdin(),
+            schema_path=self.harness["schema"], output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            expected_bindings={"repository_id": self.inputs["repository_id"]},
+            timeout_seconds=2,
+            portable_source_literals=literals,
+        )
+        self.assertTrue(result["execution_valid"])
+        self.assertTrue(result["usage_observed"])
+        self.assertFalse(result["observation"]["stdout"]["ambiguous_redaction"])
+        self.assertNotIn(source_literal.encode("utf-8"), result["stdout_bytes"])
+        self.assertIn(b"<REVIEWER_SOURCE_LITERAL>", result["stdout_bytes"])
+        for line in result["stdout_bytes"].splitlines():
+            json.loads(line)
+
+        self.harness["output"].unlink()
+        fake.write_text(
+            fake.read_text(encoding="utf-8").replace(
+                "'claims': [], 'limitations': []",
+                "'claims': [], 'limitations': [%r]" % source_literal,
+            ),
+            encoding="utf-8",
+        )
+        final_output = launch_reviewer(
+            command=self.command(fake), stdin_text=self.stdin(),
+            schema_path=self.harness["schema"], output_path=self.harness["output"],
+            expected_candidate_id=self.CANDIDATE,
+            candidate_supplier=lambda: self.CANDIDATE,
+            expected_bindings={"repository_id": self.inputs["repository_id"]},
+            timeout_seconds=2,
+            portable_source_literals=literals,
+        )
+        self.assertEqual(ReviewerVerdict.UNKNOWN, final_output["verdict"])
+        self.assertTrue(final_output["observation"]["stdout"]["ambiguous_redaction"])
+        self.assertNotIn(source_literal.encode("utf-8"), final_output["stdout_bytes"])
+
     def test_runtime_profile_is_bounded_and_rejects_filesystem_root(self) -> None:
         install = Path(self.temporary.name) / "runtime" / "bin"
         install.mkdir(parents=True)
@@ -1101,6 +1186,38 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
                 evidence_root="evidence",
             )
         self.assertLess(time.monotonic() - started, 1.0)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO contract is unavailable")
+    def test_validated_direct_bytes_are_materialized_without_path_reopen(self) -> None:
+        prepared = {
+            value: (self.repository / value).read_bytes()
+            for key, value in self.inputs.items()
+            if key.endswith("_path") and key != "candidate_path"
+        }
+        task_path = self.repository / self.inputs["task_contract_path"]
+        original = prepared[self.inputs["task_contract_path"]]
+        task_path.unlink()
+        os.mkfifo(task_path)
+        harness = prepare_sanitized_harness(
+            candidate_repository=self.repository,
+            harness_root=Path(self.temporary.name) / "prepared-bytes-harness",
+            fixed_prompt_path=Path(".codex/review/reviewer.prompt.md"),
+            output_schema_path=Path("schemas/reviewer-result.schema.json"),
+            permitted_inputs=self.inputs,
+            expected_candidate=self.candidate,
+            evidence_root="evidence",
+            prepared_evidence=prepared,
+            fixed_prompt_bytes=Path(
+                ".codex/review/reviewer.prompt.md"
+            ).read_bytes(),
+            output_schema_bytes=Path(
+                "schemas/reviewer-result.schema.json"
+            ).read_bytes(),
+        )
+        self.assertEqual(
+            original,
+            harness["root"].joinpath(*self.inputs["task_contract_path"].split("/")).read_bytes(),
+        )
 
     def test_reviewer_materialization_rejects_oversized_replacement(self) -> None:
         mutation = self.repository / "evidence/mutation.json"

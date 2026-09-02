@@ -78,8 +78,8 @@ The successor working-copy checkpoint on 2026-09-02 observed:
 
 - `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
   schema/example pairs.
-- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 224 tests passed
-  (162 acceptance and 62 unit tests);
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 229 tests passed
+  (165 acceptance and 64 unit tests);
   no skips or expected failures were reported.
 - `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
   all 23 curated mutants `KILLED` for corpus
@@ -93,6 +93,20 @@ usage evidence unavailable. The attempt is therefore `UNKNOWN`, not qualifying
 review evidence. Its nine reported risks were nevertheless treated as findings
 and remediated in the current successor candidate. A new exact-candidate review
 is required.
+
+A later fresh read-only audit of immutable commit `13197d0` reported five
+additional blocking implementation findings: incomplete previous-LKG TCB
+classification, missing admission-path LKG promotion, reviewer CLI pathname
+reopens, self-reported qualification context digests, and a second externally
+visible readiness producer. Its process evidence was `UNKNOWN` because usage and
+capture completion were unavailable, but the concrete findings were retained and
+remediated with adversarial tests in the current successor candidate. That audit
+is stale after these changes; another exact-candidate review is required.
+The audit also exposed JSONL escape corruption when a retained command output
+contained a host-path-shaped literal from the source under review. The trusted
+normalizer now re-serializes parsed JSONL and replaces only exact literals proven
+to occur in the immutable candidate or protected inputs with a distinct portable
+source token; unproven shaped output still redacts and forces `UNKNOWN`.
 
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need

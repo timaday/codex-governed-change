@@ -115,6 +115,8 @@ valid/ready bounded outcome, `1` for a confirmed block and `2` for unknown or
 incomplete evidence. Use `codex-governance COMMAND --help` for the portable
 argument contract. Evidence paths are repository-relative; do not place user,
 home-directory, host or local endpoint values in policy or committed artifacts.
+`prepare-review` reports the non-authoritative component state `CONTEXT_READY`;
+only `evaluate` may report `READY_FOR_HUMAN`.
 `prepare-review` requires the repository, policy, task, candidate, complete gate
 and mutation summaries, protected context qualification, protected observation
 time, profile/model/effort and exact policy-selected budget. It re-identifies the
@@ -127,6 +129,10 @@ reference, a portable workflow run ID, and writes the schema-bound model result,
 reviewer-execution statement, and post-run context-execution receipt.
 The reference CI runs conformance and every protected rapid-review input, then
 passes all three artifact families to the final reconstruction job.
+For a candidate touching a path in the previous LKG policy's
+`governance_paths`, the manifest input must also carry separate proposed-policy,
+authenticated LKG-promotion-decision and rollback-evidence references. The
+promotion decision must also appear in the verified authenticated-decision set.
 
 ## 8. Reviewer isolation verification
 

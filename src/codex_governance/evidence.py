@@ -35,8 +35,10 @@ from codex_governance.attestation import (
 from codex_governance.authority import (
     authorize_governance_change,
     decision_applies,
+    evaluate_lkg_promotion,
     resolve_protected_obligations,
 )
+from codex_governance.governance import is_governance_path
 from codex_governance.mutation import (
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
@@ -190,6 +192,9 @@ def assemble_evidence_manifest(
     rapid_review_sessions: Sequence[Mapping[str, str]] = (),
     rapid_review_debrief: Mapping[str, str] | None = None,
     risk_disposition: Mapping[str, str] | None = None,
+    proposed_policy: Mapping[str, str] | None = None,
+    lkg_promotion_decision: Mapping[str, str] | None = None,
+    rollback_evidence: Mapping[str, str] | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
@@ -248,6 +253,12 @@ def assemble_evidence_manifest(
         document["rapid_review_debrief"] = dict(rapid_review_debrief)
     if risk_disposition is not None:
         document["risk_disposition"] = dict(risk_disposition)
+    if proposed_policy is not None:
+        document["proposed_policy"] = dict(proposed_policy)
+    if lkg_promotion_decision is not None:
+        document["lkg_promotion_decision"] = dict(lkg_promotion_decision)
+    if rollback_evidence is not None:
+        document["rollback_evidence"] = dict(rollback_evidence)
     return content_address(document, "manifest_id")
 
 
@@ -482,19 +493,80 @@ def evaluate_manifest(
         defeaters["scope_authorized"].append(
             "task affected surfaces omit a candidate-bound changed path"
         )
-    governance_state = authorize_governance_change(
-        repository_id=repository_id, candidate_id=current_candidate_id,
-        task_contract_sha256=task_sha, policy_sha256=policy_sha,
-        changed_paths=changed_paths, decisions=valid_decisions,
-        verified_decision_ids=verified_decision_ids,
-        governance_change_authorized=False,
-        approver="", now=now,
-    )
+    try:
+        protected_governance_paths = policy["governance_paths"]
+        governed_paths = [
+            path
+            for path in changed_paths
+            if is_governance_path(
+                path, governance_paths=protected_governance_paths
+            )
+        ]
+        governance_state = authorize_governance_change(
+            repository_id=repository_id, candidate_id=current_candidate_id,
+            task_contract_sha256=task_sha, policy_sha256=policy_sha,
+            changed_paths=changed_paths, decisions=valid_decisions,
+            governance_paths=protected_governance_paths,
+            verified_decision_ids=verified_decision_ids,
+            governance_change_authorized=False,
+            approver="", now=now,
+        )
+    except (KeyError, TypeError, ValueError):
+        governed_paths = list(changed_paths)
+        governance_state = DispositionState.BLOCK
     if governance_state is DispositionState.BLOCK:
         upstream["governance"] = "failure"
         defeaters["governance_integrity"].append("protected governance authorization is absent")
     else:
         upstream["governance"] = "success"
+
+    if governed_paths:
+        try:
+            proposed_policy = load(
+                manifest["proposed_policy"], "effective-policy"
+            )
+            promotion_decision = load(
+                manifest["lkg_promotion_decision"], "authenticated-decision"
+            )
+            rollback_evidence = load(
+                manifest["rollback_evidence"], "rollback-evidence"
+            )
+            promotion_reference_is_authenticated = any(
+                reference == manifest["lkg_promotion_decision"]
+                for reference in manifest["authenticated_decisions"]
+            )
+            promotion_state = (
+                evaluate_lkg_promotion(
+                    repository_id=repository_id,
+                    candidate_id=current_candidate_id,
+                    task_contract_sha256=task_sha,
+                    evaluating_policy_sha256=policy_sha,
+                    previous_lkg_policy_sha256=policy_sha,
+                    proposed_policy_sha256=sha256_canonical(proposed_policy),
+                    promotion_decision=promotion_decision,
+                    rollback_evidence=rollback_evidence,
+                    now=now,
+                    verified_decision_ids=verified_decision_ids,
+                )
+                if (
+                    proposed_policy.get("repository_id") == repository_id
+                    and promotion_reference_is_authenticated
+                )
+                else DispositionState.BLOCK
+            )
+        except (KeyError, OSError, TypeError, ValueError):
+            promotion_state = DispositionState.UNKNOWN
+        if promotion_state is DispositionState.BLOCK:
+            upstream["governance"] = "failure"
+            defeaters["governance_integrity"].append(
+                "previous-LKG promotion or rollback evidence is invalid"
+            )
+        elif promotion_state is not DispositionState.READY_FOR_HUMAN:
+            if upstream["governance"] != "failure":
+                upstream["governance"] = "absent"
+            defeaters["governance_integrity"].append(
+                "previous-LKG promotion or rollback evidence is unavailable"
+            )
 
     try:
         obligations = resolve_protected_obligations(

@@ -73,6 +73,7 @@ def authorize_governance_change(
     task_contract_sha256: str,
     policy_sha256: str,
     changed_paths: Sequence[str],
+    governance_paths: Sequence[str] | None = None,
     decisions: Sequence[Mapping[str, Any]],
     verified_decision_ids: Set[str],
     governance_change_authorized: bool,
@@ -82,7 +83,15 @@ def authorize_governance_change(
     del governance_change_authorized, approver
     from codex_governance.governance import is_governance_path
 
-    governed = [path for path in changed_paths if is_governance_path(path)]
+    governed = [
+        path
+        for path in changed_paths
+        if (
+            is_governance_path(path)
+            if governance_paths is None
+            else is_governance_path(path, governance_paths=governance_paths)
+        )
+    ]
     if not governed:
         return None
     for decision in decisions:

@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -169,6 +170,41 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 )
                 self.assertEqual(2, rejected_symlink.returncode)
                 self.assertFalse((outside_parent / "escaped.json").exists())
+
+    def test_review_cli_rejects_special_authoritative_input_without_blocking(self) -> None:
+        self.assertTrue(hasattr(os, "mkfifo"), "protected reviewer CLI requires POSIX FIFO detection")
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            evidence = repository / "evidence"
+            evidence.mkdir(parents=True)
+            policy = json.loads(
+                (self.ROOT / "examples/effective-policy.json").read_text()
+            )
+            policy["evidence_root"] = "evidence"
+            policy_path = repository / "policy.json"
+            policy_path.write_bytes(canonical_json_bytes(policy))
+            candidate_path = repository / "candidate.json"
+            os.mkfifo(candidate_path)
+            started = time.monotonic()
+            completed = self.run_cli(
+                "review",
+                "--repository", str(repository),
+                "--policy", str(policy_path),
+                "--candidate", str(candidate_path),
+                "--permitted-inputs", str(repository / "permitted.json"),
+                "--prompt", str(repository / "prompt.md"),
+                "--output-schema", str(repository / "review.schema.json"),
+                "--output", "evidence/result.json",
+                "--execution-output", "evidence/execution.json",
+                "--context-execution-output", "evidence/context-execution.json",
+                "--stdout-output", "evidence/stdout.bin",
+                "--stderr-output", "evidence/stderr.bin",
+                "--run-id", "fifo-fixture",
+                "--model", "gpt-5.6-sol",
+                "--reasoning-effort", "xhigh",
+            )
+            self.assertEqual(2, completed.returncode, completed.stderr.decode())
+            self.assertLess(time.monotonic() - started, 1.0)
 
     def test_every_output_producing_command_is_in_the_containment_inventory(self) -> None:
         from codex_governance import cli

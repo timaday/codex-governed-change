@@ -329,6 +329,7 @@ def _normalize_reviewer_stream(
     schema_path: Path,
     output_path: Path,
     environment: Mapping[str, str],
+    portable_source_literals: frozenset[bytes] = frozenset(),
 ) -> tuple[bytes, list[str]]:
     """Remove supervisor-only runtime values before hashing retained evidence."""
     replacements: set[bytes] = set()
@@ -367,9 +368,88 @@ def _normalize_reviewer_stream(
         normalized = normalized.replace(value, b"<REVIEWER_RUNTIME>")
     redactions: list[str] = []
     for pattern in REVIEWER_AMBIGUOUS_PATTERNS:
-        normalized, count = pattern.subn(b"<REVIEWER_REDACTED>", normalized)
-        if count:
+        def replace(match: re.Match[bytes]) -> bytes:
+            if match.group(0) in portable_source_literals:
+                return b"<REVIEWER_SOURCE_LITERAL>"
             redactions.append("ambiguous_machine_or_credential_value")
+            return b"<REVIEWER_REDACTED>"
+
+        normalized = pattern.sub(replace, normalized)
+    return normalized, sorted(set(redactions))
+
+
+def _normalize_reviewer_jsonl(
+    data: bytes,
+    *,
+    command: Sequence[str],
+    schema_path: Path,
+    output_path: Path,
+    environment: Mapping[str, str],
+    portable_source_literals: frozenset[bytes],
+) -> tuple[bytes, list[str]]:
+    """Normalize decoded JSONL strings and re-serialize without breaking escapes."""
+    redactions: list[str] = []
+
+    def normalize_value(value: Any, *, allow_source_literals: bool) -> Any:
+        if isinstance(value, str):
+            normalized, found = _normalize_reviewer_stream(
+                value.encode("utf-8"),
+                command=command,
+                schema_path=schema_path,
+                output_path=output_path,
+                environment=environment,
+                portable_source_literals=(
+                    portable_source_literals
+                    if allow_source_literals
+                    else frozenset()
+                ),
+            )
+            redactions.extend(found)
+            return normalized.decode("utf-8")
+        if isinstance(value, list):
+            return [
+                normalize_value(item, allow_source_literals=allow_source_literals)
+                for item in value
+            ]
+        if isinstance(value, dict):
+            return {
+                key: normalize_value(
+                    item, allow_source_literals=allow_source_literals
+                )
+                for key, item in value.items()
+            }
+        return value
+
+    normalized_lines: list[bytes] = []
+    try:
+        for raw in data.splitlines():
+            if not raw.strip():
+                continue
+            event = json.loads(raw)
+            item = event.get("item") if isinstance(event, Mapping) else None
+            allow_source_literals = bool(
+                isinstance(item, Mapping)
+                and item.get("type") == "command_execution"
+            )
+            normalized_lines.append(
+                canonical_json_bytes(
+                    normalize_value(
+                        event, allow_source_literals=allow_source_literals
+                    )
+                )
+            )
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return _normalize_reviewer_stream(
+            data,
+            command=command,
+            schema_path=schema_path,
+            output_path=output_path,
+            environment=environment,
+            portable_source_literals=portable_source_literals,
+        )
+    normalized = b"\n".join(normalized_lines)
+    if data.endswith((b"\n", b"\r")) and normalized_lines:
+        normalized += b"\n"
     return normalized, sorted(set(redactions))
 
 
@@ -497,6 +577,34 @@ REVIEWER_AMBIGUOUS_PATTERNS = (
     ),
     re.compile(rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b"),
 )
+REVIEWER_PORTABLE_SOURCE_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[5:]
+
+
+def reviewer_portable_source_literals(
+    candidate_repository: Path,
+    *,
+    protected_sources: Sequence[bytes] = (),
+    max_source_bytes: int = 8_000_000,
+) -> frozenset[bytes]:
+    """Return shaped literals already present in immutable reviewer sources."""
+    literals: set[bytes] = set()
+
+    def observe(data: bytes) -> None:
+        for pattern in REVIEWER_PORTABLE_SOURCE_PATTERNS:
+            literals.update(match.group(0) for match in pattern.finditer(data))
+
+    for data in protected_sources:
+        observe(bytes(data))
+    for relative in _candidate_paths(candidate_repository):
+        path = candidate_repository.joinpath(*relative.split("/"))
+        if not path.exists() and not path.is_symlink():
+            continue
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            observe(os.fsencode(os.readlink(path)))
+        elif stat.S_ISREG(info.st_mode) and info.st_size <= max_source_bytes:
+            observe(path.read_bytes())
+    return frozenset(literals)
 
 
 def reviewer_stream_is_portable(data: bytes) -> bool:
@@ -933,6 +1041,7 @@ def _materialize_permitted_evidence(
     harness: Path,
     permitted_inputs: Mapping[str, Any],
     evidence_root: str,
+    prepared_evidence: Mapping[str, bytes] | None = None,
     max_files: int = 512,
     max_total_bytes: int = 64_000_000,
 ) -> None:
@@ -969,9 +1078,14 @@ def _materialize_permitted_evidence(
             return
         if len(destinations) >= max_files:
             raise ValueError("too many reviewer evidence files")
-        data = read_bounded_repository_file(
-            candidate_repository, normalized, max_bytes=max_total_bytes
-        )
+        if prepared_evidence is not None and normalized in prepared_evidence:
+            data = bytes(prepared_evidence[normalized])
+        elif prepared_evidence is not None and direct:
+            raise ValueError("validated reviewer evidence bytes are unavailable")
+        else:
+            data = read_bounded_repository_file(
+                candidate_repository, normalized, max_bytes=max_total_bytes
+            )
         if sha256_bytes(data) != expected_digest:
             raise ValueError("review evidence digest mismatch")
         total += len(data)
@@ -1048,6 +1162,9 @@ def prepare_sanitized_harness(
     permitted_inputs: Mapping[str, Any],
     expected_candidate: Mapping[str, Any],
     evidence_root: str = "evidence",
+    prepared_evidence: Mapping[str, bytes] | None = None,
+    fixed_prompt_bytes: bytes | None = None,
+    output_schema_bytes: bytes | None = None,
 ) -> dict[str, Path]:
     """Create an outer Git root with an immutable nested candidate snapshot."""
     candidate = candidate_repository.resolve()
@@ -1110,8 +1227,16 @@ def prepare_sanitized_harness(
     prompt = harness / "reviewer.prompt.md"
     schema = harness / "reviewer-output.schema.json"
     manifest = harness / "permitted-inputs.json"
-    shutil.copyfile(fixed_prompt_path, prompt)
-    shutil.copyfile(output_schema_path, schema)
+    prompt.write_bytes(
+        bytes(fixed_prompt_bytes)
+        if fixed_prompt_bytes is not None
+        else fixed_prompt_path.read_bytes()
+    )
+    schema.write_bytes(
+        bytes(output_schema_bytes)
+        if output_schema_bytes is not None
+        else output_schema_path.read_bytes()
+    )
     manifest.write_bytes(canonical_json_bytes(dict(permitted_inputs)))
     if sha256_bytes(prompt.read_bytes()) != require_sha256(
         permitted_inputs.get("reviewer_prompt_sha256"),
@@ -1123,6 +1248,7 @@ def prepare_sanitized_harness(
         harness=harness,
         permitted_inputs=permitted_inputs,
         evidence_root=evidence_root,
+        prepared_evidence=prepared_evidence,
     )
     initialized = subprocess.run(
         ["git", "-c", "init.defaultBranch=review", "-C", os.fspath(harness), "init", "--quiet"],
@@ -1159,6 +1285,7 @@ def launch_reviewer(
     timeout_seconds: float = 1800,
     max_output_bytes: int = 1_000_000,
     environment: Mapping[str, str] | None = None,
+    portable_source_literals: frozenset[bytes] = frozenset(),
 ) -> dict[str, Any]:
     """Launch the fresh reviewer and validate its exact output and binding."""
     if review_mode not in {"conformance", "rapid_review"}:
@@ -1419,12 +1546,13 @@ def launch_reviewer(
     output_sha256 = sha256_bytes(b"")
     if output_present and output_path.stat().st_size <= max_output_bytes:
         output_sha256 = sha256_bytes(output_path.read_bytes())
-    stdout_bytes, stdout_redactions = _normalize_reviewer_stream(
+    stdout_bytes, stdout_redactions = _normalize_reviewer_jsonl(
         bytes(stdout_capture.data),
         command=actual_command,
         schema_path=schema_path,
         output_path=output_path,
         environment=sanitized_environment,
+        portable_source_literals=portable_source_literals,
     )
     stderr_bytes, stderr_redactions = _normalize_reviewer_stream(
         bytes(stderr_capture.data),
@@ -1432,6 +1560,7 @@ def launch_reviewer(
         schema_path=schema_path,
         output_path=output_path,
         environment=sanitized_environment,
+        portable_source_literals=portable_source_literals,
     )
     primitive_observation = {
         "parent_exit_observed": parent_exit_observed,
