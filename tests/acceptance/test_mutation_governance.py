@@ -5,7 +5,11 @@ import tempfile
 from unittest.mock import patch
 from pathlib import Path
 
-from codex_governance.canonical import content_address
+from codex_governance.canonical import (
+    canonical_json_bytes,
+    content_address,
+    sha256_bytes,
+)
 from codex_governance.domain.model import DispositionState
 
 
@@ -63,6 +67,10 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "old-policy-self-replacement", "missing-provenance",
             "nested-source-credential", "rollback-output-unbound",
             "legacy-context-schema",
+            "gate-copy-source-identity", "mutation-copy-source-identity",
+            "candidate-owned-corpus", "candidate-owned-rollback",
+            "incomplete-migration-registry", "ignored-submodule-copy",
+            "unframed-rollback-package",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
@@ -93,6 +101,94 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
         self.assertLessEqual(len(selected), 5)
         self.assertTrue(all(item["changed_line"] or item["risk"] == "high" for item in selected))
 
+    def test_mutant_identity_binds_the_complete_concrete_tree_and_copy_drift(self) -> None:
+        from codex_governance.mutation import (
+            apply_curated_mutant,
+            expected_mutated_tree_sha256,
+            git_visible_tree_sha256,
+            mutated_source_identity,
+        )
+        from codex_governance.sandbox import prepare_candidate_copy
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            subprocess.run(["git", "init", "--quiet", str(repository)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.name", "Fixture"],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git", "-C", str(repository), "config", "user.email",
+                    "fixture@example.invalid",
+                ],
+                check=True,
+            )
+            (repository / "module.py").write_text("ENFORCE = True\n", encoding="utf-8")
+            (repository / "other.py").write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "--quiet", "-m", "fixture"],
+                check=True,
+            )
+            mutant = {
+                "path": "module.py",
+                "old": "ENFORCE = True",
+                "new": "ENFORCE = False",
+                "operator": "disable enforcement",
+            }
+            expected_tree = expected_mutated_tree_sha256(
+                repository=repository,
+                evidence_root="evidence",
+                mutant=mutant,
+            )
+            copied = prepare_candidate_copy(
+                repository=repository,
+                destination=(root / "copy").resolve(),
+                evidence_root="evidence",
+            )
+            patch_sha = apply_curated_mutant(copied, mutant)
+            self.assertEqual(
+                expected_tree,
+                git_visible_tree_sha256(copied, evidence_root="evidence"),
+            )
+            source = mutated_source_identity(
+                candidate_id="sha256:" + "1" * 64,
+                corpus_id="sha256:" + "2" * 64,
+                mutant_id="fixture",
+                patch_sha256=patch_sha,
+                tree_sha256=expected_tree,
+            )
+            (copied / "other.py").write_text("VALUE = 2\n", encoding="utf-8")
+            drifted = mutated_source_identity(
+                candidate_id="sha256:" + "1" * 64,
+                corpus_id="sha256:" + "2" * 64,
+                mutant_id="fixture",
+                patch_sha256=patch_sha,
+                tree_sha256=git_visible_tree_sha256(
+                    copied, evidence_root="evidence"
+                ),
+            )
+            self.assertNotEqual(source, drifted)
+
+    def test_policy_digest_rejects_readdressed_candidate_corpus_substitution(self) -> None:
+        from codex_governance.mutation_runner import parse_protected_corpus
+
+        original = Path("tests/mutation/corpus.json").read_bytes()
+        parsed = parse_protected_corpus(
+            original, expected_sha256=sha256_bytes(original)
+        )
+        substituted = dict(parsed)
+        substituted["baseline_command"] = ["python3", "-c", "pass"]
+        substituted = content_address(substituted, "corpus_id")
+        with self.assertRaisesRegex(ValueError, "digest"):
+            parse_protected_corpus(
+                canonical_json_bytes(substituted),
+                expected_sha256=sha256_bytes(original),
+            )
+
     def test_unavailable_container_never_falls_back_to_host_mutation_execution(self) -> None:
         from codex_governance.candidate import GitCliRepositoryAdapter
         from codex_governance.canonical import sha256_canonical
@@ -116,7 +212,10 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             ).stdout.strip()
             policy = {
                 "repository_id": "repo:example/project", "evidence_root": "evidence",
-                "mutation": {"corpus_path": "tests/mutation/corpus.json"},
+                "mutation": {
+                    "corpus_path": "tests/mutation/corpus.json",
+                    "corpus_sha256": sha256_bytes(corpus.read_bytes()),
+                },
                 "sandbox": {
                     "provider": "docker", "image": "python@sha256:" + "a" * 64,
                     "process_limit": 8, "memory_bytes": 1000000,
@@ -142,6 +241,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
                     run_id="fixture", attempt=1, workflow_system="unit",
                     observed_at="2026-08-26T10:00:00Z",
                     implementation_sha256="sha256:" + "d" * 64,
+                    corpus_bytes=corpus.read_bytes(),
                 )
             self.assertEqual("UNKNOWN", result["state"])
             self.assertEqual([], result["mutant_records"])

@@ -16,6 +16,8 @@ from typing import Any
 
 from codex_governance.canonical import (
     content_address,
+    normalize_repo_path,
+    require_git_object,
     require_sha256,
     sha256_canonical,
     verify_content_address,
@@ -27,6 +29,7 @@ from codex_governance.lifecycle import parse_rfc3339
 GATE_COPY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
+PROTECTED_PACKAGE_CONTAINER_ROOT = "/opt/codex-governance"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,7 @@ class SandboxInvocation:
     container_provider: str | None = None
     container_name: str | None = None
     container_id_file: Path | None = None
+    protected_source_root: Path | None = None
 
 
 def _run_git(repository: Path, *args: str) -> bytes:
@@ -86,6 +90,96 @@ def _copy_candidate_entry(source: Path, destination: Path) -> None:
         raise ValueError("unsupported candidate-copy file type")
 
 
+def _submodule_states(repository: Path) -> list[dict[str, str]]:
+    output = _run_git(repository, "submodule", "status", "--recursive").decode(
+        "utf-8", "strict"
+    )
+    states: list[dict[str, str]] = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        marker, fields = line[0], line[1:].split()
+        if marker in {"-", "+", "U"} or len(fields) < 2:
+            raise ValueError("submodule state is unavailable or dirty")
+        states.append(
+            {
+                "path": normalize_repo_path(fields[1]),
+                "commit": require_git_object(fields[0], name="submodule commit"),
+            }
+        )
+    return sorted(states, key=lambda item: (item["path"].count("/"), item["path"]))
+
+
+def _copy_submodule(source: Path, destination: Path, commit: str, boundary: Path) -> None:
+    if destination.exists() or destination.is_symlink():
+        _remove_scoped(destination, boundary)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    cloned = subprocess.run(
+        [
+            "git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
+            os.fspath(source), os.fspath(destination),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if cloned.returncode != 0:
+        raise RuntimeError("unable to reconstruct candidate submodule")
+    _run_git(destination, "checkout", "--quiet", "--detach", commit)
+    _run_git(destination, "remote", "remove", "origin")
+    logs = destination / ".git" / "logs"
+    if logs.exists():
+        _remove_scoped(logs, destination)
+    if _run_git(destination, "rev-parse", "HEAD").decode("ascii").strip() != commit:
+        raise RuntimeError("candidate submodule commit mismatch")
+
+
+def prepare_protected_package_copy(*, package_root: Path, destination: Path) -> Path:
+    """Materialize only the Python files covered by producer identity."""
+    source = package_root.resolve(strict=True)
+    target = destination.resolve(strict=False)
+    if not source.is_dir():
+        raise ValueError("protected package source must be a directory")
+    try:
+        target.relative_to(source)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("protected package copy must be outside its source")
+    if target.exists() and (not target.is_dir() or any(target.iterdir())):
+        raise FileExistsError("protected package destination must be absent or empty")
+    target.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for source_path in sorted(
+        source.rglob("*.py"), key=lambda item: item.relative_to(source).as_posix()
+    ):
+        if source_path.is_symlink() or not source_path.is_file():
+            raise ValueError("protected package closure contains an unsafe file")
+        resolved = source_path.resolve(strict=True)
+        try:
+            resolved.relative_to(source)
+        except ValueError as exc:
+            raise ValueError("protected package closure escapes its source") from exc
+        relative = source_path.relative_to(source)
+        destination_path = target / relative
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(resolved, destination_path, follow_symlinks=False)
+        destination_path.chmod(0o444)
+        copied += 1
+    if copied == 0:
+        raise ValueError("protected package closure is empty")
+    directories = sorted(
+        (path for path in target.rglob("*") if path.is_dir()),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    )
+    for directory in directories:
+        directory.chmod(0o555)
+    target.chmod(0o555)
+    return target
+
+
 def prepare_candidate_copy(
     *, repository: Path, destination: Path, evidence_root: str
 ) -> Path:
@@ -121,6 +215,8 @@ def prepare_candidate_copy(
     logs = target / ".git" / "logs"
     if logs.exists():
         _remove_scoped(logs, target)
+    submodules = _submodule_states(source)
+    submodule_paths = {item["path"] for item in submodules}
     names = _run_git(
         source, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
     )
@@ -134,12 +230,22 @@ def prepare_candidate_copy(
             raise ValueError("candidate-copy paths must be valid UTF-8") from exc
         if relative == evidence_posix or relative.startswith(evidence_posix + "/"):
             continue
+        if relative in submodule_paths:
+            continue
         source_path = source.joinpath(*relative.split("/"))
         target_path = target.joinpath(*relative.split("/"))
         if source_path.exists() or source_path.is_symlink():
             _copy_candidate_entry(source_path, target_path)
         elif target_path.exists() or target_path.is_symlink():
             _remove_scoped(target_path, target)
+    for submodule in submodules:
+        relative = submodule["path"]
+        _copy_submodule(
+            source.joinpath(*relative.split("/")),
+            target.joinpath(*relative.split("/")),
+            submodule["commit"],
+            target,
+        )
     copied_evidence = target.joinpath(*evidence.parts)
     if copied_evidence.exists() or copied_evidence.is_symlink():
         _remove_scoped(copied_evidence, target)
@@ -334,11 +440,15 @@ def build_container_command(
     cpu_seconds: int,
     container_name: str,
     container_id_file: str,
+    protected_source_root: str | None = None,
 ) -> list[str]:
     if executable not in {"docker", "podman"}:
         raise ValueError("protected sandbox provider must be docker or podman")
     candidate_path = Path(candidate_copy)
     cidfile_path = Path(container_id_file)
+    protected_path = (
+        Path(protected_source_root) if protected_source_root is not None else None
+    )
     if (
         "@sha256:" not in image
         or not command
@@ -356,6 +466,14 @@ def build_container_command(
         or not cidfile_path.is_absolute()
         or cidfile_path.resolve(strict=False) != cidfile_path
         or any(not isinstance(item, str) or item == "" for item in command)
+        or (
+            protected_path is not None
+            and (
+                not protected_path.is_absolute()
+                or protected_path.resolve(strict=True) != protected_path
+                or not protected_path.is_dir()
+            )
+        )
     ):
         raise ValueError("candidate copy and command values must be non-empty")
     user_arguments: list[str] = []
@@ -383,6 +501,17 @@ def build_container_command(
         "--security-opt=no-new-privileges",
         "--mount",
         f"type=bind,src={candidate_copy},dst=/workspace",
+        *(
+            [
+                "--mount",
+                (
+                    f"type=bind,src={protected_source_root},"
+                    f"dst={PROTECTED_PACKAGE_CONTAINER_ROOT},readonly"
+                ),
+            ]
+            if protected_source_root is not None
+            else []
+        ),
         "--workdir=/workspace",
         image,
         *command,
@@ -405,6 +534,7 @@ def build_container_invocation(
     implementation_sha256: str,
     verified_at: str,
     supervisor_cwd: Path | None = None,
+    protected_source_root: Path | None = None,
 ) -> SandboxInvocation:
     """Build the only supported production sandbox invocation and its receipt."""
     source_identity = require_sha256(candidate_id, name="candidate_id")
@@ -422,6 +552,17 @@ def build_container_invocation(
         resolved_copy.relative_to(runtime_root)
     except ValueError as exc:
         raise ValueError("candidate copy must be beneath the sandbox supervisor") from exc
+    resolved_protected_source: Path | None = None
+    if protected_source_root is not None:
+        resolved_protected_source = protected_source_root.resolve(strict=True)
+        if not resolved_protected_source.is_dir():
+            raise ValueError("protected source root must be a directory")
+        try:
+            resolved_protected_source.relative_to(resolved_copy)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("protected source root cannot come from the candidate copy")
     container_name = "codex-governance-" + secrets.token_hex(16)
     container_id_file = runtime_root / f"{container_name}.cid"
     if container_id_file.exists() or container_id_file.is_symlink():
@@ -436,6 +577,11 @@ def build_container_invocation(
         cpu_seconds=cpu_seconds,
         container_name=container_name,
         container_id_file=os.fspath(container_id_file),
+        protected_source_root=(
+            os.fspath(resolved_protected_source)
+            if resolved_protected_source is not None
+            else None
+        ),
     )
     execution_identity = sandbox_execution_identity(
         provider=executable,
@@ -486,6 +632,7 @@ def build_container_invocation(
         executable,
         container_name,
         container_id_file,
+        resolved_protected_source,
     )
 
 

@@ -69,10 +69,12 @@ from codex_governance.reviewer import (
     reviewer_portable_source_literals,
     reviewer_stream_is_portable,
 )
+from codex_governance.rollback import protected_rollback_command
 from codex_governance.sandbox import (
     build_container_invocation,
     iter_fresh_gate_copies,
     observe_container_provider,
+    prepare_protected_package_copy,
 )
 from codex_governance.schema import (
     load_and_validate,
@@ -343,11 +345,7 @@ def _run_gates(args: argparse.Namespace) -> int:
         )
         proposed_policy_sha256 = sha256_canonical(proposed_policy)
         rollback_definition = available.get("rollback-rehearsal")
-        rollback_command = [
-            "python3",
-            "scripts/rehearse_rollback.py",
-            candidate["base_commit"],
-        ]
+        rollback_command = protected_rollback_command(candidate["base_commit"])
         if (
             policy["lkg_governance_commit"] != candidate["base_commit"]
             or task["profile"] != "governance"
@@ -362,20 +360,16 @@ def _run_gates(args: argparse.Namespace) -> int:
             raise ValueError("rollback policy is not bound to the candidate base and head")
     store = args._cli_output_store
     prefix = f"{candidate_prefix(candidate['candidate_id'])}/runs/{args.run_id}-{args.attempt}"
-    adapter = GitCliRepositoryAdapter(args.repository)
-
-    def current_candidate() -> str:
-        return adapter.identify(
-            repository_id=policy["repository_id"],
-            mode=candidate["mode"],
-            base_commit=candidate["base_commit"],
-            head_commit=candidate.get("head_commit"),
-            effective_policy_sha256=policy_sha,
-            evidence_root=policy["evidence_root"],
-        )["candidate_id"]
-
     with tempfile.TemporaryDirectory(prefix="codex-governance-sandbox-") as temporary:
         supervisor = Path(temporary).resolve()
+        protected_package = (
+            prepare_protected_package_copy(
+                package_root=Path(__file__).resolve().parents[1],
+                destination=supervisor / "protected-package",
+            )
+            if governed_paths
+            else None
+        )
         try:
             provider_version = observe_container_provider(policy["sandbox"]["provider"])
         except RuntimeError:
@@ -403,6 +397,21 @@ def _run_gates(args: argparse.Namespace) -> int:
             )
             if copied_candidate["candidate_id"] != candidate["candidate_id"]:
                 raise RuntimeError("fresh gate candidate copy identity mismatch")
+
+            def copied_candidate_id(
+                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(
+                    candidate_copy
+                ),
+            ) -> str:
+                return copy_adapter.identify(
+                    repository_id=policy["repository_id"],
+                    mode=candidate["mode"],
+                    base_commit=candidate["base_commit"],
+                    head_commit=candidate.get("head_commit"),
+                    effective_policy_sha256=policy_sha,
+                    evidence_root=policy["evidence_root"],
+                )["candidate_id"]
+
             sandbox_command = list(gate["command"])
             if gate["shell"]:
                 sandbox_command = ["sh", "-c", gate["command"][0]]
@@ -423,13 +432,18 @@ def _run_gates(args: argparse.Namespace) -> int:
                     implementation_sha256=gate_implementation_sha256(),
                     verified_at=args.observed_at,
                     supervisor_cwd=supervisor,
+                    protected_source_root=(
+                        protected_package
+                        if gate_id == "rollback-rehearsal"
+                        else None
+                    ),
                 )
             gate_prefix = f"{prefix}/gates/{gate_id}"
             result = run_gate(
                 gate_id=gate_id,
                 profile=task["profile"],
                 command=gate["command"],
-                cwd=args.repository,
+                cwd=candidate_copy,
                 sandbox_invocation=invocation,
                 repository_id=policy["repository_id"],
                 task_contract_sha256=task_sha,
@@ -474,7 +488,7 @@ def _run_gates(args: argparse.Namespace) -> int:
                         ),
                     ],
                 },
-                candidate_supplier=current_candidate,
+                candidate_supplier=copied_candidate_id,
                 artifact_store=store,
                 artifact_prefix=gate_prefix,
                 timeout_seconds=gate["timeout_seconds"],
@@ -776,6 +790,10 @@ def _mutate(args: argparse.Namespace) -> int:
         workflow_system=args.workflow_system,
         observed_at=args.observed_at,
         implementation_sha256=mutation_implementation_sha256(),
+        corpus_bytes=_read_repository_argument(
+            args.governance_repository,
+            args.mutation_corpus,
+        ),
         artifact_store=args._cli_output_store,
     )
     if args.output:
@@ -1364,6 +1382,8 @@ def _parser() -> argparse.ArgumentParser:
 
     mutate = subparsers.add_parser("mutate")
     mutate.add_argument("--repository", type=Path, default=Path.cwd())
+    mutate.add_argument("--governance-repository", type=Path, required=True)
+    mutate.add_argument("--mutation-corpus", type=Path, required=True)
     mutate.add_argument("--policy", type=Path, required=True)
     mutate.add_argument("--task", type=Path, required=True)
     mutate.add_argument("--candidate", type=Path, required=True)

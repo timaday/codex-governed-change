@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import stat
+import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -10,6 +13,7 @@ from codex_governance.canonical import (
     content_address,
     normalize_repo_path,
     require_sha256,
+    sha256_bytes,
     sha256_canonical,
     verify_content_address,
 )
@@ -44,6 +48,13 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "nested-source-credential",
         "rollback-output-unbound",
         "legacy-context-schema",
+        "gate-copy-source-identity",
+        "mutation-copy-source-identity",
+        "candidate-owned-corpus",
+        "candidate-owned-rollback",
+        "incomplete-migration-registry",
+        "ignored-submodule-copy",
+        "unframed-rollback-package",
     }
 )
 
@@ -100,8 +111,110 @@ def evaluate_mutation_record(record: Mapping[str, Any]) -> DispositionState:
     return DispositionState.UNKNOWN
 
 
+def _git(repository: Path, *arguments: str) -> bytes:
+    completed = subprocess.run(
+        ["git", "-C", os.fspath(repository), *arguments],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError("Git-visible mutation source observation failed")
+    return completed.stdout
+
+
+def git_visible_tree_sha256(
+    repository: Path,
+    *,
+    evidence_root: str,
+    replacements: Mapping[str, bytes] | None = None,
+) -> str:
+    """Hash every Git-visible source byte in one concrete candidate tree."""
+    root = repository.resolve(strict=True)
+    evidence = normalize_repo_path(evidence_root)
+    replacement_bytes = {
+        normalize_repo_path(path): bytes(data)
+        for path, data in (replacements or {}).items()
+    }
+    modes: dict[str, str] = {}
+    for raw in _git(root, "ls-files", "--stage", "-z").split(b"\x00"):
+        if not raw:
+            continue
+        metadata, raw_path = raw.split(b"\t", 1)
+        mode = metadata.split(b" ", 1)[0].decode("ascii")
+        modes[normalize_repo_path(raw_path.decode("utf-8"))] = mode
+    entries: list[dict[str, Any]] = []
+    names = _git(
+        root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+    )
+    seen: set[str] = set()
+    for raw in names.split(b"\x00"):
+        if not raw:
+            continue
+        path = normalize_repo_path(raw.decode("utf-8"))
+        if path in seen or path == evidence or path.startswith(evidence + "/"):
+            continue
+        seen.add(path)
+        absolute = root.joinpath(*path.split("/"))
+        mode = modes.get(path)
+        if mode == "160000":
+            commit = _git(absolute, "rev-parse", "HEAD").decode("ascii").strip()
+            entries.append({"path": path, "mode": mode, "submodule_commit": commit})
+            continue
+        if path in replacement_bytes:
+            data = replacement_bytes[path]
+            if mode is None:
+                info = absolute.lstat()
+                mode = "100755" if info.st_mode & 0o111 else "100644"
+        elif not absolute.exists() and not absolute.is_symlink():
+            entries.append({"path": path, "mode": mode or "missing", "missing": True})
+            continue
+        else:
+            info = absolute.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                data = os.fsencode(os.readlink(absolute))
+                mode = "120000"
+            elif stat.S_ISREG(info.st_mode):
+                data = absolute.read_bytes()
+                mode = "100755" if info.st_mode & 0o111 else "100644"
+            else:
+                raise ValueError("Git-visible mutation source contains an unsafe type")
+        entries.append(
+            {"path": path, "mode": mode, "bytes": len(data), "sha256": sha256_bytes(data)}
+        )
+    if set(replacement_bytes) - seen:
+        raise ValueError("mutation replacement path is not Git-visible")
+    return sha256_canonical({"schema_version": "1.0.0", "entries": entries})
+
+
+def expected_mutated_tree_sha256(
+    *, repository: Path, evidence_root: str, mutant: Mapping[str, Any]
+) -> str:
+    """Compute the concrete tree identity after one protected virtual patch."""
+    root = repository.resolve(strict=True)
+    relative = normalize_repo_path(mutant.get("path"))
+    target = root.joinpath(*relative.split("/"))
+    if target.is_symlink() or not target.is_file():
+        raise ValueError("mutant target must be a regular candidate file")
+    text = target.read_text(encoding="utf-8")
+    old = mutant.get("old")
+    new = mutant.get("new")
+    if not isinstance(old, str) or not isinstance(new, str) or text.count(old) != 1:
+        raise ValueError("curated mutant precondition did not match exactly once")
+    replaced = text.replace(old, new, 1).encode("utf-8")
+    return git_visible_tree_sha256(
+        root, evidence_root=evidence_root, replacements={relative: replaced}
+    )
+
+
 def mutated_source_identity(
-    *, candidate_id: str, corpus_id: str, mutant_id: str, patch_sha256: str
+    *,
+    candidate_id: str,
+    corpus_id: str,
+    mutant_id: str,
+    patch_sha256: str,
+    tree_sha256: str,
 ) -> str:
     """Identify one protected mutation of an exact original candidate."""
     if not isinstance(mutant_id, str) or not mutant_id:
@@ -112,6 +225,7 @@ def mutated_source_identity(
             "corpus_id": require_sha256(corpus_id, name="corpus_id"),
             "mutant_id": mutant_id,
             "patch_sha256": require_sha256(patch_sha256, name="patch_sha256"),
+            "tree_sha256": require_sha256(tree_sha256, name="tree_sha256"),
         }
     )
 

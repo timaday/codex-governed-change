@@ -157,7 +157,9 @@ authenticated LKG-policy decision. Rollback tests replace each nested gate,
 capability, provenance and raw-stream artifact with a digest-shaped or stale
 value, change the declared target, executed argv, success-line target or
 chronology, and add limitations. A production-path test runs the separately
-selected rollback producer and reconstructs its emitted rollback evidence.
+selected rollback producer from an exact-closure read-only protected package
+mount, excludes ignored package files, substitutes a candidate-local
+success-printer, and reconstructs its emitted rollback evidence.
 Reviewer source-literal tests nest credential-shaped arguments inside otherwise
 allowlisted same-name expressions. Reviewer deadline
 tests stall pre/post identity Git observations and snapshot Git helpers. Container
@@ -178,10 +180,10 @@ permitted-input paths and prove the validated bytes are the same bytes copied to
 the harness. Qualification tests replace or omit every per-case context artifact
 and re-address the outer case record; reconstruction must still reject it.
 
-Schema lifecycle tests construct valid legacy `context-receipt`,
-`sandbox-capability` and `provenance-statement` documents, prove current schemas
-reject them, execute the explicit `1.0.0` to `2.0.0` migration with protected
-bindings, and validate the re-addressed result against the current schema.
+Schema lifecycle tests cover every transition advertised by `migration_policy`,
+construct schema-valid legacy documents, prove current schemas reject them,
+execute migrations with separately protected missing facts, reconstruct content
+addresses, and validate each successor against its exact version schema.
 
 The required-workflow oracle captures current UTC inside the trusted disposition
 job. A rerun after a decision or waiver expires fails even when the original
@@ -320,10 +322,15 @@ Seed at least these mutations:
 
 Every mutation must be killed by deterministic tests. Surviving high-risk mutations block release.
 
-The curated list is an MVP gate, not later optional hardening. Add skipped final
+The curated list is an MVP gate, not later optional hardening. Its complete bytes
+must match the previous-LKG policy digest and come from the protected governance
+checkout. Baseline and mutant suppliers must observe their executed copies, and
+mutant identity must bind the complete patched Git-visible tree. Add skipped final
 disposition, cross-repository replay, forged task authorization, writable
 governance/evidence paths, manifest replacement, unverified reviewer locators,
-risk downgrade, old-policy self-replacement and missing provenance mutants.
+risk downgrade, old-policy self-replacement, candidate-corpus substitution,
+candidate rollback-script substitution, copy-local drift, ignored-submodule
+copy and missing-provenance mutants.
 
 Run only after a green baseline, in a disposable worktree/sandbox, before the
 final fresh-context review. A mutant is `KILLED` only when an expected test

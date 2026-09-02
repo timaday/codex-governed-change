@@ -137,6 +137,39 @@ the exact local review scope. The `d5075db` audit and every earlier deterministi
 result are stale for this successor; exact-candidate gates, curated mutation and
 a new fresh review remain required.
 
+A subsequent fresh read-only audit of immutable commit `c55cee2` was bound to
+the exact candidate and declared `BLOCK`, but its formal process evidence was
+`UNKNOWN` because process observation and stream capture were incomplete. Its
+six concrete findings were retained: ordinary gates observed the untouched
+repository instead of the executed copy; mutation probes did the same and did
+not bind a concrete mutated tree; a re-addressed candidate corpus could replace
+the curated corpus; rollback executed candidate-relative code outside the
+producer closure; the lifecycle policy advertised migrations with no executable
+implementation; and submodule copying could include ignored machine-local
+files. This successor observes each exact gate/baseline/mutant copy, binds the
+complete Git-visible mutant tree, policy-digests and evidence-copies the corpus
+from the protected governance checkout, imports rollback from an exact-closure
+read-only producer-digested package mount, implements and schema-tests every
+advertised migration, and reconstructs submodules at their bound commits. Seven corresponding
+curated mutants enforce those closures. The `c55cee2` audit is stale after these
+changes and cannot qualify this successor.
+
+The current successor working-copy checkpoint on 2026-09-02 observed:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs.
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 243 tests passed;
+  no skips or expected failures were reported.
+- `PYTHONPATH=src python3 scripts/run_mutation_corpus.py`: baseline `PASS` and
+  all 33 curated mutants `KILLED` for corpus
+  `sha256:d0395bf74f016b84fe3287663f1572342755ce2195c6a6cf94a63f29044ed97b`.
+  The runner labels this local proof as non-admission evidence.
+- `PYTHONPATH=src python3 scripts/rehearse_rollback.py 5393338571f8ed5de5192613dcdd6131044932dc`:
+  `PASS`.
+
+These working-copy observations must be rerun after the successor is immutable,
+and a new exact-candidate fresh review remains mandatory.
+
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need
 to signal their fixtures fail closed because the outer boundary removes that

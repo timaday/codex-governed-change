@@ -141,7 +141,18 @@ For a governance candidate, `run-gates` additionally requires
 `--proposed-policy`. It runs the protected policy's `rollback-rehearsal`
 separately from the task gate manifest, requires its command target to equal the
 candidate base, and publishes the typed rollback-evidence reference in its
-summary. The proposed policy must bind its LKG commit to the candidate head.
+summary. The rollback command imports the implementation from a read-only
+materialization containing exactly the producer-digested previous-LKG Python
+package closure; ignored, untracked and candidate-local files are not executed
+as rollback authority. The proposed policy must bind its LKG commit to the
+candidate head.
+
+`mutate` additionally requires `--governance-repository` naming the protected
+governance checkout and `--mutation-corpus` naming the repository-relative exact
+corpus file within it. The file's complete byte digest must equal
+`mutation.corpus_sha256` in effective policy. The producer copies those validated
+bytes into candidate-bound evidence; the evaluated repository's file at the same
+relative path has no authority.
 
 ## 8. Reviewer isolation verification
 
@@ -172,7 +183,8 @@ Make the deterministic disposition a required check. Protect governance assets a
 
 ### Harden
 
-The curated governance mutation corpus is mandatory for MVP admission. Add
+The protected, policy-digested curated governance mutation corpus is mandatory
+for MVP admission. Add
 generated language mutation, specialist lanes, organization-managed controls,
 signed attestations or model diversity according to protected risk policy.
 

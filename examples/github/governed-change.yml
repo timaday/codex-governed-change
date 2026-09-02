@@ -121,6 +121,8 @@ jobs:
             --output "$ARTIFACT_REPOSITORY_ROOT/gate-summary.json"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas mutate \
             --repository candidate \
+            --governance-repository governance \
+            --mutation-corpus tests/mutation/corpus.json \
             --policy "$POLICY" \
             --task "$TASK" \
             --candidate "$CANDIDATE" \

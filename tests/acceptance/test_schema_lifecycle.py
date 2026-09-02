@@ -16,7 +16,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                 self.assertEqual(schema["properties"]["schema_version"]["const"], example["schema_version"])
 
     def test_reviewer_v1_to_v2_is_explicit_not_silent(self) -> None:
-        from codex_governance.lifecycle import migration_policy
+        from codex_governance.lifecycle import (
+            EXECUTABLE_MIGRATIONS,
+            migration_policy,
+        )
 
         self.assertEqual("explicit_required", migration_policy("reviewer-result", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
@@ -52,6 +55,345 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                     "explicit_required", migration_policy(kind, "1.0.0", "2.0.0")
                 )
         self.assertEqual("unsupported", migration_policy("reviewer-result", "0.1.0", "2.0.0"))
+        advertised = {
+            (kind, source, target)
+            for kind in (
+                "effective-policy",
+                "evidence-manifest",
+                "reviewer-qualification",
+                "reviewer-qualification-cases",
+                "reviewer-qualification-corpus",
+                "reviewer-result",
+                "reviewer-execution",
+                "rollback-evidence",
+                "context-receipt",
+                "sandbox-capability",
+                "provenance-statement",
+            )
+            for source, target in (
+                ("1.0.0", "2.0.0"),
+                ("2.0.0", "3.0.0"),
+            )
+            if migration_policy(kind, source, target) == "explicit_required"
+        }
+        self.assertEqual(advertised, set(EXECUTABLE_MIGRATIONS))
+        self.assertTrue(
+            all(callable(item) for item in EXECUTABLE_MIGRATIONS.values())
+        )
+
+    def test_every_advertised_migration_reaches_its_exact_current_shape(self) -> None:
+        from codex_governance.canonical import content_address
+        from codex_governance.context import MANDATORY_REVIEWER_CLAIMS
+        from codex_governance.lifecycle import (
+            EXECUTABLE_MIGRATIONS,
+            migrate_context_receipt_v1_to_v2,
+            migrate_effective_policy_v1_to_v2,
+            migrate_effective_policy_v2_to_v3,
+            migrate_evidence_manifest_v1_to_v2,
+            migrate_evidence_manifest_v2_to_v3,
+            migrate_provenance_statement_v1_to_v2,
+            migrate_reviewer_execution_v1_to_v2,
+            migrate_reviewer_execution_v2_to_v3,
+            migrate_reviewer_qualification_cases_v1_to_v2,
+            migrate_reviewer_qualification_cases_v2_to_v3,
+            migrate_reviewer_qualification_corpus_v1_to_v2,
+            migrate_reviewer_qualification_v1_to_v2,
+            migrate_reviewer_result_v1_to_v2,
+            migrate_reviewer_result_v2_to_v3,
+            migrate_rollback_evidence_v1_to_v2,
+            migrate_sandbox_capability_v1_to_v2,
+        )
+        from codex_governance.schema import load_json, validate_instance
+
+        observed: set[tuple[str, str, str]] = set()
+
+        def example(kind: str) -> dict:
+            return json.loads(
+                (Path("examples") / f"{kind}.json").read_text(encoding="utf-8")
+            )
+
+        def addressed(document: dict, version: str, identity: str) -> dict:
+            document["schema_version"] = version
+            return content_address(document, identity)
+
+        def current(kind: str, migrated: dict) -> None:
+            schema = load_json(Path("schemas") / f"{kind}.schema.json")
+            self.assertEqual([], validate_instance(migrated, schema), kind)
+
+        def rejected_by_current(kind: str, legacy: dict) -> None:
+            schema = load_json(Path("schemas") / f"{kind}.schema.json")
+            self.assertNotEqual([], validate_instance(legacy, schema), kind)
+
+        policy_v3 = example("effective-policy")
+        mutation_corpus_sha = policy_v3["mutation"]["corpus_sha256"]
+        policy_v2 = deepcopy(policy_v3)
+        policy_v2["schema_version"] = "2.0.0"
+        policy_v2["mutation"].pop("corpus_sha256")
+        rejected_by_current("effective-policy", policy_v2)
+        policy_v1 = deepcopy(policy_v2)
+        policy_v1["schema_version"] = "1.0.0"
+        context_qualification_ids = policy_v1["context"].pop("qualification_ids")
+        qualification_corpus_sha = policy_v1["reviewer"].pop(
+            "qualification_corpus_sha256"
+        )
+        qualification_label_id = policy_v1["reviewer"].pop(
+            "qualification_label_decision_id"
+        )
+        migrated_policy_v2 = migrate_effective_policy_v1_to_v2(
+            policy_v1,
+            context_qualification_ids=context_qualification_ids,
+            reviewer_qualification_corpus_sha256=qualification_corpus_sha,
+            reviewer_qualification_label_decision_id=qualification_label_id,
+        )
+        self.assertEqual(policy_v2, migrated_policy_v2)
+        observed.add(("effective-policy", "1.0.0", "2.0.0"))
+        migrated_policy_v3 = migrate_effective_policy_v2_to_v3(
+            migrated_policy_v2, mutation_corpus_sha256=mutation_corpus_sha
+        )
+        self.assertEqual(policy_v3, migrated_policy_v3)
+        current("effective-policy", migrated_policy_v3)
+        observed.add(("effective-policy", "2.0.0", "3.0.0"))
+
+        manifest_v3 = example("evidence-manifest")
+        lkg_policy_decision = manifest_v3["lkg_policy_decision"]
+        manifest_v2 = deepcopy(manifest_v3)
+        manifest_v2.pop("lkg_policy_decision")
+        manifest_v2 = addressed(manifest_v2, "2.0.0", "manifest_id")
+        rejected_by_current("evidence-manifest", manifest_v2)
+        protected_names = {
+            "reviewer_qualification_cases",
+            "rapid_review_qualification_cases",
+            "reviewer_qualification_corpus",
+            "reviewer_qualification_label_decision",
+            "context_sources",
+            "context_projection",
+            "context_qualification",
+        }
+        protected_references = {
+            name: manifest_v2[name] for name in protected_names
+        }
+        manifest_v1 = deepcopy(manifest_v2)
+        for name in protected_names:
+            manifest_v1.pop(name)
+        manifest_v1 = addressed(manifest_v1, "1.0.0", "manifest_id")
+        rebuilt_manifest_v2 = migrate_evidence_manifest_v1_to_v2(
+            manifest_v1, protected_references=protected_references
+        )
+        self.assertEqual(manifest_v2, rebuilt_manifest_v2)
+        observed.add(("evidence-manifest", "1.0.0", "2.0.0"))
+        rebuilt_manifest_v3 = migrate_evidence_manifest_v2_to_v3(
+            rebuilt_manifest_v2, lkg_policy_decision=lkg_policy_decision
+        )
+        self.assertEqual(manifest_v3, rebuilt_manifest_v3)
+        current("evidence-manifest", rebuilt_manifest_v3)
+        observed.add(("evidence-manifest", "2.0.0", "3.0.0"))
+
+        qualification_v2 = example("reviewer-qualification")
+        label_id = qualification_v2["label_decision_id"]
+        case_evidence_sha = qualification_v2["case_evidence_sha256"]
+        qualification_v1 = deepcopy(qualification_v2)
+        qualification_v1.pop("label_decision_id")
+        qualification_v1.pop("case_evidence_sha256")
+        qualification_v1 = addressed(
+            qualification_v1, "1.0.0", "qualification_id"
+        )
+        rejected_by_current("reviewer-qualification", qualification_v1)
+        rebuilt_qualification = migrate_reviewer_qualification_v1_to_v2(
+            qualification_v1,
+            label_decision_id=label_id,
+            case_evidence_sha256=case_evidence_sha,
+        )
+        self.assertEqual(qualification_v2, rebuilt_qualification)
+        current("reviewer-qualification", rebuilt_qualification)
+        observed.add(("reviewer-qualification", "1.0.0", "2.0.0"))
+
+        qualification_cases_v3 = example("reviewer-qualification-cases")
+        context_names = {
+            "context_sources",
+            "context_projection",
+            "context_qualification",
+            "context_receipt",
+            "context_execution_receipt",
+        }
+        context_references = {
+            item["case_id"]: {name: item[name] for name in context_names}
+            for item in qualification_cases_v3["observations"]
+        }
+        qualification_cases_v2 = deepcopy(qualification_cases_v3)
+        for item in qualification_cases_v2["observations"]:
+            for name in context_names:
+                item.pop(name)
+        qualification_cases_v2 = addressed(
+            qualification_cases_v2, "2.0.0", "case_evidence_id"
+        )
+        rejected_by_current(
+            "reviewer-qualification-cases", qualification_cases_v2
+        )
+        qualification_cases_v1 = addressed(
+            deepcopy(qualification_cases_v2), "1.0.0", "case_evidence_id"
+        )
+        rebuilt_cases_v2 = migrate_reviewer_qualification_cases_v1_to_v2(
+            qualification_cases_v1
+        )
+        self.assertEqual(qualification_cases_v2, rebuilt_cases_v2)
+        observed.add(("reviewer-qualification-cases", "1.0.0", "2.0.0"))
+        rebuilt_cases_v3 = migrate_reviewer_qualification_cases_v2_to_v3(
+            rebuilt_cases_v2, context_references=context_references
+        )
+        self.assertEqual(qualification_cases_v3, rebuilt_cases_v3)
+        current("reviewer-qualification-cases", rebuilt_cases_v3)
+        observed.add(("reviewer-qualification-cases", "2.0.0", "3.0.0"))
+
+        qualification_corpus_v2 = example("reviewer-qualification-corpus")
+        case_classes = {
+            item["case_id"]: item["case_classes"]
+            for item in qualification_corpus_v2["cases"]
+        }
+        qualification_corpus_v1 = deepcopy(qualification_corpus_v2)
+        for item in qualification_corpus_v1["cases"]:
+            item.pop("case_classes")
+        qualification_corpus_v1 = addressed(
+            qualification_corpus_v1, "1.0.0", "corpus_id"
+        )
+        rejected_by_current(
+            "reviewer-qualification-corpus", qualification_corpus_v1
+        )
+        rebuilt_corpus = migrate_reviewer_qualification_corpus_v1_to_v2(
+            qualification_corpus_v1, case_classes=case_classes
+        )
+        self.assertEqual(qualification_corpus_v2, rebuilt_corpus)
+        current("reviewer-qualification-corpus", rebuilt_corpus)
+        observed.add(("reviewer-qualification-corpus", "1.0.0", "2.0.0"))
+
+        reviewer_result_v3 = example("reviewer-result")
+        claim_ids = [item["claim_id"] for item in reviewer_result_v3["claims"]]
+        self.assertEqual(
+            {item["claim_id"] for item in MANDATORY_REVIEWER_CLAIMS},
+            set(claim_ids),
+        )
+        reviewer_result_v2 = deepcopy(reviewer_result_v3)
+        reviewer_result_v2["schema_version"] = "2.0.0"
+        for item in reviewer_result_v2["claims"]:
+            item.pop("claim_id")
+        rejected_by_current("reviewer-result", reviewer_result_v2)
+        reviewer_result_v1 = deepcopy(reviewer_result_v2)
+        reviewer_result_v1["schema_version"] = "1.0.0"
+        rebuilt_result_v2 = migrate_reviewer_result_v1_to_v2(reviewer_result_v1)
+        self.assertEqual(reviewer_result_v2, rebuilt_result_v2)
+        observed.add(("reviewer-result", "1.0.0", "2.0.0"))
+        rebuilt_result_v3 = migrate_reviewer_result_v2_to_v3(
+            rebuilt_result_v2, claim_ids=claim_ids
+        )
+        self.assertEqual(reviewer_result_v3, rebuilt_result_v3)
+        current("reviewer-result", rebuilt_result_v3)
+        observed.add(("reviewer-result", "2.0.0", "3.0.0"))
+
+        execution_v3 = example("reviewer-execution")
+        v3_execution_fields = {
+            name: execution_v3[name]
+            for name in (
+                "observation",
+                "stdin_delivery_complete",
+                "stdout",
+                "stderr",
+            )
+        }
+        execution_v2 = deepcopy(execution_v3)
+        for name in v3_execution_fields:
+            execution_v2.pop(name)
+        execution_v2 = addressed(execution_v2, "2.0.0", "execution_id")
+        rejected_by_current("reviewer-execution", execution_v2)
+        v2_execution_fields = {
+            name: execution_v2[name]
+            for name in (
+                "observation_complete",
+                "capture_threads_completed",
+                "process_cleanup_complete",
+                "execution_valid",
+            )
+        }
+        execution_v1 = deepcopy(execution_v2)
+        for name in v2_execution_fields:
+            execution_v1.pop(name)
+        execution_v1 = addressed(execution_v1, "1.0.0", "execution_id")
+        rebuilt_execution_v2 = migrate_reviewer_execution_v1_to_v2(
+            execution_v1, **v2_execution_fields
+        )
+        self.assertEqual(execution_v2, rebuilt_execution_v2)
+        observed.add(("reviewer-execution", "1.0.0", "2.0.0"))
+        rebuilt_execution_v3 = migrate_reviewer_execution_v2_to_v3(
+            rebuilt_execution_v2, **v3_execution_fields
+        )
+        self.assertEqual(execution_v3, rebuilt_execution_v3)
+        current("reviewer-execution", rebuilt_execution_v3)
+        observed.add(("reviewer-execution", "2.0.0", "3.0.0"))
+
+        rollback_v2 = example("rollback-evidence")
+        rollback_references = {
+            name: rollback_v2[name]
+            for name in ("gate_result", "sandbox_capability", "provenance_statement")
+        }
+        rollback_v1 = deepcopy(rollback_v2)
+        for name, reference in rollback_references.items():
+            rollback_v1.pop(name)
+            rollback_v1[f"{name}_sha256"] = reference["sha256"]
+        rollback_v1 = addressed(
+            rollback_v1, "1.0.0", "rollback_evidence_id"
+        )
+        rejected_by_current("rollback-evidence", rollback_v1)
+        rebuilt_rollback = migrate_rollback_evidence_v1_to_v2(
+            rollback_v1, **rollback_references
+        )
+        self.assertEqual(rollback_v2, rebuilt_rollback)
+        current("rollback-evidence", rebuilt_rollback)
+        observed.add(("rollback-evidence", "1.0.0", "2.0.0"))
+
+        receipt_v2 = example("context-receipt")
+        qualification_id = receipt_v2["context_qualification_id"]
+        source_bundle_sha = receipt_v2["source_bundle_sha256"]
+        receipt_v1 = deepcopy(receipt_v2)
+        receipt_v1.pop("context_qualification_id")
+        receipt_v1.pop("source_bundle_sha256")
+        receipt_v1 = addressed(receipt_v1, "1.0.0", "receipt_id")
+        rejected_by_current("context-receipt", receipt_v1)
+        rebuilt_receipt = migrate_context_receipt_v1_to_v2(
+            receipt_v1,
+            context_qualification_id=qualification_id,
+            source_bundle_sha256=source_bundle_sha,
+        )
+        self.assertEqual(receipt_v2, rebuilt_receipt)
+        current("context-receipt", rebuilt_receipt)
+        observed.add(("context-receipt", "1.0.0", "2.0.0"))
+
+        capability_v2 = example("sandbox-capability")
+        image = capability_v2["image"]
+        command = capability_v2["command"]
+        capability_v1 = deepcopy(capability_v2)
+        capability_v1.pop("image")
+        capability_v1.pop("command")
+        capability_v1 = addressed(capability_v1, "1.0.0", "capability_id")
+        rejected_by_current("sandbox-capability", capability_v1)
+        rebuilt_capability = migrate_sandbox_capability_v1_to_v2(
+            capability_v1, image=image, command=command
+        )
+        self.assertEqual(capability_v2, rebuilt_capability)
+        current("sandbox-capability", rebuilt_capability)
+        observed.add(("sandbox-capability", "1.0.0", "2.0.0"))
+
+        provenance_v2 = example("provenance-statement")
+        cpu_seconds = provenance_v2["predicate"]["limits"]["cpu_seconds"]
+        provenance_v1 = deepcopy(provenance_v2)
+        provenance_v1["predicate"]["limits"].pop("cpu_seconds")
+        provenance_v1 = addressed(provenance_v1, "1.0.0", "statement_id")
+        rejected_by_current("provenance-statement", provenance_v1)
+        rebuilt_provenance = migrate_provenance_statement_v1_to_v2(
+            provenance_v1, cpu_seconds=cpu_seconds
+        )
+        self.assertEqual(provenance_v2, rebuilt_provenance)
+        current("provenance-statement", rebuilt_provenance)
+        observed.add(("provenance-statement", "1.0.0", "2.0.0"))
+
+        self.assertEqual(set(EXECUTABLE_MIGRATIONS), observed)
 
     def test_breaking_v1_evidence_migrates_explicitly_to_current_v2(self) -> None:
         from codex_governance.canonical import content_address

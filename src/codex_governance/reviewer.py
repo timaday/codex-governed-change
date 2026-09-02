@@ -1025,6 +1025,7 @@ REVIEWER_LAUNCHER_FILES = (
     "reviewer_namespace.py",
     "reviewer_signal_guard.py",
     "reviewer_supervisor.py",
+    "rollback.py",
     "rst_operations.py",
     "sandbox.py",
     "schema.py",

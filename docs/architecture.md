@@ -420,8 +420,10 @@ candidate and base commit and its `lkg_governance_commit` equals that base. Its
 closure. A matching candidate requires separately referenced proposed-policy,
 promotion-decision and rollback artifacts. Rollback evidence references a
 policy-defined rollback gate result, capability and provenance statement; the
-protected producer runs that gate separately from task-selected gates and binds
-the proposed policy plus authenticated base. Admission re-hashes and reconstructs
+protected producer runs that gate separately from task-selected gates with the
+rollback module supplied by a read-only materialization containing exactly the
+previous-LKG package's producer-digested Python closure, and binds the proposed
+policy plus authenticated base. Admission re-hashes and reconstructs
 their raw streams, execution semantics, producer identity, chronology, exact
 argv, machine-readable target and absence of limitations before invoking the LKG
 promotion predicate.
@@ -436,9 +438,12 @@ other state. Candidate workflow text is evidence, not the authority source.
 The host supervisor creates a fresh disposable candidate/build copy for each
 gate and asks a sandbox adapter to enforce the protected capability policy. A
 writable copy never becomes the input to a sibling gate and is removed with the
-disposable supervisor state. The supervisor independently identifies every copy
-before launch and rejects a candidate mismatch. Reviewer snapshots receive the
-same post-copy identity check; dirty/unavailable submodule worktrees fail closed,
+disposable supervisor state. The supervisor independently identifies every exact
+executed gate, baseline and mutant copy before and after execution; mutation
+source identity also frames the complete concrete Git-visible tree. Reviewer
+snapshots receive the same post-copy identity check. Gate submodules are cloned
+locally and checked out at their candidate-bound commits, excluding ignored
+working-directory content; dirty/unavailable submodule worktrees fail closed,
 and the current MVP blocks reviewer execution for non-empty submodule sets until
 immutable recursive object materialization is available. Candidate processes receive
 no authoritative evidence or governance mount and no inherited secret. The
@@ -448,7 +453,7 @@ name and ID file; the immutable ID and name are validated before an attached
 start. On normal exit, timeout, interruption, or provider-CLI failure the
 supervisor forcibly removes that exact ID and proves both ID and name absent;
 failure to establish absence is incomplete observation. After process-tree termination,
-the trusted supervisor re-identifies the source and packages outputs into the
+the trusted supervisor re-identifies the executed copy and packages outputs into the
 write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.
 

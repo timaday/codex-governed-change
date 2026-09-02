@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +22,11 @@ from codex_governance.gate import run_gate
 from codex_governance.mutation import (
     apply_curated_mutant,
     build_mutation_probe_command,
-    load_curated_corpus,
+    expected_mutated_tree_sha256,
+    git_visible_tree_sha256,
     mutated_source_identity,
     mutation_record_id,
+    parse_curated_corpus,
 )
 from codex_governance.sandbox import (
     build_container_invocation,
@@ -49,6 +51,15 @@ def _result_reference(
     )
 
 
+def parse_protected_corpus(
+    data: bytes, *, expected_sha256: str
+) -> dict[str, Any]:
+    """Validate exact previous-LKG corpus bytes before parsing their semantics."""
+    if sha256_bytes(data) != expected_sha256:
+        raise ValueError("protected mutation corpus digest mismatch")
+    return parse_curated_corpus(data)
+
+
 def run_governed_mutation_corpus(
     *,
     repository: Path,
@@ -63,19 +74,16 @@ def run_governed_mutation_corpus(
     workflow_system: str,
     observed_at: str,
     implementation_sha256: str,
+    corpus_bytes: bytes,
     artifact_store: FilesystemArtifactStore | None = None,
 ) -> dict[str, Any]:
     """Run baseline and each mutant only through the declared container boundary."""
     repository = repository.resolve(strict=True)
     evidence_root = normalize_repo_path(policy["evidence_root"])
-    corpus_path = normalize_repo_path(policy["mutation"]["corpus_path"])
-    corpus_absolute = repository.joinpath(*corpus_path.split("/"))
-    corpus = load_curated_corpus(corpus_absolute)
-    corpus_bytes = corpus_absolute.read_bytes()
-    corpus_reference = {
-        "path": corpus_path,
-        "sha256": sha256_bytes(corpus_bytes),
-    }
+    corpus = parse_protected_corpus(
+        corpus_bytes,
+        expected_sha256=policy["mutation"]["corpus_sha256"],
+    )
     limits = {
         "timeout_seconds": max(int(gate["timeout_seconds"]) for gate in policy["gates"]),
         "output_bytes": max(int(gate["max_output_bytes"]) for gate in policy["gates"]),
@@ -85,18 +93,6 @@ def run_governed_mutation_corpus(
         root=Path(evidence_root),
         max_bytes=max(limits["output_bytes"] * 2, 8_000_000),
     )
-    adapter = GitCliRepositoryAdapter(repository)
-
-    def current_candidate() -> str:
-        return adapter.identify(
-            repository_id=policy["repository_id"],
-            mode=candidate["mode"],
-            base_commit=candidate["base_commit"],
-            head_commit=candidate.get("head_commit"),
-            effective_policy_sha256=effective_policy_sha256,
-            evidence_root=evidence_root,
-        )["candidate_id"]
-
     try:
         provider_version = observe_container_provider(policy["sandbox"]["provider"])
     except RuntimeError:
@@ -105,6 +101,11 @@ def run_governed_mutation_corpus(
         f"{candidate_prefix(candidate['candidate_id'])}/runs/"
         f"{run_id}-{attempt}/mutation"
     )
+    corpus_relative = f"{run_prefix}/curated-corpus.json"
+    corpus_sha256 = store.write_bytes(corpus_relative, corpus_bytes)
+    corpus_reference = _reference(
+        evidence_root, corpus_relative, corpus_sha256
+    )
     capabilities: list[dict[str, str]] = []
     provenance: list[dict[str, str]] = []
     locators: list[dict[str, str]] = []
@@ -112,7 +113,8 @@ def run_governed_mutation_corpus(
 
     def invoke(
         *, candidate_copy: Path, source_identity: str, command: list[str],
-        gate_id: str, prefix: str, materials: list[dict[str, str]],
+        candidate_supplier: Callable[[], str], gate_id: str, prefix: str,
+        materials: list[dict[str, str]],
     ) -> tuple[dict[str, Any], dict[str, str], dict[str, str], dict[str, str]]:
         invocation = None
         if provider_version is not None:
@@ -136,7 +138,7 @@ def run_governed_mutation_corpus(
             gate_id=gate_id,
             profile=task["profile"],
             command=command,
-            cwd=repository,
+            cwd=candidate_copy,
             sandbox_invocation=invocation,
             repository_id=policy["repository_id"],
             task_contract_sha256=task_contract_sha256,
@@ -163,7 +165,7 @@ def run_governed_mutation_corpus(
                 ],
                 "materials": materials,
             },
-            candidate_supplier=current_candidate,
+            candidate_supplier=candidate_supplier,
             artifact_store=store,
             artifact_prefix=prefix,
             timeout_seconds=limits["timeout_seconds"],
@@ -187,6 +189,20 @@ def run_governed_mutation_corpus(
             destination=supervisor / "baseline",
             evidence_root=evidence_root,
         )
+        baseline_adapter = GitCliRepositoryAdapter(baseline_copy)
+
+        def baseline_candidate() -> str:
+            return baseline_adapter.identify(
+                repository_id=policy["repository_id"],
+                mode=candidate["mode"],
+                base_commit=candidate["base_commit"],
+                head_commit=candidate.get("head_commit"),
+                effective_policy_sha256=effective_policy_sha256,
+                evidence_root=evidence_root,
+            )["candidate_id"]
+
+        if baseline_candidate() != candidate["candidate_id"]:
+            raise RuntimeError("mutation baseline copy identity mismatch")
         baseline_command = [
             "/usr/bin/env", "PYTHONPATH=src", *corpus["baseline_command"]
         ]
@@ -195,6 +211,7 @@ def run_governed_mutation_corpus(
             candidate_copy=baseline_copy,
             source_identity=candidate["candidate_id"],
             command=baseline_command,
+            candidate_supplier=baseline_candidate,
             gate_id="mutation-baseline",
             prefix=baseline_prefix,
             materials=[
@@ -225,12 +242,39 @@ def run_governed_mutation_corpus(
             )
             line = original[: original.index(mutant["old"])].count("\n") + 1
             patch_sha = apply_curated_mutant(mutant_copy, mutant)
+            expected_tree_sha256 = expected_mutated_tree_sha256(
+                repository=repository,
+                evidence_root=evidence_root,
+                mutant=mutant,
+            )
+            actual_tree_sha256 = git_visible_tree_sha256(
+                mutant_copy, evidence_root=evidence_root
+            )
+            if actual_tree_sha256 != expected_tree_sha256:
+                raise RuntimeError("mutated candidate copy identity mismatch")
             source_identity = mutated_source_identity(
                 candidate_id=candidate["candidate_id"],
                 corpus_id=corpus["corpus_id"],
                 mutant_id=mutant["mutant_id"],
                 patch_sha256=patch_sha,
+                tree_sha256=actual_tree_sha256,
             )
+
+            def current_mutant_source(
+                *,
+                copy: Path = mutant_copy,
+                mutant_id: str = mutant["mutant_id"],
+                patch: str = patch_sha,
+            ) -> str:
+                return mutated_source_identity(
+                    candidate_id=candidate["candidate_id"],
+                    corpus_id=corpus["corpus_id"],
+                    mutant_id=mutant_id,
+                    patch_sha256=patch,
+                    tree_sha256=git_visible_tree_sha256(
+                        copy, evidence_root=evidence_root
+                    ),
+                )
             selected = list(mutant["selected_command"])
             command = build_mutation_probe_command(relative, selected)
             prefix = f"{run_prefix}/mutants/{mutant['mutant_id']}"
@@ -238,6 +282,7 @@ def run_governed_mutation_corpus(
                 candidate_copy=mutant_copy,
                 source_identity=source_identity,
                 command=command,
+                candidate_supplier=current_mutant_source,
                 gate_id=f"mutant-{mutant['mutant_id']}",
                 prefix=prefix,
                 materials=[

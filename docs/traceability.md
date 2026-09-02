@@ -6,13 +6,13 @@ Every MVP requirement maps to an implementation task and at least one determinis
 |---|---|---|
 | GOV-001 | T09, T10 | `test_blueprint_contract.py`, skill fixtures |
 | GOV-002 | T01, T07 | `test_workflow_profiles.py` |
-| GOV-003 | T03, T24 | `test_candidate_identity.py`, `test_reviewer_isolation.py` |
+| GOV-003 | T03, T24 | `test_candidate_identity.py`, copy-local gate/mutation drift and concrete-mutant-tree tests, `test_reviewer_isolation.py` |
 | GOV-004 | T02, T04, T05 | `test_gate_evidence.py` |
 | GOV-005 | T06 | `test_reviewer_isolation.py` |
 | GOV-006 | T06, T09 | `test_reviewer_isolation.py`, permission-profile canary, CI static checks |
 | GOV-007 | T02, T06 | `test_reviewer_isolation.py`, exact-five claim schema/admission fixtures, incomplete-closure and unresolved-claim reconstruction tests |
 | GOV-008 | T01, T05, T07 | `test_disposition_policy.py`, `test_gate_evidence.py` |
-| GOV-009 | T03, T05, T06, T17, T24 | `test_candidate_identity.py`, `test_disposition_policy.py`, `test_gate_sandbox.py`, `test_reviewer_isolation.py` |
+| GOV-009 | T03, T05, T06, T17, T19, T24 | `test_candidate_identity.py`, `test_disposition_policy.py`, `test_gate_sandbox.py`, copy-bound mutation runner tests, `test_reviewer_isolation.py` |
 | GOV-010 | T08 | `test_stop_hook.py` |
 | GOV-011 | T09 | `test_governance_integrity.py`, workflow validation |
 | GOV-012 | T01, T07 | `test_disposition_policy.py` |
@@ -27,7 +27,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-021 | T04, T06, T09 | `test_reviewer_isolation.py`, reviewer-stream credential/endpoint/host-path and immutable source-expression canaries, permission-profile environment canary, `test_governance_integrity.py` |
 | GOV-022 | T01-T10 | Blueprint clean-environment gate |
 | GOV-023 | T02, T04, T07, T24 | Complete producer-closure, descriptor-bound raw-stream, distinct-producer-workflow and schema/example tests |
-| GOV-024 | T09, T10 | Governance mutation corpus |
+| GOV-024 | T09, T10, T19 | Protected full-corpus digest/substitution tests and governance mutation corpus |
 | GOV-025 | T06, T08 | `test_reviewer_isolation.py`, shared-deadline pre/post candidate observation and snapshot-Git tests, unit unread-full-stdin, namespace/supervisor-assassination, `prlimit64`-denial and x32-ABI-denial process tests, `test_stop_hook.py` |
 | GOV-026 | T01, T05, T24 | `test_gate_evidence.py`, raw-stream reconstruction tests |
 | GOV-027 | T05, T06 | `test_gate_evidence.py`, `test_reviewer_isolation.py` |
@@ -47,13 +47,13 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-041 | T14, T21, T22, T23 | `test_reference_monitor.py`, context `CONTEXT_READY` terminology oracle, `test_ci_admission.py` |
 | GOV-042 | T23 | `test_ci_admission.py`, `test_governance_integrity.py` |
 | GOV-043 | T13, T23, T24 | `test_trusted_authority.py`, authenticated previous-LKG policy/base/policy-substitution tests, complete-TCB source mutation coverage in `test_governance_integrity.py` and admission reconstruction |
-| GOV-044 | T17 | `test_gate_sandbox.py`, reconstructed image/command/limit identity, bounded-create, post-empty-threshold delayed-create quarantine, exact-ID timeout/removal and cleanup-time rename/substitution tests |
+| GOV-044 | T17 | `test_gate_sandbox.py`, reconstructed image/command/limit identity, ignored-submodule exclusion, copy-local drift, bounded-create, post-empty-threshold delayed-create quarantine, exact-ID timeout/removal and cleanup-time rename/substitution tests |
 | GOV-045 | T16 | `test_attestation.py`, `test_candidate_identity.py` |
 | GOV-046 | T16, T17, T20 | `test_attestation.py`, complete producer-closure identity, `test_gate_sandbox.py`, `test_reviewer_isolation.py`, `test_evidence_reconstruction.py` |
 | GOV-047 | T16, T24 | `test_attestation.py`, `test_gate_evidence.py`, `test_pipeline_lock.py`, directory-lock hardlink/leaf-replacement and CLI no-replacement tests |
 | GOV-048 | T14, T24 | `test_trusted_authority.py`, `test_disposition_policy.py`, authenticated qualification-label decision, trusted-current-time and rerun-after-expiry tests |
 | GOV-049 | T14, T24 | `test_trusted_authority.py`, `test_workflow_profiles.py`, protected risk-floor reconstruction tests |
-| GOV-050 | T14, T23, T24 | `test_trusted_authority.py`, production rollback producer, exact argv/stdout target binding, admission-path proposed-policy/promotion/rollback reconstruction plus missing/dummy/re-addressed nested-proof tests, `test_ci_admission.py` |
+| GOV-050 | T14, T23, T24 | `test_trusted_authority.py`, exact-closure read-only protected-package rollback producer, ignored-package exclusion, candidate-script substitution, exact argv/stdout target binding, admission-path proposed-policy/promotion/rollback reconstruction plus missing/dummy/re-addressed nested-proof tests, `test_ci_admission.py` |
 | GOV-051 | T14, T22 | `test_assurance_case.py`, `test_reference_monitor.py` |
 | GOV-052 | T15, T20 | `test_assurance_case.py` descriptor-bound swap/symlink/FIFO/oversize tests, end-to-end reviewer CLI/materialization single-read race/special-file tests, `test_reviewer_isolation.py` |
 | GOV-053 | T14 | `test_assurance_case.py`, `test_disposition_policy.py` |
@@ -61,11 +61,11 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-055 | T20, T24 | `test_reviewer_qualification.py`, mandatory seeded-defect/prompt-injection/control classes, deterministic synthetic-candidate plus per-case source/projection/qualification/prepared/post-run context and typed corpus/case/normalized-stream/JSONL-result/primitive-observation/execution reconstruction, nested-credential source-literal tests, portability and protected label-decision tests |
 | GOV-056 | T20 | `test_reviewer_qualification.py`, `test_workflow_profiles.py` |
 | GOV-057 | T18 | `test_rapid_review.py`, `test_rst_operations.py` |
-| GOV-058 | T19 | `test_mutation_governance.py` |
+| GOV-058 | T19 | `test_mutation_governance.py`, protected-corpus bytes, concrete mutated-tree identity and post-probe drift tests |
 | GOV-059 | T19 | `test_mutation_governance.py`, schema/example checks |
-| GOV-060 | T15 | `test_schema_lifecycle.py`, executable context-receipt/sandbox-capability/provenance-statement v1-to-v2 migrations, named effective-policy/evidence-manifest v3/reviewer-result v3/rollback-evidence v2/reviewer-qualification/reviewer-qualification-cases/reviewer-qualification-corpus/reviewer-execution migrations, capability/provenance chronology and schema/example checks |
+| GOV-060 | T15 | `test_schema_lifecycle.py`, complete executable advertised-transition matrix including effective-policy v3, protected missing-field inputs, legacy/current schema rejection and re-addressing, capability/provenance chronology and schema/example checks |
 | GOV-061 | T15, T16, T17 | Complete framed producer-package drift tests in `test_attestation.py`, `test_gate_sandbox.py` |
-| GOV-062 | T13, T16, T23 | `test_public_portability.py`, clean-environment gate |
+| GOV-062 | T13, T16, T17, T23 | `test_public_portability.py`, ignored-submodule sandbox exclusion, clean-environment gate |
 | GOV-TOKEN-001 | T21, T24 | `test_context_compiler.py`, `test_cli_orchestration.py`, protected-source and forged-signal tests |
 | GOV-TOKEN-002 | T21, T24 | `test_context_qualification.py`, `test_reviewer_qualification.py`, profile/version qualification identity tests |
 | GOV-TOKEN-003 | T15, T20, T21 | `test_context_compiler.py` protected-index/exact-byte retrieval tests, `test_reviewer_isolation.py`, source/projection/retrieval reconstruction and tampering tests in `test_evidence_reconstruction.py`, qualification-case dummy-digest/context-artifact tests, schema/example checks |

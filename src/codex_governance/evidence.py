@@ -45,6 +45,7 @@ from codex_governance.mutation import (
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
     evaluate_mutation_record,
+    expected_mutated_tree_sha256,
     mutated_source_identity,
     parse_curated_corpus,
 )
@@ -59,6 +60,7 @@ from codex_governance.reviewer import (
     reviewer_observation_facts,
     reviewer_stream_is_portable,
 )
+from codex_governance.rollback import protected_rollback_command
 from codex_governance.rst_operations import evaluate_operational_rst
 from codex_governance.sandbox import (
     sandbox_execution_identity,
@@ -848,11 +850,7 @@ def evaluate_manifest(
             )
             rollback_definition = gate_policy["rollback-rehearsal"]
             rollback_target = str(current_candidate["base_commit"])
-            rollback_command = [
-                "python3",
-                "scripts/rehearse_rollback.py",
-                rollback_target,
-            ]
+            rollback_command = protected_rollback_command(rollback_target)
             rollback_stdout = (
                 f"ROLLBACK_REHEARSAL=PASS target={rollback_target}\n".encode(
                     "ascii"
@@ -952,10 +950,13 @@ def evaluate_manifest(
     mutation_records: list[dict[str, Any]] = []
     try:
         corpus_reference = manifest["mutation_corpus"]
-        expected_corpus_path = normalize_repo_path(policy["mutation"]["corpus_path"])
-        if normalize_repo_path(corpus_reference["path"]) != expected_corpus_path:
-            raise ValueError("mutation corpus path is not protected policy")
         corpus_bytes = read_reference(repository=repository, reference=corpus_reference)
+        if (
+            corpus_reference.get("sha256")
+            != policy["mutation"]["corpus_sha256"]
+            or sha256_bytes(corpus_bytes) != policy["mutation"]["corpus_sha256"]
+        ):
+            raise ValueError("mutation corpus bytes are not protected policy")
         corpus_document = json.loads(corpus_bytes.decode("utf-8"))
         corpus = parse_curated_corpus(corpus_bytes)
         if corpus_document != corpus:
@@ -1005,6 +1006,11 @@ def evaluate_manifest(
                 corpus_id=corpus["corpus_id"],
                 mutant_id=definition["mutant_id"],
                 patch_sha256=expected_patch,
+                tree_sha256=expected_mutated_tree_sha256(
+                    repository=repository,
+                    evidence_root=policy["evidence_root"],
+                    mutant=definition,
+                ),
             )
             execution = load(record["execution_result"], "gate-result")
             expected_command = build_mutation_probe_command(

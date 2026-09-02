@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "repository_id": "repo:example/codex-governed-change",
   "policy_id": "POLICY-REFERENCE-001",
   "lkg_governance_commit": "1111111111111111111111111111111111111111",
@@ -30,7 +30,7 @@
       "DEEP": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
-  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "generated_budget": 0},
+  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:e9ccb776cffccbabfcafbc5fc9ebb7df49edf32f2728e8b98d3c431e65743a59", "generated_budget": 0},
   "reviewer": {
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh",
@@ -92,7 +92,7 @@
     {
       "gate_id": "rollback-rehearsal",
       "profiles": ["governance"],
-      "command": ["python3", "scripts/rehearse_rollback.py", "1111111111111111111111111111111111111111"],
+      "command": ["/usr/bin/env", "PYTHONPATH=/opt/codex-governance", "python3", "-m", "codex_governance.rollback", "1111111111111111111111111111111111111111"],
       "timeout_seconds": 300,
       "max_output_bytes": 1000000,
       "shell": false,

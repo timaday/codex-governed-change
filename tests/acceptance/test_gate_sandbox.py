@@ -165,6 +165,83 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             "codex_governance.sandbox", fromlist=["validate_sandbox_capability"]
         ).validate_sandbox_capability(invocation.capability_report))
 
+    def test_rollback_invocation_mounts_protected_package_read_only(self) -> None:
+        from codex_governance.sandbox import build_container_invocation
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            candidate_copy = root / "candidate"
+            protected_source = root / "protected-src"
+            candidate_copy.mkdir()
+            protected_source.mkdir()
+            invocation = build_container_invocation(
+                executable="docker",
+                provider_version="fixture",
+                image="python@sha256:" + "c" * 64,
+                candidate_copy=candidate_copy,
+                candidate_id="sha256:" + "a" * 64,
+                command=[
+                    "/usr/bin/env", "PYTHONPATH=/opt/codex-governance",
+                    "python3", "-m", "codex_governance.rollback", "1" * 40,
+                ],
+                process_limit=64,
+                memory_bytes=1000000,
+                cpu_seconds=60,
+                timeout_seconds=60,
+                output_bytes=1000,
+                implementation_sha256="sha256:" + "d" * 64,
+                verified_at="2026-08-26T10:00:00Z",
+                supervisor_cwd=root,
+                protected_source_root=protected_source,
+            )
+        self.assertIn(
+            f"type=bind,src={protected_source},dst=/opt/codex-governance,readonly",
+            invocation.argv,
+        )
+
+    def test_protected_package_copy_contains_only_producer_digested_python(self) -> None:
+        from codex_governance.attestation import producer_implementation_manifest
+        from codex_governance.sandbox import prepare_protected_package_copy
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            (source / "codex_governance/__pycache__").mkdir(parents=True)
+            (source / "codex_governance/__init__.py").write_text(
+                "VALUE = 1\n", encoding="utf-8"
+            )
+            (source / "codex_governance/rollback.py").write_text(
+                "VALUE = 2\n", encoding="utf-8"
+            )
+            (source / "codex_governance/machine-local.txt").write_text(
+                "ignored\n", encoding="utf-8"
+            )
+            (source / "codex_governance/__pycache__/rollback.pyc").write_bytes(
+                b"machine-bytecode"
+            )
+            copied = prepare_protected_package_copy(
+                package_root=source,
+                destination=root / "protected",
+            )
+            expected = {
+                item["path"]
+                for item in producer_implementation_manifest(
+                    "gate", source
+                )["files"]
+            }
+            observed = {
+                path.relative_to(copied).as_posix()
+                for path in copied.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(expected, observed)
+            self.assertFalse(
+                (copied / "codex_governance/machine-local.txt").exists()
+            )
+            self.assertFalse(
+                (copied / "codex_governance/__pycache__/rollback.pyc").exists()
+            )
+
     def test_container_create_and_cleanup_bind_the_exact_immutable_id(self) -> None:
         from codex_governance.sandbox import (
             SandboxInvocation,
@@ -448,6 +525,72 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual("mutated-by-first", (first / "source.txt").read_text())
             self.assertEqual("original", (second / "source.txt").read_text())
+
+    def test_submodule_copy_is_reconstructed_without_ignored_worktree_files(self) -> None:
+        from codex_governance.sandbox import prepare_candidate_copy
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child = root / "child"
+            parent = root / "parent"
+            child.mkdir()
+            parent.mkdir()
+            for repository in (child, parent):
+                subprocess.run(["git", "init", "--quiet", str(repository)], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repository), "config", "user.name", "Fixture"],
+                    check=True,
+                )
+                subprocess.run(
+                    [
+                        "git", "-C", str(repository), "config", "user.email",
+                        "fixture@example.invalid",
+                    ],
+                    check=True,
+                )
+            (child / ".gitignore").write_text("machine-local.txt\n", encoding="utf-8")
+            (child / "safe.txt").write_text("tracked\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(child), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(child), "commit", "--quiet", "-m", "child"],
+                check=True,
+            )
+            child_commit = subprocess.check_output(
+                ["git", "-C", str(child), "rev-parse", "HEAD"], text=True
+            ).strip()
+            subprocess.run(
+                [
+                    "git", "-c", "protocol.file.allow=always", "-C", str(parent),
+                    "submodule", "add", "--quiet", str(child), "vendor/child",
+                ],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(parent), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(parent), "commit", "--quiet", "-m", "parent"],
+                check=True,
+            )
+            (parent / "vendor/child/machine-local.txt").write_text(
+                "must-not-copy\n", encoding="utf-8"
+            )
+
+            copied = prepare_candidate_copy(
+                repository=parent,
+                destination=(root / "copy").resolve(),
+                evidence_root="artifacts/governance",
+            )
+
+            self.assertEqual(
+                "tracked\n", (copied / "vendor/child/safe.txt").read_text()
+            )
+            self.assertFalse((copied / "vendor/child/machine-local.txt").exists())
+            self.assertEqual(
+                child_commit,
+                subprocess.check_output(
+                    ["git", "-C", str(copied / "vendor/child"), "rev-parse", "HEAD"],
+                    text=True,
+                ).strip(),
+            )
 
 
 if __name__ == "__main__":

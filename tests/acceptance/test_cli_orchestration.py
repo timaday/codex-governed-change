@@ -7,6 +7,7 @@ import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from codex_governance.candidate import GitCliRepositoryAdapter
@@ -719,8 +720,11 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 if item["gate_id"] == "rollback-rehearsal"
             )
             rollback_definition["command"] = [
+                "/usr/bin/env",
+                "PYTHONPATH=/opt/codex-governance",
                 "python3",
-                "scripts/rehearse_rollback.py",
+                "-m",
+                "codex_governance.rollback",
                 base,
             ]
             proposed_policy = json.loads(json.dumps(policy))
@@ -773,6 +777,14 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 artifact_store = arguments["artifact_store"]
                 prefix = arguments["artifact_prefix"]
                 candidate_id = arguments["candidate_supplier"]()
+                executed_copy = arguments["sandbox_invocation"].candidate_copy
+                drift_probe = executed_copy / "schemas/change.json"
+                original_probe = drift_probe.read_bytes()
+                drift_probe.write_text('{"version":999}\n', encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    arguments["candidate_supplier"]()
+                drift_probe.write_bytes(original_probe)
+                self.assertEqual(candidate_id, arguments["candidate_supplier"]())
                 timeout_seconds = int(arguments["timeout_seconds"])
                 max_output_bytes = arguments["max_output_bytes"]
                 execution_identity = sandbox_execution_identity(
@@ -933,9 +945,35 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 output=None,
                 _cli_output_store=store,
             )
+
+            def fake_container_invocation(**values):
+                protected = values["protected_source_root"]
+                if values["command"] == rollback_definition["command"]:
+                    self.assertIsNotNone(protected)
+                    self.assertNotEqual(
+                        Path(cli.__file__).resolve().parents[1], protected
+                    )
+                    protected_files = [
+                        path for path in protected.rglob("*") if path.is_file()
+                    ]
+                    self.assertTrue(protected_files)
+                    self.assertTrue(
+                        all(path.suffix == ".py" for path in protected_files)
+                    )
+                    self.assertTrue(
+                        (protected / "codex_governance/rollback.py").is_file()
+                    )
+                else:
+                    self.assertIsNone(protected)
+                return SimpleNamespace(candidate_copy=values["candidate_copy"])
+
             with (
                 patch.object(cli, "observe_container_provider", return_value="fixture"),
-                patch.object(cli, "build_container_invocation", return_value=object()),
+                patch.object(
+                    cli,
+                    "build_container_invocation",
+                    side_effect=fake_container_invocation,
+                ),
                 patch.object(cli, "run_gate", side_effect=fake_run_gate),
                 patch.object(cli, "_emit", side_effect=emitted.append),
             ):
@@ -963,7 +1001,15 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 (repository / rollback["gate_result"]["path"]).read_text()
             )
             self.assertEqual(
-                ["python3", "scripts/rehearse_rollback.py", base], gate["command"]
+                [
+                    "/usr/bin/env",
+                    "PYTHONPATH=/opt/codex-governance",
+                    "python3",
+                    "-m",
+                    "codex_governance.rollback",
+                    base,
+                ],
+                gate["command"],
             )
             stdout = next(
                 item for item in gate["artifacts"] if item["stream"] == "stdout"

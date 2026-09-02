@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:54445d31753dc2b3f31f4a35317ee2dc9a925212098c06352c9b77a2d791ca0b",
+  "corpus_id": "sha256:d0395bf74f016b84fe3287663f1572342755ce2195c6a6cf94a63f29044ed97b",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -236,6 +236,69 @@
       "operator": "silently accept the breaking legacy context representation",
       "requirement_id": "GOV-060",
       "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_schema_lifecycle", "-v"]
+    },
+    {
+      "mutant_id": "gate-copy-source-identity",
+      "path": "src/codex_governance/cli.py",
+      "old": "            def copied_candidate_id(\n                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                    candidate_copy\n                ),\n            ) -> str:",
+      "new": "            def copied_candidate_id(\n                copy_adapter: GitCliRepositoryAdapter = GitCliRepositoryAdapter(\n                    args.repository\n                ),\n            ) -> str:",
+      "operator": "observe the original repository instead of the executed gate copy",
+      "requirement_id": "GOV-003",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+    },
+    {
+      "mutant_id": "mutation-copy-source-identity",
+      "path": "src/codex_governance/mutation.py",
+      "old": "            \"tree_sha256\": require_sha256(tree_sha256, name=\"tree_sha256\"),",
+      "new": "            \"tree_sha256\": \"sha256:\" + \"0\" * 64,",
+      "operator": "remove the concrete mutated tree from source identity",
+      "requirement_id": "GOV-009",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutant_identity_binds_the_complete_concrete_tree_and_copy_drift", "-v"]
+    },
+    {
+      "mutant_id": "candidate-owned-corpus",
+      "path": "src/codex_governance/mutation_runner.py",
+      "old": "    if sha256_bytes(data) != expected_sha256:",
+      "new": "    if False:",
+      "operator": "accept a candidate-substituted mutation corpus",
+      "requirement_id": "GOV-024",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_policy_digest_rejects_readdressed_candidate_corpus_substitution", "-v"]
+    },
+    {
+      "mutant_id": "candidate-owned-rollback",
+      "path": "src/codex_governance/cli.py",
+      "old": "        rollback_command = protected_rollback_command(candidate[\"base_commit\"])",
+      "new": "        rollback_command = [\"python3\", \"scripts/rehearse_rollback.py\", candidate[\"base_commit\"]]",
+      "operator": "execute the candidate-local rollback script as authority",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+    },
+    {
+      "mutant_id": "incomplete-migration-registry",
+      "path": "src/codex_governance/lifecycle.py",
+      "old": "    if (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:",
+      "new": "    if kind == \"reviewer-qualification\" or (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:",
+      "operator": "advertise schema migration transitions without executable implementations",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_schema_lifecycle.SchemaLifecycleAcceptanceTest.test_reviewer_v1_to_v2_is_explicit_not_silent", "-v"]
+    },
+    {
+      "mutant_id": "ignored-submodule-copy",
+      "path": "src/codex_governance/sandbox.py",
+      "old": "        _copy_submodule(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            submodule[\"commit\"],\n            target,\n        )",
+      "new": "        _copy_candidate_entry(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n        )",
+      "operator": "copy ignored machine-local files from a submodule working tree",
+      "requirement_id": "GOV-062",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_submodule_copy_is_reconstructed_without_ignored_worktree_files", "-v"]
+    },
+    {
+      "mutant_id": "unframed-rollback-package",
+      "path": "src/codex_governance/cli.py",
+      "old": "        protected_package = (\n            prepare_protected_package_copy(\n                package_root=Path(__file__).resolve().parents[1],\n                destination=supervisor / \"protected-package\",\n            )\n            if governed_paths\n            else None\n        )",
+      "new": "        protected_package = (\n            Path(__file__).resolve().parents[1]\n            if governed_paths\n            else None\n        )",
+      "operator": "mount ignored and untracked package files outside the producer digest",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
     }
   ]
 }

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "policy_id", "lkg_governance_commit", "evidence_root", "governance_paths", "decision_source", "protected_minimums", "sandbox", "context", "mutation", "reviewer", "gates", "producer_version"],
   "properties": {
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
     "policy_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
     "lkg_governance_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
@@ -73,10 +73,11 @@
     "mutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["curated_required", "corpus_path", "generated_budget"],
+      "required": ["curated_required", "corpus_path", "corpus_sha256", "generated_budget"],
       "properties": {
         "curated_required": { "const": true },
         "corpus_path": { "type": "string", "minLength": 1 },
+        "corpus_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "generated_budget": { "type": "integer", "minimum": 0 }
       }
     },

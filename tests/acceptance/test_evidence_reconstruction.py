@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ from codex_governance.evidence import (
 from codex_governance.mutation import (
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
+    expected_mutated_tree_sha256,
     mutated_source_identity,
 )
 from codex_governance.qualification import (
@@ -45,6 +47,7 @@ from codex_governance.qualification import (
 )
 from codex_governance.schema import load_json, validate_instance
 from codex_governance.reviewer import build_reviewer_execution_statement
+from codex_governance.rollback import protected_rollback_command
 from codex_governance.sandbox import sandbox_execution_identity
 
 
@@ -65,6 +68,14 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         (self.repository / "tests/test_service.py").write_text(
             "from src.service import VALUE\n", encoding="utf-8"
         )
+        mutation_corpus = json.loads(
+            (self.ROOT / "tests/mutation/corpus.json").read_text(encoding="utf-8")
+        )
+        for relative in sorted({item["path"] for item in mutation_corpus["mutants"]}):
+            source = self.ROOT / relative
+            target = self.repository / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
         environment = dict(os.environ)
         environment.update(
             GIT_AUTHOR_NAME="fixture",
@@ -74,7 +85,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         for command in (
             ["git", "init", "-q", "-b", "main"],
-            ["git", "add", "src", "tests"],
+            ["git", "add", "."],
             ["git", "commit", "-q", "-m", "fixture"],
         ):
             subprocess.run(
@@ -543,10 +554,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             {
                 "gate_id": "rollback-rehearsal",
                 "profiles": ["governance"],
-                "command": [
-                    "python3", "scripts/rehearse_rollback.py",
-                    policy["lkg_governance_commit"],
-                ],
+                "command": protected_rollback_command(
+                    policy["lkg_governance_commit"]
+                ),
                 "timeout_seconds": 60, "max_output_bytes": 1000,
                 "shell": False, "risk_label": "",
             },
@@ -898,6 +908,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             source_identity = mutated_source_identity(
                 candidate_id=self.CANDIDATE_ID, corpus_id=corpus["corpus_id"],
                 mutant_id=mutant, patch_sha256=patch_sha,
+                tree_sha256=expected_mutated_tree_sha256(
+                    repository=self.repository,
+                    evidence_root=policy["evidence_root"],
+                    mutant=definition,
+                ),
             )
             selected_command = list(definition["selected_command"])
             command = build_mutation_probe_command(definition["path"], selected_command)
@@ -2067,11 +2082,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                             self.repository / rollback_capability_ref["path"]
                         ).read_text()
                     )
-                    wrong_command = [
-                        "python3",
-                        "scripts/rehearse_rollback.py",
-                        "2" * 40,
-                    ]
+                    wrong_command = protected_rollback_command("2" * 40)
                     capability["command"] = wrong_command
                     capability["execution_identity"] = sandbox_execution_identity(
                         provider=capability["provider"],

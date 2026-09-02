@@ -124,7 +124,7 @@ affected surfaces remain an additional assertion used for closure checks.
 
 `.git/` and the configured evidence output root are excluded. No other tracked candidate path may be excluded. Ignored files are outside the candidate contract and MUST NOT be needed for correctness; required generated inputs must be represented by a declared gate artifact digest.
 
-Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run, independently re-identify every copied snapshot before execution, and reject dirty or unavailable submodule working trees. A mismatch makes the result `UNKNOWN`. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
+Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. Every gate, mutation baseline and mutant probe MUST independently re-identify its exact executed copy both before and after execution; observing the untouched source repository cannot establish copy stability. A mutant source identity additionally binds a complete concrete Git-visible tree manifest after the protected patch is applied. A mismatch makes the result `UNKNOWN`. Submodules copied for gates MUST be reconstructed from their bound commits rather than copied from working directories, so ignored and machine-local files remain absent. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
 
 In commit mode, resolving the caller-requested head is not proof of the checked
 out repository state. The repository adapter MUST independently resolve actual
@@ -525,8 +525,12 @@ descriptor-resolves and fully reconstructs those nested artifacts, raw streams,
 producer identity and chronology, rejects limitations, and requires the policy
 argv, executed gate argv, provenance material and exact machine-readable success
 line to agree on the authenticated base target. A protected producer runs this
-rehearsal separately from the ordinary task-selected gate set and emits the
-nested typed rollback evidence before the previous-LKG promotion predicate runs;
+rehearsal separately from the ordinary task-selected gate set using executable
+rollback code from a read-only materialization containing exactly the
+previous-LKG package's producer-digested Python closure; ignored, untracked and
+candidate-relative rollback code is never an authority source. It emits the
+nested typed rollback evidence before the
+previous-LKG promotion predicate runs;
 ordinary governance authorization or digest-shaped proof alone is insufficient.
 
 ## 16. Sandboxed execution and provenance
@@ -608,7 +612,10 @@ regular files.
 ## 17. Governed mutation and operational RST
 
 The mandatory mutation gate is a curated semantic corpus for fail-closed
-governance invariants. It runs in a disposable candidate after a green baseline
+governance invariants. The previous-LKG policy binds the complete corpus byte
+digest, and the producer reads those exact bytes from the protected governance
+checkout, copies them into write-once evidence, and rejects a candidate-local or
+digest-mismatched substitute. It runs in a disposable candidate after a green baseline
 and before final review. Only a causal expected-test failure kills a valid
 non-equivalent mutant. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
 `EQUIVALENT_CLAIMED`, unexecuted and harness failures never count as killed and
@@ -616,7 +623,8 @@ block or remain unknown. Generated language mutation is a bounded optional
 adapter; aggregate percentage alone is not an oracle.
 
 Every admitted mutant record MUST bind the protected corpus, repository, task,
-policy and original candidate; a distinct mutated-source identity; the exact
+policy and original candidate; a distinct mutated-source identity that includes
+the complete concrete Git-visible mutated tree; the exact
 selected command and execution identity; a validated disposable-sandbox
 capability; the corresponding in-toto-shaped provenance statement; the bounded
 execution result; and resolvable causal evidence. Mutation commands MUST use the
@@ -700,13 +708,16 @@ manifests, not embeddings or a vector database.
 ## 19. Schema lifecycle and portability
 
 Schemas define supported versions and migration behavior. The qualification
-evidence additions are breaking: `effective-policy`, `reviewer-qualification`,
-`context-receipt`, `sandbox-capability`, and `provenance-statement` are `2.0.0`;
+evidence additions are breaking: `effective-policy` is `3.0.0` with the
+protected mutation-corpus digest; `reviewer-qualification`, `context-receipt`,
+`sandbox-capability`, and `provenance-statement` are `2.0.0`;
 `evidence-manifest` is `3.0.0`; `reviewer-qualification-cases` is `3.0.0`
 with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `2.0.0` with
 mandatory typed case classes; and `reviewer-execution` is `3.0.0` with primitive
-observation plus direct stream references. Migration from each immediately
-preceding version is executable and explicit; an old document is accepted only
+observation plus direct stream references. Every transition advertised by the
+lifecycle policy has an executable explicit migration; missing legacy facts must
+come from separately protected inputs and every content address is rebuilt.
+An old document is accepted only
 as migration input and never as current admission evidence. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time
 ordering, digest/reference relationships and lifecycle constraints. Unsupported
