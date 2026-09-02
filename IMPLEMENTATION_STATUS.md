@@ -456,3 +456,28 @@ evidence. This status update invalidates them. Complete deterministic gates,
 all 76 causal mutation kills, rollback rehearsal, portability and a new exact-
 candidate fresh review must be rebound after the successor commit. Any later
 candidate mutation invalidates that evidence again.
+
+The immutable `541f50d` successor passed blueprint integrity, the 200-test
+acceptance suite, the 86-test unit suite, compilation, rollback rehearsal and
+public-portability checks. Its first complete 76-operator diagnostic mutation
+run established a green baseline but correctly returned `BLOCK` for corpus
+`sha256:5c5d1c0c9f74ace0815394e9ba5a3baa65459e892e734d820a34ab0fcb94b74e`:
+69 operators were killed, five survived and two remained `UNKNOWN`.
+
+The seven outcomes exposed mutation-oracle defects rather than release-ready
+evidence. A selected evidence-reconstruction test copied its active mutant into
+the synthetic candidate, making the fixture invalid before five targeted
+assertions ran. The ignored-submodule operator caused a harness error instead
+of performing its declared unsafe copy, and the protected-prompt test omitted a
+candidate-controlled prompt that could prove protected authority won.
+
+The current working-copy successor preserves the committed pre-mutation target
+only inside a protected selected-test fixture, makes the submodule operator
+copy the unsafe working tree it declares, and adds the candidate-prompt
+substitution case before manifest construction. Focused protected-probe
+execution causally killed all seven corrected operators. The 76-operator corpus
+now has content ID
+`sha256:0f2d063b3bcfb6393d227b8a786ebcfbd716bb43afea6e49cc4ec03480eda191`.
+This remediation and status record invalidate the preceding evidence; complete
+deterministic gates, all 76 mutation kills, rollback, portability and a fresh
+exact-candidate review remain required after the successor is committed.

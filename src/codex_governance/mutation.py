@@ -135,6 +135,7 @@ def emit(outcome, counts=None):
     payload = {'schema_version': '1.0.0', 'outcome': outcome, **values}
     print(PREFIX + json.dumps(payload, sort_keys=True, separators=(',', ':')), flush=True)
 path, names = sys.argv[1], sys.argv[2:]
+os.environ['CODEX_MUTATION_PROBE_TARGET'] = path
 if path.endswith('.py'):
     try:
         py_compile.compile(path, doraise=True)

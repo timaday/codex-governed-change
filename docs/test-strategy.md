@@ -91,6 +91,10 @@ No model confidence statement is an oracle.
 - Gate artifact reconstruction.
 - Gate and mutation raw-stream deletion, tampering, size mismatch, timeout,
   truncation, incomplete observation and exit/status disagreement.
+- The protected mutation probe identifies its active target so a selected test's
+  synthetic candidate fixture can retain the immutable pre-mutation target byte;
+  otherwise the mutant could invalidate the fixture before the targeted oracle
+  runs and be misclassified as a survivor or harness error.
 - Gate, rollback, baseline and mutant provenance prompt/material omission,
   substitution, duplication and reordering, plus producer-to-admission tests
   that distinguish the original candidate from the mutated execution subject.

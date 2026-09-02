@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:5c5d1c0c9f74ace0815394e9ba5a3baa65459e892e734d820a34ab0fcb94b74e",
+  "corpus_id": "sha256:0f2d063b3bcfb6393d227b8a786ebcfbd716bb43afea6e49cc4ec03480eda191",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -286,7 +286,7 @@
       "mutant_id": "ignored-submodule-copy",
       "path": "src/codex_governance/sandbox.py",
       "old": "        _copy_submodule(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            submodule[\"commit\"],\n            target,\n            deadline=deadline,\n        )",
-      "new": "        _copy_candidate_entry(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            deadline=deadline,\n        )",
+      "new": "        shutil.copytree(\n            source.joinpath(*relative.split(\"/\")),\n            target.joinpath(*relative.split(\"/\")),\n            dirs_exist_ok=True,\n        )",
       "operator": "copy ignored machine-local files from a submodule working tree",
       "requirement_id": "GOV-062",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_submodule_copy_is_reconstructed_without_ignored_worktree_files"]

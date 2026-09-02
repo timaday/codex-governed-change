@@ -88,11 +88,19 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         mutation_corpus = json.loads(
             (self.ROOT / "tests/mutation/corpus.json").read_text(encoding="utf-8")
         )
+        mutation_probe_target = os.environ.get("CODEX_MUTATION_PROBE_TARGET")
         for relative in sorted({item["path"] for item in mutation_corpus["mutants"]}):
             source = self.ROOT / relative
             target = self.repository / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+            if relative == mutation_probe_target:
+                target.write_bytes(
+                    subprocess.check_output(
+                        ["git", "-C", str(self.ROOT), "show", f"HEAD:{relative}"]
+                    )
+                )
+            else:
+                shutil.copyfile(source, target)
         environment = dict(os.environ)
         environment.update(
             GIT_AUTHOR_NAME="fixture",
@@ -1979,10 +1987,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
 
     def test_admission_reconstructs_stdin_from_protected_authority_prompt(self) -> None:
-        manifest = self.complete_manifest()
-        self.assertFalse(
-            (self.repository / ".codex/review/reviewer.prompt.md").exists()
+        (self.repository / ".codex/review/reviewer.prompt.md").write_bytes(
+            b"candidate-controlled prompt must not become authority\n"
         )
+        manifest = self.complete_manifest()
         state, reasons = evaluate_manifest(
             repository=self.repository,
             manifest=manifest,
