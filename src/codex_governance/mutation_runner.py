@@ -22,6 +22,7 @@ from codex_governance.gate import run_gate
 from codex_governance.mutation import (
     apply_curated_mutant,
     build_mutation_probe_command,
+    classify_mutation_execution,
     expected_mutated_tree_sha256,
     git_visible_tree_sha256,
     mutated_source_identity,
@@ -293,15 +294,27 @@ def run_governed_mutation_corpus(
             )
             termination = result["termination"]
             exit_code = termination.get("exit_code")
-            if result["status"] == "PASS":
-                outcome = "SURVIVED"
-            elif result["status"] == "FAIL" and exit_code == 120:
-                outcome = "INVALID"
-            elif result["status"] == "FAIL":
-                outcome = "KILLED"
-            elif termination.get("kind") == "timeout":
-                outcome = "TIMEOUT"
-            else:
+            try:
+                stdout_artifact = next(
+                    item
+                    for item in result["artifacts"]
+                    if item.get("stream") == "stdout"
+                )
+                stdout_path = str(stdout_artifact["path"])
+                root_prefix = evidence_root + "/"
+                if not stdout_path.startswith(root_prefix):
+                    raise ValueError("mutation stdout is outside the evidence root")
+                stdout = store.read_bytes(
+                    stdout_path.removeprefix(root_prefix),
+                    expected_sha256=str(stdout_artifact["sha256"]),
+                )
+                outcome = classify_mutation_execution(
+                    status=str(result["status"]),
+                    termination_kind=str(termination.get("kind")),
+                    exit_code=exit_code if isinstance(exit_code, int) else None,
+                    stdout=stdout,
+                )
+            except (KeyError, OSError, StopIteration, TypeError, ValueError):
                 outcome = "UNKNOWN"
             locator = content_address(
                 {

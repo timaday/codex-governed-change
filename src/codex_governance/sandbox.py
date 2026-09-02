@@ -19,6 +19,7 @@ from codex_governance.canonical import (
     normalize_repo_path,
     require_git_object,
     require_sha256,
+    sha256_bytes,
     sha256_canonical,
     verify_content_address,
 )
@@ -136,7 +137,9 @@ def _copy_submodule(source: Path, destination: Path, commit: str, boundary: Path
 
 
 def prepare_protected_package_copy(*, package_root: Path, destination: Path) -> Path:
-    """Materialize only the Python files covered by producer identity."""
+    """Materialize and verify exactly the package producer manifest."""
+    from codex_governance.attestation import producer_implementation_manifest
+
     source = package_root.resolve(strict=True)
     target = destination.resolve(strict=False)
     if not source.is_dir():
@@ -150,10 +153,14 @@ def prepare_protected_package_copy(*, package_root: Path, destination: Path) -> 
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise FileExistsError("protected package destination must be absent or empty")
     target.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for source_path in sorted(
-        source.rglob("*.py"), key=lambda item: item.relative_to(source).as_posix()
-    ):
+    manifest = producer_implementation_manifest("gate", source)
+    package_name = source.name
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", package_name):
+        raise ValueError("protected package name is not importable")
+    expected: set[str] = set()
+    for entry in manifest["files"]:
+        relative = normalize_repo_path(entry["path"])
+        source_path = source.joinpath(*relative.split("/"))
         if source_path.is_symlink() or not source_path.is_file():
             raise ValueError("protected package closure contains an unsafe file")
         resolved = source_path.resolve(strict=True)
@@ -161,14 +168,23 @@ def prepare_protected_package_copy(*, package_root: Path, destination: Path) -> 
             resolved.relative_to(source)
         except ValueError as exc:
             raise ValueError("protected package closure escapes its source") from exc
-        relative = source_path.relative_to(source)
-        destination_path = target / relative
+        data = resolved.read_bytes()
+        if len(data) != entry["bytes"] or sha256_bytes(data) != entry["sha256"]:
+            raise ValueError("protected package source does not match its manifest")
+        destination_path = target / package_name / relative
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(resolved, destination_path, follow_symlinks=False)
+        if sha256_bytes(destination_path.read_bytes()) != entry["sha256"]:
+            raise ValueError("protected package copy does not match its manifest")
         destination_path.chmod(0o444)
-        copied += 1
-    if copied == 0:
-        raise ValueError("protected package closure is empty")
+        expected.add(f"{package_name}/{relative}")
+    observed = {
+        path.relative_to(target).as_posix()
+        for path in target.rglob("*")
+        if path.is_file() or path.is_symlink()
+    }
+    if observed != expected:
+        raise ValueError("protected package materialization contains unexpected files")
     directories = sorted(
         (path for path in target.rglob("*") if path.is_dir()),
         key=lambda item: len(item.parts),

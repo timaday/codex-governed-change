@@ -154,7 +154,7 @@ advertised migration, and reconstructs submodules at their bound commits. Seven 
 curated mutants enforce those closures. The `c55cee2` audit is stale after these
 changes and cannot qualify this successor.
 
-The current successor working-copy checkpoint on 2026-09-02 observed:
+The immutable `f7037ae` successor checkpoint on 2026-09-02 observed:
 
 - `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
   schema/example pairs.
@@ -167,8 +167,29 @@ The current successor working-copy checkpoint on 2026-09-02 observed:
 - `PYTHONPATH=src python3 scripts/rehearse_rollback.py 5393338571f8ed5de5192613dcdd6131044932dc`:
   `PASS`.
 
-These working-copy observations must be rerun after the successor is immutable,
-and a new exact-candidate fresh review remains mandatory.
+These observations were local post-commit proof, not protected T24 evidence, and
+the audit below prevents them from qualifying the release.
+
+The fresh read-only Codex audit of immutable commit `f7037ae` was bound to the
+correct candidate and declared `BLOCK`, but its formal process evidence was
+`UNKNOWN` because the retained stream contained an ambiguous machine- or
+credential-shaped value and process/capture completion could not be established.
+Its three concrete findings were retained: the rollback materializer received
+the broader `src/` tree while producer identity covered only the package;
+mutation admission counted arbitrary nonzero exits, including launch and harness
+failures, as kills; and concrete mutation-tree identity recorded only submodule
+`HEAD`, not dirty Git-visible submodule bytes.
+
+The current working-copy successor materializes and verifies only exact producer
+manifest paths beneath the package import root, launches rollback through an
+isolated no-site interpreter, requires a terminal structured unittest probe plus
+a distinct causal-kill exit reconstructed from raw evidence, and recursively
+binds tracked and non-ignored untracked submodule bytes. Three new curated mutants
+cover these repairs, and six older corpus selections were narrowed or given
+explicit assertion oracles so harness errors remain `UNKNOWN` rather than being
+mislabelled. Every result for `f7037ae` is stale for this successor; complete
+deterministic gates, the expanded curated corpus, rollback rehearsal, portability
+checks and a new exact-candidate fresh review must be rerun.
 
 The reviewer sandbox deliberately denies cross-process signalling. When a test
 runner is itself nested inside that sandbox, descendant-cleanup tests that need

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import stat
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -10,8 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from codex_governance.canonical import (
+    canonical_json_bytes,
     content_address,
     normalize_repo_path,
+    require_git_object,
     require_sha256,
     sha256_bytes,
     sha256_canonical,
@@ -55,36 +59,164 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "incomplete-migration-registry",
         "ignored-submodule-copy",
         "unframed-rollback-package",
+        "rollback-sibling-sitecustomize",
+        "noncausal-mutation-kill",
+        "submodule-head-only",
     }
 )
 
-MUTATION_PROBE_SOURCE = """import py_compile, subprocess, sys
-path, command = sys.argv[1], sys.argv[2:]
+MUTATION_KILLED_EXIT = 100
+MUTATION_UNKNOWN_EXIT = 119
+MUTATION_INVALID_EXIT = 120
+MUTATION_PROBE_PREFIX = b"CODEX_MUTATION_PROBE="
+UNITTEST_SELECTION_RE = re.compile(r"^tests(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+MUTATION_PROBE_FIELDS = frozenset(
+    {
+        "schema_version", "outcome", "tests_run", "failures", "errors",
+        "skipped", "expected_failures", "unexpected_successes",
+    }
+)
+
+MUTATION_PROBE_SOURCE = """import json, os, py_compile, sys, unittest
+PREFIX = 'CODEX_MUTATION_PROBE='
+FIELDS = ('tests_run', 'failures', 'errors', 'skipped', 'expected_failures', 'unexpected_successes')
+def emit(outcome, counts=None):
+    values = {name: 0 for name in FIELDS}
+    if counts is not None:
+        values.update(counts)
+    payload = {'schema_version': '1.0.0', 'outcome': outcome, **values}
+    print(PREFIX + json.dumps(payload, sort_keys=True, separators=(',', ':')), flush=True)
+path, names = sys.argv[1], sys.argv[2:]
 if path.endswith('.py'):
     try:
         py_compile.compile(path, doraise=True)
     except py_compile.PyCompileError:
+        emit('INVALID')
         raise SystemExit(120)
 try:
-    result = subprocess.run(command, stdin=subprocess.DEVNULL, check=False)
-except OSError:
-    raise SystemExit(121)
-raise SystemExit(result.returncode if 0 <= result.returncode < 120 else 119)
+    sys.path[:0] = [os.path.join(os.getcwd(), 'src'), os.getcwd()]
+    suite = unittest.defaultTestLoader.loadTestsFromNames(names)
+    result = unittest.TextTestRunner(stream=sys.stderr, verbosity=2).run(suite)
+    counts = {
+        'tests_run': result.testsRun,
+        'failures': len(result.failures),
+        'errors': len(result.errors),
+        'skipped': len(result.skipped),
+        'expected_failures': len(result.expectedFailures),
+        'unexpected_successes': len(result.unexpectedSuccesses),
+    }
+except BaseException:
+    emit('UNKNOWN')
+    raise SystemExit(119)
+if counts['tests_run'] > 0 and counts['failures'] > 0 and all(
+    counts[name] == 0
+    for name in ('errors', 'skipped', 'expected_failures', 'unexpected_successes')
+):
+    emit('KILLED', counts)
+    raise SystemExit(100)
+if counts['tests_run'] > 0 and all(counts[name] == 0 for name in FIELDS[1:]):
+    emit('SURVIVED', counts)
+    raise SystemExit(0)
+emit('UNKNOWN', counts)
+raise SystemExit(119)
 """
+
+
+def _selected_unittest_names(selected_command: Sequence[str]) -> list[str]:
+    if (
+        len(selected_command) < 5
+        or list(selected_command[:3]) != ["python3", "-m", "unittest"]
+        or selected_command[-1] != "-v"
+    ):
+        raise ValueError("selected mutation command must be an explicit unittest selection")
+    names = list(selected_command[3:-1])
+    if not names or any(
+        not isinstance(name, str) or UNITTEST_SELECTION_RE.fullmatch(name) is None
+        for name in names
+    ):
+        raise ValueError("selected mutation unittest names are malformed")
+    return names
 
 
 def build_mutation_probe_command(
     path: str, selected_command: Sequence[str]
 ) -> list[str]:
     relative = normalize_repo_path(path)
-    if not selected_command or not all(
-        isinstance(item, str) and item for item in selected_command
-    ):
-        raise ValueError("selected mutation command is required")
+    names = _selected_unittest_names(selected_command)
     return [
-        "/usr/bin/env", "PYTHONPATH=src", "python3", "-c",
-        MUTATION_PROBE_SOURCE, relative, *selected_command,
+        "python3", "-I", "-S", "-c", MUTATION_PROBE_SOURCE, relative, *names,
     ]
+
+
+def mutation_probe_outcome(stdout: bytes, exit_code: int | None) -> str:
+    """Reconstruct one exact terminal probe observation from bounded raw stdout."""
+    if not isinstance(stdout, bytes) or not stdout.endswith(b"\n"):
+        return "UNKNOWN"
+    if stdout.count(MUTATION_PROBE_PREFIX) != 1:
+        return "UNKNOWN"
+    lines = stdout.splitlines()
+    if not lines or not lines[-1].startswith(MUTATION_PROBE_PREFIX):
+        return "UNKNOWN"
+    raw = lines[-1][len(MUTATION_PROBE_PREFIX):]
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "UNKNOWN"
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != MUTATION_PROBE_FIELDS
+        or payload.get("schema_version") != "1.0.0"
+        or raw != canonical_json_bytes(payload)
+    ):
+        return "UNKNOWN"
+    counts = [
+        payload.get(name)
+        for name in (
+            "tests_run", "failures", "errors", "skipped",
+            "expected_failures", "unexpected_successes",
+        )
+    ]
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in counts
+    ):
+        return "UNKNOWN"
+    tests_run, failures, errors, skipped, expected_failures, unexpected = counts
+    if sum(counts[1:]) > tests_run:
+        return "UNKNOWN"
+    outcome = payload.get("outcome")
+    if (
+        outcome == "KILLED"
+        and exit_code == MUTATION_KILLED_EXIT
+        and tests_run > 0
+        and failures > 0
+        and errors == skipped == expected_failures == unexpected == 0
+    ):
+        return "KILLED"
+    if (
+        outcome == "SURVIVED"
+        and exit_code == 0
+        and tests_run > 0
+        and failures == errors == skipped == expected_failures == unexpected == 0
+    ):
+        return "SURVIVED"
+    if outcome == "INVALID" and exit_code == MUTATION_INVALID_EXIT and not any(counts):
+        return "INVALID"
+    return "UNKNOWN"
+
+
+def classify_mutation_execution(
+    *, status: str, termination_kind: str, exit_code: int | None, stdout: bytes
+) -> str:
+    """Map only matching gate state and protected probe proof to an outcome."""
+    if termination_kind == "timeout":
+        return "TIMEOUT"
+    observed = mutation_probe_outcome(stdout, exit_code)
+    if status == "PASS" and observed == "SURVIVED":
+        return "SURVIVED"
+    if status == "FAIL" and observed in {"KILLED", "INVALID"}:
+        return observed
+    return "UNKNOWN"
 
 
 def evaluate_mutation_record(record: Mapping[str, Any]) -> DispositionState:
@@ -137,6 +269,26 @@ def git_visible_tree_sha256(
         normalize_repo_path(path): bytes(data)
         for path, data in (replacements or {}).items()
     }
+    return _git_visible_tree_sha256(
+        root,
+        evidence_root=evidence,
+        replacements=replacement_bytes,
+        ancestors=frozenset(),
+    )
+
+
+def _git_visible_tree_sha256(
+    root: Path,
+    *,
+    evidence_root: str | None,
+    replacements: Mapping[str, bytes],
+    ancestors: frozenset[Path],
+) -> str:
+    """Recursively frame one repository and all initialized submodule trees."""
+    root = root.resolve(strict=True)
+    if root in ancestors:
+        raise ValueError("recursive submodule cycle is not admissible")
+    nested_ancestors = ancestors | {root}
     modes: dict[str, str] = {}
     for raw in _git(root, "ls-files", "--stage", "-z").split(b"\x00"):
         if not raw:
@@ -153,17 +305,40 @@ def git_visible_tree_sha256(
         if not raw:
             continue
         path = normalize_repo_path(raw.decode("utf-8"))
-        if path in seen or path == evidence or path.startswith(evidence + "/"):
+        if path in seen or (
+            evidence_root is not None
+            and (path == evidence_root or path.startswith(evidence_root + "/"))
+        ):
             continue
         seen.add(path)
         absolute = root.joinpath(*path.split("/"))
         mode = modes.get(path)
         if mode == "160000":
-            commit = _git(absolute, "rev-parse", "HEAD").decode("ascii").strip()
-            entries.append({"path": path, "mode": mode, "submodule_commit": commit})
+            nested_root = absolute.resolve(strict=True)
+            try:
+                nested_root.relative_to(root)
+            except ValueError as exc:
+                raise ValueError("Git-visible submodule escapes its repository") from exc
+            commit = require_git_object(
+                _git(nested_root, "rev-parse", "HEAD").decode("ascii").strip(),
+                name="submodule commit",
+            )
+            entries.append(
+                {
+                    "path": path,
+                    "mode": mode,
+                    "submodule_commit": commit,
+                    "submodule_tree_sha256": _git_visible_tree_sha256(
+                        nested_root,
+                        evidence_root=None,
+                        replacements={},
+                        ancestors=nested_ancestors,
+                    ),
+                }
+            )
             continue
-        if path in replacement_bytes:
-            data = replacement_bytes[path]
+        if path in replacements:
+            data = replacements[path]
             if mode is None:
                 info = absolute.lstat()
                 mode = "100755" if info.st_mode & 0o111 else "100644"
@@ -183,7 +358,7 @@ def git_visible_tree_sha256(
         entries.append(
             {"path": path, "mode": mode, "bytes": len(data), "sha256": sha256_bytes(data)}
         )
-    if set(replacement_bytes) - seen:
+    if set(replacements) - seen:
         raise ValueError("mutation replacement path is not Git-visible")
     return sha256_canonical({"schema_version": "1.0.0", "entries": entries})
 
@@ -287,6 +462,7 @@ def parse_curated_corpus(data: bytes) -> dict[str, Any]:
             isinstance(item, str) and item for item in command
         ):
             raise ValueError("curated mutant command is malformed")
+        _selected_unittest_names(command)
     if ids != REQUIRED_CURATED_MUTANTS:
         raise ValueError("curated mutation corpus does not exactly match protected IDs")
     return document

@@ -11,6 +11,11 @@ from pathlib import Path
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 PROTECTED_PACKAGE_CONTAINER_ROOT = "/opt/codex-governance"
+PROTECTED_ROLLBACK_LAUNCHER = (
+    "import runpy,sys;"
+    f"sys.path.insert(0,{PROTECTED_PACKAGE_CONTAINER_ROOT!r});"
+    "runpy.run_module('codex_governance.rollback',run_name='__main__',alter_sys=True)"
+)
 
 
 def protected_rollback_command(target: str) -> list[str]:
@@ -19,10 +24,11 @@ def protected_rollback_command(target: str) -> list[str]:
         raise ValueError("rollback target must be a full Git commit")
     return [
         "/usr/bin/env",
-        f"PYTHONPATH={PROTECTED_PACKAGE_CONTAINER_ROOT}",
         "python3",
-        "-m",
-        "codex_governance.rollback",
+        "-I",
+        "-S",
+        "-c",
+        PROTECTED_ROLLBACK_LAUNCHER,
         target,
     ]
 

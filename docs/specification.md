@@ -124,7 +124,7 @@ affected surfaces remain an additional assertion used for closure checks.
 
 `.git/` and the configured evidence output root are excluded. No other tracked candidate path may be excluded. Ignored files are outside the candidate contract and MUST NOT be needed for correctness; required generated inputs must be represented by a declared gate artifact digest.
 
-Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. Every gate, mutation baseline and mutant probe MUST independently re-identify its exact executed copy both before and after execution; observing the untouched source repository cannot establish copy stability. A mutant source identity additionally binds a complete concrete Git-visible tree manifest after the protected patch is applied. A mismatch makes the result `UNKNOWN`. Submodules copied for gates MUST be reconstructed from their bound commits rather than copied from working directories, so ignored and machine-local files remain absent. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
+Working-tree mode is advisory because the tree can change concurrently. The runner MUST compute the identity before and after each gate and reviewer run. Every gate, mutation baseline and mutant probe MUST independently re-identify its exact executed copy both before and after execution; observing the untouched source repository cannot establish copy stability. A mutant source identity additionally binds a complete concrete Git-visible tree manifest after the protected patch is applied. That manifest recursively binds each submodule's exact commit and its own tracked plus non-ignored untracked bytes; a gitlink commit alone is insufficient because submodule worktree bytes can drift without moving `HEAD`. A mismatch makes the result `UNKNOWN`. Submodules copied for gates MUST be reconstructed from their bound commits rather than copied from working directories, so ignored and machine-local files remain absent. CI MUST use immutable commit mode. Each observation-through-publication command MUST hold a non-blocking OS-backed lock on the retained no-follow evidence-root directory descriptor itself for its complete lifetime, and the output store MUST verify that same root device/inode through publication. A writable, hardlinkable or replaceable lock leaf is not an authority boundary. Replacement, unavailable safe binding or contention is `UNKNOWN/BLOCK`.
 
 In commit mode, resolving the caller-requested head is not proof of the checked
 out repository state. The repository adapter MUST independently resolve actual
@@ -526,9 +526,12 @@ producer identity and chronology, rejects limitations, and requires the policy
 argv, executed gate argv, provenance material and exact machine-readable success
 line to agree on the authenticated base target. A protected producer runs this
 rehearsal separately from the ordinary task-selected gate set using executable
-rollback code from a read-only materialization containing exactly the
-previous-LKG package's producer-digested Python closure; ignored, untracked and
-candidate-relative rollback code is never an authority source. It emits the
+rollback code from a read-only materialization containing exactly the paths and
+verified bytes in the previous-LKG package's producer manifest. The materialized
+import root contains that package and no broader source-tree siblings, Python
+site initialization is disabled, and a missing, mismatched or extra file blocks;
+ignored, untracked and candidate-relative rollback code is never an authority
+source. It emits the
 nested typed rollback evidence before the
 previous-LKG promotion predicate runs;
 ordinary governance authorization or digest-shaped proof alone is insufficient.
@@ -615,10 +618,15 @@ The mandatory mutation gate is a curated semantic corpus for fail-closed
 governance invariants. The previous-LKG policy binds the complete corpus byte
 digest, and the producer reads those exact bytes from the protected governance
 checkout, copies them into write-once evidence, and rejects a candidate-local or
-digest-mismatched substitute. It runs in a disposable candidate after a green baseline
-and before final review. Only a causal expected-test failure kills a valid
-non-equivalent mutant. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
-`EQUIVALENT_CLAIMED`, unexecuted and harness failures never count as killed and
+digest-mismatched substitute. It runs in a disposable candidate after a green
+baseline and before final review. Only a protected structured probe showing that
+the exact selected unittest command ran at least one test and terminated solely
+with an assertion failure kills a valid non-equivalent mutant. The trusted probe
+emits an exact machine-readable terminal marker and distinct exit code; admission
+re-reads the bounded raw stream and reconstructs both rather than trusting the
+mutant-record label. `SURVIVED`, `TIMEOUT`, `INVALID`, unresolved
+`EQUIVALENT_CLAIMED`, launch/import/discovery/harness/crash/signal, malformed
+probe, unexecuted and mixed error/failure outcomes never count as killed and
 block or remain unknown. Generated language mutation is a bounded optional
 adapter; aggregate percentage alone is not an oracle.
 
@@ -744,8 +752,11 @@ pathname between validation and copy.
 Gate and mutation implementation identities hash a canonical manifest containing
 the repository-relative filename, byte length and SHA-256 digest of every Python
 file in the trusted package closure. The producer kind is framed separately.
-Changing any shared producer dependency changes the asserted identity and makes
-earlier evidence incompatible.
+Where that closure is materialized for protected execution, the manifest is the
+exclusive copy allowlist: every source and destination digest is verified and no
+additional importable file may appear under the materialized root. Changing or
+injecting any shared producer dependency changes the asserted identity or blocks
+materialization and makes earlier evidence incompatible.
 
 ## 20. Acceptance rule
 

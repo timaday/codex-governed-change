@@ -364,7 +364,7 @@ def _run_gates(args: argparse.Namespace) -> int:
         supervisor = Path(temporary).resolve()
         protected_package = (
             prepare_protected_package_copy(
-                package_root=Path(__file__).resolve().parents[1],
+                package_root=Path(__file__).resolve().parent,
                 destination=supervisor / "protected-package",
             )
             if governed_paths

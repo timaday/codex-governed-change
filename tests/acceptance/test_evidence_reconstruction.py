@@ -32,9 +32,12 @@ from codex_governance.evidence import (
     evaluate_manifest,
 )
 from codex_governance.mutation import (
+    MUTATION_KILLED_EXIT,
+    MUTATION_PROBE_PREFIX,
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
     expected_mutated_tree_sha256,
+    git_visible_tree_sha256,
     mutated_source_identity,
 )
 from codex_governance.qualification import (
@@ -127,6 +130,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         candidate_changed_paths: list[str] | None = None,
         usage_mismatch: str | None = None,
         gate_defect: str | None = None,
+        mutation_defect: str | None = None,
         risk_downgrade: bool = False,
         reviewer_defect: str | None = None,
     ) -> dict:
@@ -801,6 +805,24 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             name: str, source_identity: str, command: list[str], status: str,
             exit_code: int,
         ) -> tuple[dict, dict[str, str], dict[str, str], dict[str, str]]:
+            execution_stdout = b"ok\n"
+            if name.startswith("mutant-"):
+                execution_stdout = MUTATION_PROBE_PREFIX + canonical_json_bytes(
+                    {
+                        "schema_version": "1.0.0",
+                        "outcome": "KILLED",
+                        "tests_run": 1,
+                        "failures": 1,
+                        "errors": 0,
+                        "skipped": 0,
+                        "expected_failures": 0,
+                        "unexpected_successes": 0,
+                    }
+                ) + b"\n"
+            execution_stdout_ref = self.raw(
+                f"mutation/{name}/stdout.bin", execution_stdout
+            )
+            execution_stderr_ref = self.raw(f"mutation/{name}/stderr.bin", b"")
             execution_identity = sandbox_execution_identity(
                 provider="docker", provider_version="fixture",
                 image=policy["sandbox"]["image"], command=command,
@@ -859,8 +881,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 started_at=self.AT, ended_at=self.ENDED, result=status,
                 limits={"timeout_seconds": 60, "max_output_bytes": 1000, "process_limit": 16, "memory_bytes": 1000000, "cpu_seconds": 60},
                 artifacts=[
-                    {"name": "stdout", "sha256": stdout_ref["sha256"]},
-                    {"name": "stderr", "sha256": stderr_ref["sha256"]},
+                    {"name": "stdout", "sha256": execution_stdout_ref["sha256"]},
+                    {"name": "stderr", "sha256": execution_stderr_ref["sha256"]},
                     {"name": "sandbox-capability", "sha256": mutation_capability_ref["sha256"]},
                 ],
                 limitations=["fixture mutation provenance"],
@@ -879,8 +901,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "command": command, "started_at": self.AT, "ended_at": self.ENDED,
                 "duration_ms": 1000, "termination": {"kind": "exited", "exit_code": exit_code},
                 "artifacts": [
-                    {"stream": "stdout", "path": stdout_ref["path"], "bytes": 3, "sha256": stdout_ref["sha256"], "truncated": False},
-                    {"stream": "stderr", "path": stderr_ref["path"], "bytes": 0, "sha256": stderr_ref["sha256"], "truncated": False},
+                    {"stream": "stdout", "path": execution_stdout_ref["path"], "bytes": len(execution_stdout), "sha256": execution_stdout_ref["sha256"], "truncated": False},
+                    {"stream": "stderr", "path": execution_stderr_ref["path"], "bytes": 0, "sha256": execution_stderr_ref["sha256"], "truncated": False},
                 ],
                 "redactions": [], "observation_complete": True, "status": status,
                 "limitations": [], "provenance_statement": mutation_provenance_ref,
@@ -905,20 +927,37 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "new": definition["new"], "operator": definition["operator"],
                 }
             )
-            source_identity = mutated_source_identity(
-                candidate_id=self.CANDIDATE_ID, corpus_id=corpus["corpus_id"],
-                mutant_id=mutant, patch_sha256=patch_sha,
-                tree_sha256=expected_mutated_tree_sha256(
+            try:
+                expected_tree = expected_mutated_tree_sha256(
                     repository=self.repository,
                     evidence_root=policy["evidence_root"],
                     mutant=definition,
-                ),
+                )
+            except ValueError:
+                target_text = self.repository.joinpath(
+                    *definition["path"].split("/")
+                ).read_text(encoding="utf-8")
+                if (
+                    definition["old"] in target_text
+                    or target_text.count(definition["new"]) != 1
+                ):
+                    raise
+                expected_tree = git_visible_tree_sha256(
+                    self.repository, evidence_root=policy["evidence_root"]
+                )
+            source_identity = mutated_source_identity(
+                candidate_id=self.CANDIDATE_ID, corpus_id=corpus["corpus_id"],
+                mutant_id=mutant, patch_sha256=patch_sha,
+                tree_sha256=expected_tree,
             )
             selected_command = list(definition["selected_command"])
             command = build_mutation_probe_command(definition["path"], selected_command)
             gate_name = f"mutant-{mutant}"
             mutation_result, execution_ref, mutation_capability_ref, mutation_provenance_ref = mutation_execution(
-                gate_name, source_identity, command, "FAIL", 1
+                gate_name, source_identity, command, "FAIL",
+                121
+                if mutation_defect == "launch-failure-as-kill" and index == 1
+                else MUTATION_KILLED_EXIT,
             )
             execution_locator = content_address(
                 {
@@ -1765,6 +1804,18 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             with self.subTest(defect=defect):
                 self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_launch_failure_cannot_be_admitted_as_a_mutation_kill(self) -> None:
+        manifest = self.complete_manifest(mutation_defect="launch-failure-as-kill")
+        state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
 
     def test_candidate_risk_assessment_cannot_downgrade_protected_floor(self) -> None:
         manifest = self.complete_manifest(risk_downgrade=True)

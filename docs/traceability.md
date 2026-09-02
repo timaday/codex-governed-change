@@ -6,7 +6,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 |---|---|---|
 | GOV-001 | T09, T10 | `test_blueprint_contract.py`, skill fixtures |
 | GOV-002 | T01, T07 | `test_workflow_profiles.py` |
-| GOV-003 | T03, T24 | `test_candidate_identity.py`, copy-local gate/mutation drift and concrete-mutant-tree tests, `test_reviewer_isolation.py` |
+| GOV-003 | T03, T24 | `test_candidate_identity.py`, copy-local gate/mutation drift, recursive-submodule and concrete-mutant-tree tests, `test_reviewer_isolation.py` |
 | GOV-004 | T02, T04, T05 | `test_gate_evidence.py` |
 | GOV-005 | T06 | `test_reviewer_isolation.py` |
 | GOV-006 | T06, T09 | `test_reviewer_isolation.py`, permission-profile canary, CI static checks |
@@ -53,7 +53,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-047 | T16, T24 | `test_attestation.py`, `test_gate_evidence.py`, `test_pipeline_lock.py`, directory-lock hardlink/leaf-replacement and CLI no-replacement tests |
 | GOV-048 | T14, T24 | `test_trusted_authority.py`, `test_disposition_policy.py`, authenticated qualification-label decision, trusted-current-time and rerun-after-expiry tests |
 | GOV-049 | T14, T24 | `test_trusted_authority.py`, `test_workflow_profiles.py`, protected risk-floor reconstruction tests |
-| GOV-050 | T14, T23, T24 | `test_trusted_authority.py`, exact-closure read-only protected-package rollback producer, ignored-package exclusion, candidate-script substitution, exact argv/stdout target binding, admission-path proposed-policy/promotion/rollback reconstruction plus missing/dummy/re-addressed nested-proof tests, `test_ci_admission.py` |
+| GOV-050 | T14, T23, T24 | `test_trusted_authority.py`, exact-manifest read-only protected-package rollback producer, sibling `sitecustomize`/extra-file exclusion, disabled site loading, candidate-script substitution, exact argv/stdout target binding, admission-path proposed-policy/promotion/rollback reconstruction plus missing/dummy/re-addressed nested-proof tests, `test_ci_admission.py` |
 | GOV-051 | T14, T22 | `test_assurance_case.py`, `test_reference_monitor.py` |
 | GOV-052 | T15, T20 | `test_assurance_case.py` descriptor-bound swap/symlink/FIFO/oversize tests, end-to-end reviewer CLI/materialization single-read race/special-file tests, `test_reviewer_isolation.py` |
 | GOV-053 | T14 | `test_assurance_case.py`, `test_disposition_policy.py` |
@@ -61,10 +61,10 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-055 | T20, T24 | `test_reviewer_qualification.py`, mandatory seeded-defect/prompt-injection/control classes, deterministic synthetic-candidate plus per-case source/projection/qualification/prepared/post-run context and typed corpus/case/normalized-stream/JSONL-result/primitive-observation/execution reconstruction, nested-credential source-literal tests, portability and protected label-decision tests |
 | GOV-056 | T20 | `test_reviewer_qualification.py`, `test_workflow_profiles.py` |
 | GOV-057 | T18 | `test_rapid_review.py`, `test_rst_operations.py` |
-| GOV-058 | T19 | `test_mutation_governance.py`, protected-corpus bytes, concrete mutated-tree identity and post-probe drift tests |
-| GOV-059 | T19 | `test_mutation_governance.py`, schema/example checks |
+| GOV-058 | T19 | `test_mutation_governance.py`, protected-corpus bytes, recursive concrete mutated-tree identity, structured selected-unittest causal proof and post-probe drift tests |
+| GOV-059 | T19 | `test_mutation_governance.py`, compile/launch/import/discovery/crash/malformed-probe classification, raw-evidence reconstruction and schema/example checks |
 | GOV-060 | T15 | `test_schema_lifecycle.py`, complete executable advertised-transition matrix including effective-policy v3, protected missing-field inputs, legacy/current schema rejection and re-addressing, capability/provenance chronology and schema/example checks |
-| GOV-061 | T15, T16, T17 | Complete framed producer-package drift tests in `test_attestation.py`, `test_gate_sandbox.py` |
+| GOV-061 | T15, T16, T17 | Complete framed producer-package drift and exact-manifest materialization tests in `test_attestation.py`, `test_gate_sandbox.py` |
 | GOV-062 | T13, T16, T17, T23 | `test_public_portability.py`, ignored-submodule sandbox exclusion, clean-environment gate |
 | GOV-TOKEN-001 | T21, T24 | `test_context_compiler.py`, `test_cli_orchestration.py`, protected-source and forged-signal tests |
 | GOV-TOKEN-002 | T21, T24 | `test_context_qualification.py`, `test_reviewer_qualification.py`, profile/version qualification identity tests |

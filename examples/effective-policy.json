@@ -30,7 +30,7 @@
       "DEEP": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
-  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:e9ccb776cffccbabfcafbc5fc9ebb7df49edf32f2728e8b98d3c431e65743a59", "generated_budget": 0},
+  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:eff5a0674c237665cee952412795d0c50411a459b6d9868dcb11d9aa7cfcf641", "generated_budget": 0},
   "reviewer": {
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh",
@@ -92,7 +92,7 @@
     {
       "gate_id": "rollback-rehearsal",
       "profiles": ["governance"],
-      "command": ["/usr/bin/env", "PYTHONPATH=/opt/codex-governance", "python3", "-m", "codex_governance.rollback", "1111111111111111111111111111111111111111"],
+      "command": ["/usr/bin/env", "python3", "-I", "-S", "-c", "import runpy,sys;sys.path.insert(0,'/opt/codex-governance');runpy.run_module('codex_governance.rollback',run_name='__main__',alter_sys=True)", "1111111111111111111111111111111111111111"],
       "timeout_seconds": 300,
       "max_output_bytes": 1000000,
       "shell": false,

@@ -167,6 +167,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
 
     def test_rollback_invocation_mounts_protected_package_read_only(self) -> None:
         from codex_governance.sandbox import build_container_invocation
+        from codex_governance.rollback import protected_rollback_command
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -180,10 +181,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 image="python@sha256:" + "c" * 64,
                 candidate_copy=candidate_copy,
                 candidate_id="sha256:" + "a" * 64,
-                command=[
-                    "/usr/bin/env", "PYTHONPATH=/opt/codex-governance",
-                    "python3", "-m", "codex_governance.rollback", "1" * 40,
-                ],
+                command=protected_rollback_command("1" * 40),
                 process_limit=64,
                 memory_bytes=1000000,
                 cpu_seconds=60,
@@ -206,6 +204,10 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             source = root / "source"
+            (source / "sitecustomize.py").parent.mkdir(parents=True)
+            (source / "sitecustomize.py").write_text(
+                "raise SystemExit('sibling executed')\n", encoding="utf-8"
+            )
             (source / "codex_governance/__pycache__").mkdir(parents=True)
             (source / "codex_governance/__init__.py").write_text(
                 "VALUE = 1\n", encoding="utf-8"
@@ -220,13 +222,13 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 b"machine-bytecode"
             )
             copied = prepare_protected_package_copy(
-                package_root=source,
+                package_root=source / "codex_governance",
                 destination=root / "protected",
             )
             expected = {
-                item["path"]
+                "codex_governance/" + item["path"]
                 for item in producer_implementation_manifest(
-                    "gate", source
+                    "gate", source / "codex_governance"
                 )["files"]
             }
             observed = {
@@ -241,6 +243,17 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             self.assertFalse(
                 (copied / "codex_governance/__pycache__/rollback.pyc").exists()
             )
+            self.assertFalse((copied / "sitecustomize.py").exists())
+
+    def test_protected_rollback_command_disables_python_site_loading(self) -> None:
+        from codex_governance.rollback import protected_rollback_command
+
+        command = protected_rollback_command("1" * 40)
+        self.assertEqual("python3", command[1])
+        self.assertEqual("-I", command[2])
+        self.assertEqual("-S", command[3])
+        self.assertEqual("-c", command[4])
+        self.assertIn("sys.path.insert(0,'/opt/codex-governance')", command[5])
 
     def test_container_create_and_cleanup_bind_the_exact_immutable_id(self) -> None:
         from codex_governance.sandbox import (

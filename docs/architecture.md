@@ -186,7 +186,9 @@ The identity is recomputed immediately after every side-effecting observation. D
 - Repository paths use `/`, reject absolute paths and `..`, and are sorted by Unicode code point.
 - File content is hashed as bytes; large files may stream but may not be sampled.
 - Symlink identity includes the link target bytes, not followed file content.
-- Submodules record path and exact commit.
+- Submodules record path and exact commit. Concrete mutation-tree identity also
+  recursively hashes each submodule's tracked and non-ignored untracked tree, so
+  worktree drift cannot hide behind an unchanged gitlink commit.
 
 ## Reviewer process design
 
@@ -422,8 +424,10 @@ promotion-decision and rollback artifacts. Rollback evidence references a
 policy-defined rollback gate result, capability and provenance statement; the
 protected producer runs that gate separately from task-selected gates with the
 rollback module supplied by a read-only materialization containing exactly the
-previous-LKG package's producer-digested Python closure, and binds the proposed
-policy plus authenticated base. Admission re-hashes and reconstructs
+previous-LKG package producer manifest's verified paths and bytes beneath the
+package import root, with no broader source-tree siblings and Python site loading
+disabled, and binds the proposed policy plus authenticated base. Admission
+re-hashes and reconstructs
 their raw streams, execution semantics, producer identity, chronology, exact
 argv, machine-readable target and absence of limitations before invoking the LKG
 promotion predicate.
@@ -440,7 +444,9 @@ gate and asks a sandbox adapter to enforce the protected capability policy. A
 writable copy never becomes the input to a sibling gate and is removed with the
 disposable supervisor state. The supervisor independently identifies every exact
 executed gate, baseline and mutant copy before and after execution; mutation
-source identity also frames the complete concrete Git-visible tree. Reviewer
+source identity also frames the complete concrete Git-visible tree, recursively
+including Git-visible submodule worktree bytes as well as each submodule commit.
+Reviewer
 snapshots receive the same post-copy identity check. Gate submodules are cloned
 locally and checked out at their candidate-bound commits, excluding ignored
 working-directory content; dirty/unavailable submodule worktrees fail closed,
@@ -456,6 +462,14 @@ failure to establish absence is incomplete observation. After process-tree termi
 the trusted supervisor re-identifies the executed copy and packages outputs into the
 write-once store. A provider capability mismatch is `UNKNOWN`; the supervisor
 does not fall back to a host subprocess.
+
+The curated mutation probe is protected producer code, not candidate harness
+logic. It accepts only the bounded unittest command grammar, compiles the mutated
+Python target, invokes the selection with site initialization isolated, and emits
+one terminal structured observation. `KILLED` requires a distinct protected exit
+code plus proof that at least one selected test ran and the final unittest result
+contained assertion failures but no import, discovery, harness or execution
+errors. All other non-success results are `INVALID` or `UNKNOWN`.
 
 ## Context compiler
 

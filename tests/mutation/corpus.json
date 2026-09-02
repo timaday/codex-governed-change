@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:d0395bf74f016b84fe3287663f1572342755ce2195c6a6cf94a63f29044ed97b",
+  "corpus_id": "sha256:71f5e50cdd3dce341969c69a256f317a1c31ff8523ab070cec4ccba6e743752e",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -91,7 +91,7 @@
       "new": "if len(required) != len(set(required)):",
       "operator": "permit candidate-selected gate identifiers",
       "requirement_id": "GOV-011",
-      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_configuration", "-v"]
+      "selected_command": ["python3", "-m", "unittest", "tests.unit.test_configuration.ConfigurationTest.test_unknown_gate_and_shell_without_risk_fail_closed", "-v"]
     },
     {
       "mutant_id": "redaction-hides-failure",
@@ -136,7 +136,7 @@
       "new": "    expected = {\n        \"disposable\": True,\n        \"secrets_present\": False,\n        \"network_mode\": \"none\",\n        \"candidate_copy_writable\": True,\n        \"protected_paths_writable\": True,",
       "operator": "declare writable authority paths safe",
       "requirement_id": "GOV-044",
-      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox", "-v"]
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_only_complete_safe_capability_report_is_usable", "-v"]
     },
     {
       "mutant_id": "manifest-overwrite",
@@ -294,11 +294,38 @@
     {
       "mutant_id": "unframed-rollback-package",
       "path": "src/codex_governance/cli.py",
-      "old": "        protected_package = (\n            prepare_protected_package_copy(\n                package_root=Path(__file__).resolve().parents[1],\n                destination=supervisor / \"protected-package\",\n            )\n            if governed_paths\n            else None\n        )",
-      "new": "        protected_package = (\n            Path(__file__).resolve().parents[1]\n            if governed_paths\n            else None\n        )",
+      "old": "                package_root=Path(__file__).resolve().parent,",
+      "new": "                package_root=Path(__file__).resolve().parents[1],",
       "operator": "mount ignored and untracked package files outside the producer digest",
       "requirement_id": "GOV-050",
       "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_governance_gate_producer_emits_separate_typed_rollback_evidence", "-v"]
+    },
+    {
+      "mutant_id": "rollback-sibling-sitecustomize",
+      "path": "src/codex_governance/rollback.py",
+      "old": "        \"-I\",\n        \"-S\",\n        \"-c\",",
+      "new": "        \"-I\",\n        \"-c\",",
+      "operator": "enable Python site initialization in the protected rollback process",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_protected_rollback_command_disables_python_site_loading", "-v"]
+    },
+    {
+      "mutant_id": "noncausal-mutation-kill",
+      "path": "src/codex_governance/mutation.py",
+      "old": "    if status == \"FAIL\" and observed in {\"KILLED\", \"INVALID\"}:\n        return observed",
+      "new": "    if status == \"FAIL\":\n        return \"KILLED\"",
+      "operator": "count arbitrary failed mutation executions as causal kills",
+      "requirement_id": "GOV-058",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_mutation_probe_rejects_non_unittest_commands_and_forged_markers", "-v"]
+    },
+    {
+      "mutant_id": "submodule-head-only",
+      "path": "src/codex_governance/mutation.py",
+      "old": "                    \"submodule_tree_sha256\": _git_visible_tree_sha256(\n                        nested_root,\n                        evidence_root=None,\n                        replacements={},\n                        ancestors=nested_ancestors,\n                    ),",
+      "new": "                    \"submodule_tree_sha256\": sha256_canonical({\"commit\": commit}),",
+      "operator": "bind only the submodule HEAD instead of its concrete Git-visible bytes",
+      "requirement_id": "GOV-003",
+      "selected_command": ["python3", "-m", "unittest", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_concrete_tree_recursively_binds_dirty_submodule_bytes", "-v"]
     }
   ]
 }

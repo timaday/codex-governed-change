@@ -39,8 +39,14 @@ class ConfigurationTest(unittest.TestCase):
     def test_unknown_gate_and_shell_without_risk_fail_closed(self) -> None:
         contract = deepcopy(self.contract)
         contract["required_gate_ids"] = ["candidate-controlled-gate"]
-        with self.assertRaises(ValueError):
+        try:
             resolve_effective_configuration(policy=self.policy, task_contract=contract)
+        except ValueError:
+            pass
+        except Exception as exc:  # pragma: no cover - exercised by mutation
+            self.fail(f"unknown gate raised the wrong exception: {type(exc).__name__}")
+        else:  # pragma: no cover - exercised by mutation
+            self.fail("unknown candidate-selected gate was accepted")
 
         policy = deepcopy(self.policy)
         policy["gates"][0]["shell"] = True

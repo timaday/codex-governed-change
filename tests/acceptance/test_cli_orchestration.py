@@ -20,6 +20,7 @@ from codex_governance.canonical import (
 from codex_governance.evidence import assemble_gate_manifest
 from codex_governance.mutation import REQUIRED_CURATED_MUTANTS
 from codex_governance.domain.model import DispositionState
+from codex_governance.rollback import protected_rollback_command
 
 
 class CliOrchestrationAcceptanceTest(unittest.TestCase):
@@ -719,14 +720,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 for item in policy["gates"]
                 if item["gate_id"] == "rollback-rehearsal"
             )
-            rollback_definition["command"] = [
-                "/usr/bin/env",
-                "PYTHONPATH=/opt/codex-governance",
-                "python3",
-                "-m",
-                "codex_governance.rollback",
-                base,
-            ]
+            rollback_definition["command"] = protected_rollback_command(base)
             proposed_policy = json.loads(json.dumps(policy))
             proposed_policy["policy_id"] = "POLICY-PROPOSED-FIXTURE"
             proposed_policy["lkg_governance_commit"] = head
@@ -977,7 +971,14 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 patch.object(cli, "run_gate", side_effect=fake_run_gate),
                 patch.object(cli, "_emit", side_effect=emitted.append),
             ):
-                self.assertEqual(0, cli._run_gates(arguments))
+                try:
+                    exit_code = cli._run_gates(arguments)
+                except Exception as exc:  # pragma: no cover - mutation oracle
+                    self.fail(
+                        "protected rollback orchestration raised unexpectedly: "
+                        f"{type(exc).__name__}"
+                    )
+                self.assertEqual(0, exit_code)
 
             summary = emitted[-1]
             self.assertEqual(
@@ -1000,17 +1001,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             gate = json.loads(
                 (repository / rollback["gate_result"]["path"]).read_text()
             )
-            self.assertEqual(
-                [
-                    "/usr/bin/env",
-                    "PYTHONPATH=/opt/codex-governance",
-                    "python3",
-                    "-m",
-                    "codex_governance.rollback",
-                    base,
-                ],
-                gate["command"],
-            )
+            self.assertEqual(protected_rollback_command(base), gate["command"])
             stdout = next(
                 item for item in gate["artifacts"] if item["stream"] == "stdout"
             )

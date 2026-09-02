@@ -301,6 +301,12 @@ against reviewer snapshot construction and require post-copy candidate identity
 failure. Dirty/untracked submodule state and non-empty reviewer submodules fail
 closed until recursively immutable object materialization is supported.
 
+For concrete mutation-tree identity, initialize a real submodule, keep its
+gitlink commit fixed, and independently change a tracked byte and add a
+non-ignored untracked file. Both operations must change the recursive tree
+digest. Ignored submodule files remain excluded and must never enter a
+reconstructed candidate copy.
+
 Oracle: unsupported states are explicit `UNKNOWN/BLOCK`, not silent defaults.
 
 ## Mandatory governance mutation evaluation
@@ -322,6 +328,14 @@ Seed at least these mutations:
 
 Every mutation must be killed by deterministic tests. Surviving high-risk mutations block release.
 
+The protected mutation probe must also be tested adversarially. A selected
+unittest assertion failure with at least one executed test is the only kill.
+Compilation failure is `INVALID`; launch failure, missing test selection, import
+or discovery error, candidate crash/signal, mixed failure plus error, absent or
+malformed terminal marker, and a forged `KILLED` record over incompatible raw
+stdout are `UNKNOWN/BLOCK`. Admission must reconstruct the terminal marker and
+distinct kill exit code from the referenced bounded execution evidence.
+
 The curated list is an MVP gate, not later optional hardening. Its complete bytes
 must match the previous-LKG policy digest and come from the protected governance
 checkout. Baseline and mutant suppliers must observe their executed copies, and
@@ -331,6 +345,10 @@ governance/evidence paths, manifest replacement, unverified reviewer locators,
 risk downgrade, old-policy self-replacement, candidate-corpus substitution,
 candidate rollback-script substitution, copy-local drift, ignored-submodule
 copy and missing-provenance mutants.
+
+Also seed broader-source-root rollback materialization that would copy a sibling
+`sitecustomize.py`, a mutation runner that treats any nonzero exit as killed, and
+submodule tree identity that records only `HEAD`.
 
 Run only after a green baseline, in a disposable worktree/sandbox, before the
 final fresh-context review. A mutant is `KILLED` only when an expected test

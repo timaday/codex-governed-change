@@ -70,7 +70,8 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "gate-copy-source-identity", "mutation-copy-source-identity",
             "candidate-owned-corpus", "candidate-owned-rollback",
             "incomplete-migration-registry", "ignored-submodule-copy",
-            "unframed-rollback-package",
+            "unframed-rollback-package", "rollback-sibling-sitecustomize",
+            "noncausal-mutation-kill", "submodule-head-only",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
@@ -172,6 +173,197 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
                 ),
             )
             self.assertNotEqual(source, drifted)
+
+    def test_concrete_tree_recursively_binds_dirty_submodule_bytes(self) -> None:
+        from codex_governance.mutation import git_visible_tree_sha256
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child = root / "child"
+            parent = root / "parent"
+            for repository in (child, parent):
+                repository.mkdir()
+                subprocess.run(
+                    ["git", "-C", str(repository), "init", "--quiet"], check=True
+                )
+                subprocess.run(
+                    ["git", "-C", str(repository), "config", "user.name", "Fixture"],
+                    check=True,
+                )
+                subprocess.run(
+                    [
+                        "git", "-C", str(repository), "config", "user.email",
+                        "fixture@example.invalid",
+                    ],
+                    check=True,
+                )
+            (child / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(child), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(child), "commit", "--quiet", "-m", "child"],
+                check=True,
+            )
+            (parent / "root.py").write_text("ROOT = True\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(parent), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(parent), "commit", "--quiet", "-m", "parent"],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git", "-c", "protocol.file.allow=always", "-C", str(parent),
+                    "submodule", "add", "--quiet", str(child), "vendor/child",
+                ],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(parent), "commit", "--quiet", "-am", "submodule"], check=True)
+
+            clean = git_visible_tree_sha256(parent, evidence_root="evidence")
+            nested = parent / "vendor/child"
+            (nested / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+            self.assertNotEqual(
+                clean, git_visible_tree_sha256(parent, evidence_root="evidence")
+            )
+            subprocess.run(
+                ["git", "-C", str(nested), "checkout", "--", "module.py"], check=True
+            )
+            (nested / "new.py").write_text("NEW = True\n", encoding="utf-8")
+            self.assertNotEqual(
+                clean, git_visible_tree_sha256(parent, evidence_root="evidence")
+            )
+
+    def test_mutation_probe_requires_a_causal_unittest_assertion_failure(self) -> None:
+        from codex_governance.mutation import (
+            MUTATION_INVALID_EXIT,
+            MUTATION_KILLED_EXIT,
+            MUTATION_UNKNOWN_EXIT,
+            build_mutation_probe_command,
+            mutation_probe_outcome,
+        )
+
+        cases = (
+            ("self.fail('mutant survived oracle')", "KILLED", MUTATION_KILLED_EXIT),
+            ("self.assertTrue(True)", "SURVIVED", 0),
+            ("raise RuntimeError('harness error')", "UNKNOWN", MUTATION_UNKNOWN_EXIT),
+            ("__import__('os')._exit(7)", "UNKNOWN", 7),
+        )
+        for body, expected, exit_code in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+                (root / "tests").mkdir()
+                (root / "tests/__init__.py").write_text("", encoding="utf-8")
+                (root / "tests/test_probe.py").write_text(
+                    "import unittest\n"
+                    "class ProbeTest(unittest.TestCase):\n"
+                    "    def test_selected(self):\n"
+                    f"        {body}\n",
+                    encoding="utf-8",
+                )
+                command = build_mutation_probe_command(
+                    "module.py",
+                    [
+                        "python3", "-m", "unittest",
+                        "tests.test_probe.ProbeTest.test_selected", "-v",
+                    ],
+                )
+                completed = subprocess.run(
+                    command, cwd=root, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+                self.assertEqual(exit_code, completed.returncode)
+                self.assertEqual(
+                    expected,
+                    mutation_probe_outcome(completed.stdout, completed.returncode),
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "module.py").write_text("def broken(:\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests/__init__.py").write_text("", encoding="utf-8")
+            command = build_mutation_probe_command(
+                "module.py", ["python3", "-m", "unittest", "tests.missing", "-v"]
+            )
+            completed = subprocess.run(
+                command, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            self.assertEqual(MUTATION_INVALID_EXIT, completed.returncode)
+            self.assertEqual(
+                "INVALID", mutation_probe_outcome(completed.stdout, completed.returncode)
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests/__init__.py").write_text("", encoding="utf-8")
+            command = build_mutation_probe_command(
+                "module.py", ["python3", "-m", "unittest", "tests.missing", "-v"]
+            )
+            completed = subprocess.run(
+                command, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            self.assertEqual(MUTATION_UNKNOWN_EXIT, completed.returncode)
+            self.assertEqual(
+                "UNKNOWN", mutation_probe_outcome(completed.stdout, completed.returncode)
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests/__init__.py").write_text("", encoding="utf-8")
+            (root / "tests/test_mixed.py").write_text(
+                "import unittest\n"
+                "class MixedTest(unittest.TestCase):\n"
+                "    def test_failure(self): self.fail('failure')\n"
+                "    def test_error(self): raise RuntimeError('error')\n",
+                encoding="utf-8",
+            )
+            command = build_mutation_probe_command(
+                "module.py",
+                ["python3", "-m", "unittest", "tests.test_mixed.MixedTest", "-v"],
+            )
+            completed = subprocess.run(
+                command, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            self.assertEqual(MUTATION_UNKNOWN_EXIT, completed.returncode)
+            self.assertEqual(
+                "UNKNOWN", mutation_probe_outcome(completed.stdout, completed.returncode)
+            )
+
+    def test_mutation_probe_rejects_non_unittest_commands_and_forged_markers(self) -> None:
+        from codex_governance.mutation import (
+            MUTATION_KILLED_EXIT,
+            build_mutation_probe_command,
+            classify_mutation_execution,
+            mutation_probe_outcome,
+        )
+
+        with self.assertRaisesRegex(ValueError, "unittest"):
+            build_mutation_probe_command(
+                "module.py", ["python3", "-c", "raise SystemExit(1)"]
+            )
+        self.assertEqual(
+            "UNKNOWN",
+            mutation_probe_outcome(
+                b'CODEX_MUTATION_PROBE={"outcome":"KILLED"}\n',
+                MUTATION_KILLED_EXIT,
+            ),
+        )
+        self.assertEqual(
+            "UNKNOWN",
+            classify_mutation_execution(
+                status="FAIL",
+                termination_kind="exited",
+                exit_code=121,
+                stdout=b"",
+            ),
+        )
 
     def test_policy_digest_rejects_readdressed_candidate_corpus_substitution(self) -> None:
         from codex_governance.mutation_runner import parse_protected_corpus

@@ -17,11 +17,18 @@ import tempfile
 from pathlib import Path
 
 from codex_governance.canonical import canonical_json_bytes
-from codex_governance.mutation import apply_curated_mutant, load_curated_corpus
+from codex_governance.mutation import (
+    apply_curated_mutant,
+    build_mutation_probe_command,
+    classify_mutation_execution,
+    load_curated_corpus,
+)
 from codex_governance.sandbox import prepare_candidate_copy
 
 
-def run(command: list[str], cwd: Path, timeout: int) -> tuple[str, int | None]:
+def run(
+    command: list[str], cwd: Path, timeout: int
+) -> tuple[str, int | None, bytes, str]:
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": "src",
@@ -38,9 +45,16 @@ def run(command: list[str], cwd: Path, timeout: int) -> tuple[str, int | None]:
             timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return "UNKNOWN", None
-    return ("PASS" if completed.returncode == 0 else "FAIL"), completed.returncode
+    except subprocess.TimeoutExpired:
+        return "UNKNOWN", None, b"", "timeout"
+    except OSError:
+        return "UNKNOWN", None, b"", "not_launched"
+    return (
+        "PASS" if completed.returncode == 0 else "FAIL",
+        completed.returncode,
+        completed.stdout,
+        "exited",
+    )
 
 
 def main() -> int:
@@ -52,7 +66,9 @@ def main() -> int:
     args = parser.parse_args()
     repository = args.repository.resolve(strict=True)
     corpus = load_curated_corpus(args.corpus)
-    baseline, baseline_exit = run(corpus["baseline_command"], repository, args.timeout)
+    baseline, baseline_exit, _, _ = run(
+        corpus["baseline_command"], repository, args.timeout
+    )
     if baseline != "PASS":
         sys.stdout.buffer.write(canonical_json_bytes(
             {"state": "UNKNOWN", "baseline": baseline, "baseline_exit": baseline_exit, "mutants": []}
@@ -72,21 +88,17 @@ def main() -> int:
             except (OSError, ValueError):
                 results.append({"mutant_id": mutant["mutant_id"], "outcome": "INVALID"})
                 continue
-            if mutant["path"].endswith(".py"):
-                syntax, _ = run(
-                    [sys.executable, "-m", "py_compile", mutant["path"]],
-                    candidate,
-                    min(args.timeout, 30),
-                )
-                if syntax != "PASS":
-                    results.append({
-                        "mutant_id": mutant["mutant_id"], "outcome": "INVALID",
-                        "patch_sha256": patch_sha256,
-                    })
-                    continue
-            observed, exit_code = run(mutant["selected_command"], candidate, args.timeout)
-            outcome = "KILLED" if observed == "FAIL" else (
-                "SURVIVED" if observed == "PASS" else "UNKNOWN"
+            command = build_mutation_probe_command(
+                mutant["path"], mutant["selected_command"]
+            )
+            observed, exit_code, stdout, termination = run(
+                command, candidate, args.timeout
+            )
+            outcome = classify_mutation_execution(
+                status=observed,
+                termination_kind=termination,
+                exit_code=exit_code,
+                stdout=stdout,
             )
             results.append({
                 "mutant_id": mutant["mutant_id"],

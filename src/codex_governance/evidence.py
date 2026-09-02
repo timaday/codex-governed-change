@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,10 +42,12 @@ from codex_governance.authority import (
 )
 from codex_governance.governance import is_governance_path
 from codex_governance.mutation import (
+    MUTATION_KILLED_EXIT,
     REQUIRED_CURATED_MUTANTS,
     build_mutation_probe_command,
     evaluate_mutation_record,
     expected_mutated_tree_sha256,
+    mutation_probe_outcome,
     mutated_source_identity,
     parse_curated_corpus,
 )
@@ -584,6 +586,7 @@ def evaluate_manifest(
         expected_max_output_bytes: int,
         expected_shell: bool = False,
         expected_stdout: bytes | None = None,
+        expected_stdout_validator: Callable[[bytes], bool] | None = None,
     ) -> bool:
         capability_sha = result.get("sandbox_capability_sha256")
         capability = capability_by_sha.get(str(capability_sha))
@@ -686,6 +689,10 @@ def evaluate_manifest(
         return bool(
             status_matches_termination
             and (expected_stdout is None or raw_streams["stdout"] == expected_stdout)
+            and (
+                expected_stdout_validator is None
+                or expected_stdout_validator(raw_streams["stdout"])
+            )
             and chronology_valid
             and predicate.get("artifacts") == provenance_artifacts
             and isinstance(capability, Mapping)
@@ -1021,7 +1028,7 @@ def evaluate_manifest(
                 record.get("outcome") == "KILLED"
                 and execution.get("status") == "FAIL"
                 and termination.get("kind") == "exited"
-                and termination.get("exit_code") not in {None, 120}
+                and termination.get("exit_code") == MUTATION_KILLED_EXIT
             )
             exact = (
                 baseline_ok
@@ -1061,6 +1068,10 @@ def evaluate_manifest(
                         int(item["timeout_seconds"]) for item in policy["gates"]
                     ),
                     expected_max_output_bytes=mutation_max_output_bytes,
+                    expected_stdout_validator=lambda data: mutation_probe_outcome(
+                        data, MUTATION_KILLED_EXIT
+                    )
+                    == "KILLED",
                 )
                 and killed_exact
             )

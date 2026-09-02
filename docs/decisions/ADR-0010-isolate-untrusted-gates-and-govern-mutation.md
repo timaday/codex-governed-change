@@ -22,9 +22,13 @@ provider is `UNKNOWN/BLOCK`.
 
 The mandatory MVP mutation layer is a finite curated semantic corpus executed in
 a disposable candidate after baseline success and before final review. A valid
-non-equivalent survivor blocks; timeout, invalid mutation and unresolved
-equivalence remain unknown. Optional language-specific generation is a bounded
-adapter and does not enter the pure domain or mandatory dependency set.
+mutant is killed only when protected structured evidence proves the selected
+unittest command ran at least one test and ended solely in an assertion failure;
+compile, launch, import, discovery, harness, crash, signal, malformed-probe and
+unexecuted outcomes never count. A valid non-equivalent survivor blocks; timeout,
+invalid mutation and unresolved equivalence remain unknown. Optional
+language-specific generation is a bounded adapter and does not enter the pure
+domain or mandatory dependency set.
 
 ## Alternatives
 
