@@ -341,5 +341,37 @@ evidence. This status mutation invalidates the checkpoint and requires the
 complete gates, rollback rehearsal, portability checks and exact-candidate
 fresh review to be rebound to the immutable successor.
 
+The fresh read-only audit of immutable commit `bfe44b9` declared `BLOCK` but is
+formally `UNKNOWN` and cannot qualify the release. Its stdout and stderr readers
+did reach EOF, but shaped values inside three transient command-output events
+required ambiguous redaction under the preceding stream contract. Five concrete
+findings were independently reproduced in source and retained: exact host-value
+gate replacement did not force `UNKNOWN`; reviewer pre/post identity observed
+only the source repository rather than the copied snapshot; assurance admission
+allowed an incomplete or substituted claim/rule set; `status` could echo a
+caller-supplied schema-valid readiness state and return success; and reviewer
+findings did not bind their path and line to a matching repository locator.
+
+The current working-copy successor makes every exact host-value gate replacement
+ambiguous, projects parsed command-execution command and aggregated-output
+payloads to fixed omission tokens, reidentifies both source and snapshot, admits
+exactly one of each of the nine fixed assurance claim/rule pairs, makes `status`
+display-only, and requires every finding to bind an existing canonical path and
+in-bounds line through a digest-valid same-path repository locator. Six curated
+semantic mutants cover those boundaries. Before this status mutation:
+
+- `python3 scripts/validate_blueprint.py`: `PASS` for 66 requirements and 35
+  schema/example pairs;
+- the exact acceptance suite passed 195 tests and the unit suite passed 76 tests,
+  with no skips or expected failures;
+- the first expanded mutation run killed 54 of 55 mutants and correctly returned
+  `BLOCK` for one equivalent proposed operator; that operator was replaced with
+  a direct fixed-rule bypass and all candidate-bound gates remain to be rebound.
+
+These observations are local working-copy proof, not protected T24 admission
+evidence. This status mutation and the mutation-operator correction invalidate
+the checkpoint; complete deterministic gates, mutation, rollback, portability
+and a new exact-candidate fresh review are required for the immutable successor.
+
 These observations are invalidated by any later candidate mutation and remain
 working-copy evidence until protected T24 reconstruction is complete.

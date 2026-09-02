@@ -335,7 +335,6 @@ def _normalize_reviewer_stream(
     schema_path: Path,
     output_path: Path,
     environment: Mapping[str, str],
-    portable_source_literals: frozenset[bytes] = frozenset(),
 ) -> tuple[bytes, list[str]]:
     """Remove supervisor-only runtime values before hashing retained evidence."""
     replacements: set[bytes] = set()
@@ -375,8 +374,6 @@ def _normalize_reviewer_stream(
     redactions: list[str] = []
     for pattern in REVIEWER_AMBIGUOUS_PATTERNS:
         def replace(match: re.Match[bytes]) -> bytes:
-            if match.group(0) in portable_source_literals:
-                return b"<REVIEWER_SOURCE_LITERAL>"
             redactions.append("ambiguous_machine_or_credential_value")
             return b"<REVIEWER_REDACTED>"
 
@@ -391,12 +388,11 @@ def _normalize_reviewer_jsonl(
     schema_path: Path,
     output_path: Path,
     environment: Mapping[str, str],
-    portable_source_literals: frozenset[bytes],
 ) -> tuple[bytes, list[str]]:
-    """Normalize decoded JSONL strings and re-serialize without breaking escapes."""
+    """Project transient command material and normalize retained JSONL facts."""
     redactions: list[str] = []
 
-    def normalize_value(value: Any, *, allow_source_literals: bool) -> Any:
+    def normalize_value(value: Any) -> Any:
         if isinstance(value, str):
             normalized, found = _normalize_reviewer_stream(
                 value.encode("utf-8"),
@@ -404,26 +400,13 @@ def _normalize_reviewer_jsonl(
                 schema_path=schema_path,
                 output_path=output_path,
                 environment=environment,
-                portable_source_literals=(
-                    portable_source_literals
-                    if allow_source_literals
-                    else frozenset()
-                ),
             )
             redactions.extend(found)
             return normalized.decode("utf-8")
         if isinstance(value, list):
-            return [
-                normalize_value(item, allow_source_literals=allow_source_literals)
-                for item in value
-            ]
+            return [normalize_value(item) for item in value]
         if isinstance(value, dict):
-            return {
-                key: normalize_value(
-                    item, allow_source_literals=allow_source_literals
-                )
-                for key, item in value.items()
-            }
+            return {key: normalize_value(item) for key, item in value.items()}
         return value
 
     normalized_lines: list[bytes] = []
@@ -433,16 +416,18 @@ def _normalize_reviewer_jsonl(
                 continue
             event = json.loads(raw)
             item = event.get("item") if isinstance(event, Mapping) else None
-            allow_source_literals = bool(
-                isinstance(item, Mapping)
-                and item.get("type") == "command_execution"
-            )
-            normalized_lines.append(
-                canonical_json_bytes(
-                    normalize_value(
-                        event, allow_source_literals=allow_source_literals
+            if isinstance(item, Mapping) and item.get("type") == "command_execution":
+                event = dict(event)
+                projected_item = dict(item)
+                if "command" in projected_item:
+                    projected_item["command"] = "<REVIEWER_COMMAND_OMITTED>"
+                if "aggregated_output" in projected_item:
+                    projected_item["aggregated_output"] = (
+                        "<REVIEWER_COMMAND_OUTPUT_OMITTED>"
                     )
-                )
+                event["item"] = projected_item
+            normalized_lines.append(
+                canonical_json_bytes(normalize_value(event))
             )
     except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
         return _normalize_reviewer_stream(
@@ -451,7 +436,6 @@ def _normalize_reviewer_jsonl(
             schema_path=schema_path,
             output_path=output_path,
             environment=environment,
-            portable_source_literals=frozenset(),
         )
     normalized = b"\n".join(normalized_lines)
     if data.endswith((b"\n", b"\r")) and normalized_lines:
@@ -583,60 +567,6 @@ REVIEWER_AMBIGUOUS_PATTERNS = (
     ),
     re.compile(rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b"),
 )
-REVIEWER_PORTABLE_SOURCE_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[5:]
-REVIEWER_SOURCE_EXPRESSION = re.compile(
-    rb"(?i)\b(?P<name>api[_-]?key|token|secret|password|passwd|authorization)"
-    rb"\s*[:=]\s*(?P=name)\.[A-Za-z_][A-Za-z0-9_]*\("
-    rb"(?P<argument>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
-    rb"(?:\)|$)"
-)
-REVIEWER_CREDENTIAL_PATTERNS = REVIEWER_AMBIGUOUS_PATTERNS[:5]
-
-
-def reviewer_portable_source_literals(
-    candidate_repository: Path,
-    *,
-    protected_sources: Sequence[bytes] = (),
-    max_source_bytes: int = 8_000_000,
-    deadline: float | None = None,
-) -> frozenset[bytes]:
-    """Return shaped literals already present in immutable reviewer sources."""
-    literals: set[bytes] = set()
-
-    def observe(data: bytes) -> None:
-        for pattern in REVIEWER_PORTABLE_SOURCE_PATTERNS:
-            literals.update(match.group(0) for match in pattern.finditer(data))
-        for match in REVIEWER_AMBIGUOUS_PATTERNS[1].finditer(data):
-            literal = match.group(0)
-            expression = REVIEWER_SOURCE_EXPRESSION.fullmatch(literal)
-            if expression is not None and not any(
-                pattern.search(expression.group("argument"))
-                for pattern in REVIEWER_CREDENTIAL_PATTERNS
-            ):
-                literals.add(literal)
-
-    for data in protected_sources:
-        _remaining(deadline)
-        observe(bytes(data))
-    for relative in _candidate_paths(candidate_repository, deadline=deadline):
-        _remaining(deadline)
-        path = candidate_repository.joinpath(*relative.split("/"))
-        if not path.exists() and not path.is_symlink():
-            continue
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            observe(os.fsencode(os.readlink(path)))
-        elif stat.S_ISREG(info.st_mode) and info.st_size <= max_source_bytes:
-            observe(
-                read_bounded_repository_file(
-                    candidate_repository,
-                    relative,
-                    max_bytes=max_source_bytes,
-                )
-            )
-    return frozenset(literals)
-
-
 def reviewer_stream_is_portable(data: bytes) -> bool:
     """Reject retained secrets, machine endpoints, and absolute host locations."""
     try:
@@ -666,8 +596,13 @@ def reviewer_observation_facts(observation: Mapping[str, Any]) -> dict[str, bool
                 and stream["eof"] is True
                 and stream["read_failed"] is False
                 and stream["truncated"] is False
-                and stream.get("ambiguous_redaction") is False
                 and stream["bytes_observed"] == stream["bytes_captured"]
+                for stream in (stdout, stderr)
+            )
+        )
+        streams_unambiguous = bool(
+            all(
+                stream.get("ambiguous_redaction") is False
                 for stream in (stdout, stderr)
             )
         )
@@ -685,6 +620,7 @@ def reviewer_observation_facts(observation: Mapping[str, Any]) -> dict[str, bool
             and observation["timed_out"] is False
             and stdin_complete
             and captures_complete
+            and streams_unambiguous
             and process_cleanup_complete
         )
         output_valid = bool(
@@ -1555,7 +1491,6 @@ def launch_reviewer(
     timeout_seconds: float = 1800,
     max_output_bytes: int = 1_000_000,
     environment: Mapping[str, str] | None = None,
-    portable_source_literals: frozenset[bytes] = frozenset(),
     absolute_deadline: float | None = None,
 ) -> dict[str, Any]:
     """Launch the fresh reviewer and validate its exact output and binding."""
@@ -1874,7 +1809,6 @@ def launch_reviewer(
         schema_path=schema_path,
         output_path=output_path,
         environment=sanitized_environment,
-        portable_source_literals=portable_source_literals,
     )
     stderr_bytes, stderr_redactions = _normalize_reviewer_stream(
         bytes(stderr_capture.data),
@@ -1882,7 +1816,6 @@ def launch_reviewer(
         schema_path=schema_path,
         output_path=output_path,
         environment=sanitized_environment,
-        portable_source_literals=frozenset(),
     )
     primitive_observation = {
         "parent_exit_observed": parent_exit_observed,

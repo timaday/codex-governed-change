@@ -53,6 +53,23 @@ class AssuranceCaseAcceptanceTest(unittest.TestCase):
             with self.subTest(degradation=degradation):
                 self.assertTrue(disposition_cannot_improve(degradation))
 
+    def test_assurance_claim_set_is_exact_unique_and_rule_bound(self) -> None:
+        from codex_governance.assurance import (
+            ASSURANCE_ARGUMENT_RULES,
+            assurance_claim_set_is_fixed,
+        )
+
+        claims = [
+            {"claim_id": claim_id, "argument_rule": argument_rule}
+            for claim_id, argument_rule in ASSURANCE_ARGUMENT_RULES.items()
+        ]
+        self.assertTrue(assurance_claim_set_is_fixed(claims))
+        self.assertFalse(assurance_claim_set_is_fixed(claims[:-1]))
+        self.assertFalse(assurance_claim_set_is_fixed(claims[:-1] + [claims[0]]))
+        substituted = [dict(item) for item in claims]
+        substituted[0]["argument_rule"] = claims[1]["argument_rule"]
+        self.assertFalse(assurance_claim_set_is_fixed(substituted))
+
 
 if __name__ == "__main__":
     unittest.main()

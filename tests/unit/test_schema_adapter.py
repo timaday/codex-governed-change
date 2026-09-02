@@ -43,14 +43,14 @@ class SchemaAdapterTest(unittest.TestCase):
         self.assertFalse(math.isfinite(float("nan")))
 
     def test_union_types_accept_null_and_still_enforce_each_concrete_type(self) -> None:
-        schema = load_json(Path("schemas/reviewer-result.schema.json"))
-        example = load_json(Path("examples/reviewer-result.json"))
+        reviewer_schema = load_json(Path("schemas/reviewer-result.schema.json"))
+        reviewer = load_json(Path("examples/reviewer-result.json"))
         finding = {
             "severity": "high",
             "category": "correctness",
             "path": "src/codex_governance/schema.py",
             "line": None,
-            "claim": "A valid finding may not have a known line number.",
+            "claim": "A finding without a concrete line is not admissible.",
             "violated_oracle": "reviewer-result schema",
             "evidence_refs": [{
                 "locator_id": "sha256:" + "1" * 64,
@@ -58,11 +58,17 @@ class SchemaAdapterTest(unittest.TestCase):
             }],
             "remediation": "Preserve JSON Schema union-type semantics.",
         }
-        example["findings"] = [finding]
+        reviewer["findings"] = [finding]
+        self.assertTrue(
+            any("expected integer" in item for item in validate_instance(reviewer, reviewer_schema))
+        )
+        reviewer["findings"][0]["line"] = 1
+        self.assertEqual([], validate_instance(reviewer, reviewer_schema))
+
+        schema = load_json(Path("schemas/reviewer-qualification-corpus.schema.json"))
+        example = load_json(Path("examples/reviewer-qualification-corpus.json"))
         self.assertEqual([], validate_instance(example, schema))
-        example["findings"][0]["line"] = 0
-        self.assertTrue(any("below" in item for item in validate_instance(example, schema)))
-        example["findings"][0]["line"] = False
+        example["cases"][1]["expected_finding"] = False
         self.assertTrue(any("expected" in item for item in validate_instance(example, schema)))
 
         invalid_definition = {"$schema": schema["$schema"], "type": ["null", "null"]}

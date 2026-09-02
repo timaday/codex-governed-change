@@ -178,6 +178,11 @@ The reviewer result is invalid if it does not exactly match the repository,
 candidate, task contract, context receipt, reviewer prompt/launcher/model/schema
 qualification, and required gate manifest supplied by the runner. Every cited
 evidence locator is resolved and digest-verified before it can support a claim.
+A finding additionally resolves its canonical path and in-bounds line against
+the immutable candidate and cites at least one repository-file or repository-
+excerpt locator covering that exact path and line. A valid but unrelated
+locator, missing path, out-of-range line or swapped excerpt makes review evidence
+`UNKNOWN` rather than confirming a finding.
 
 ### 5.5 Evidence manifest and disposition
 
@@ -335,26 +340,23 @@ Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
 proxy and other allowlisted parent-environment values with a fixed portable
 token. Parsing and execution-statement digests use those normalized captured
-bytes. An endpoint- or generic host-path-shaped value in a Codex command-
-execution event whose exact decoded bytes already occur in the immutable
-candidate or protected reviewer inputs is a portable source literal and is
-replaced by a distinct fixed token. An exact immutable assignment-shaped source
-expression whose right-hand side starts a same-name method call is syntax, not a
-credential value, and receives the same treatment; nested actual credential
-tokens remain ambiguous. The exception does not apply to credential values or
-the final agent message. Other recognized shaped values are replaced before
-persistence, and that ambiguous transformation permanently forces `UNKNOWN`.
-JSONL normalization MUST parse and re-serialize complete events so replacement
-cannot corrupt escaping. The portable-source exception is confined to values
-inside a successfully parsed Codex command-execution event. Raw stderr,
-malformed JSONL fallback, final agent messages and every other unstructured
-stream are normalized without source-literal exemptions. Truncation, retained
-machine values or malformed JSONL block.
+bytes. The complete command text and aggregated output of every successfully
+parsed Codex command-execution event are non-authoritative transient working
+material and MUST be projected to fixed omission tokens before shaped-value
+normalization. Event type, item identity, lifecycle status and exit code remain
+available for reconstruction; the final agent message and token-usage event are
+retained. Credential-, endpoint- or generic host-path-shaped values outside that
+fixed projection are replaced before persistence, and that ambiguous
+transformation permanently forces `UNKNOWN`. JSONL normalization MUST parse and
+re-serialize complete events so projection or replacement cannot corrupt
+escaping. Raw stderr, malformed JSONL fallback, final agent messages and every
+other unstructured stream receive no command-event projection. Truncation,
+retained machine values or malformed JSONL block.
 
 Gate stdout and stderr receive the same fail-closed portability posture before
 publication: every non-empty exact discovered host value, including a short
-hostname, is replaced, and address- or endpoint-shaped output is replaced as
-ambiguous evidence and forces `UNKNOWN`.
+hostname, is replaced, and any exact-host, credential-, address-, endpoint- or
+host-path replacement is ambiguous evidence and forces `UNKNOWN`.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
@@ -533,8 +535,9 @@ The adaptation is informed by the [Rapid Software Testing introduction](https://
 The admission kernel is the only component that may emit
 `READY_FOR_HUMAN`. It is a pure, deterministic reference monitor evaluated from
 the previous LKG governance source. It validates a compact assurance case with
-fixed argument rules for authorized scope, exact/current repository and
-candidate, protected governance, complete gates, required RST and mutation,
+exactly one instance of each of the nine protected claim IDs and the fixed
+claim-to-argument-rule mapping for authorized scope, exact/current repository
+and candidate, protected governance, complete gates, required RST and mutation,
 qualified fresh-context review, and visible residual risks, waivers and unknowns.
 Each claim contains supporting and refuting typed evidence, limitations and
 unresolved defeaters. Model prose is never an argument rule.
@@ -542,7 +545,10 @@ unresolved defeaters. Model prose is never an argument rule.
 Prerequisite components use component-specific success vocabulary. In
 particular, deterministic context preparation emits `CONTEXT_READY` or
 `UNKNOWN`; it never emits `READY_FOR_HUMAN` and cannot be mistaken for the
-admission decision.
+admission decision. The `status` command is display-only: it emits `UNKNOWN`
+with the untrusted document value under `reported_state` and always returns the
+unknown exit code. Only `evaluate` can emit or return success for
+`READY_FOR_HUMAN`.
 
 For a fixed authenticated authority set, the policy is monotonic: adding a
 failure, unknown or defeater; removing required evidence; changing repository,
@@ -782,7 +788,10 @@ protected mutation-corpus digest; `reviewer-qualification`, `context-receipt`,
 with full candidate and per-case context evidence; `reviewer-qualification-corpus` is `3.0.0` with
 mandatory typed case classes and human-labelled critical expected-finding targets; and `reviewer-execution` is `3.0.0` with primitive
 observation plus direct stream references. `rapid-review-session` is `2.0.0`
-with typed path and line fields on every finding. Every transition advertised by the
+with typed path and line fields on every finding. The initial-release
+`assurance-case` 1.0 shape requires exactly nine claims and the initial-release
+`reviewer-result` 3.0 shape requires a concrete line for every finding; neither
+had a published predecessor before v0.1.0. Every transition advertised by the
 lifecycle policy has an executable explicit migration; missing legacy facts must
 come from separately protected inputs and every content address is rebuilt.
 An old document is accepted only

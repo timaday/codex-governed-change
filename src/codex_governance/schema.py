@@ -230,6 +230,11 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
 
             if not verify_candidate_identity(instance):
                 errors.append("$/candidate_id: candidate identity does not reconstruct")
+        if schema_name == "assurance-case":
+            from codex_governance.assurance import assurance_claim_set_is_fixed
+
+            if not assurance_claim_set_is_fixed(instance.get("claims")):
+                errors.append("$/claims: fixed assurance claim set does not reconstruct")
     return sorted(set(errors))
 
 

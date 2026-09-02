@@ -277,12 +277,13 @@ class GateRunnerTest(unittest.TestCase):
         output = self.store.read_bytes(
             result["artifacts"][0]["path"].removeprefix("evidence/")
         )
-        self.assertEqual("PASS", result["status"])
+        self.assertEqual("UNKNOWN", result["status"])
         self.assertNotIn(hostname.encode(), output)
         self.assertIn(b"<REDACTED_HOST_VALUE>", output)
         self.assertTrue(
             any(item["category"] == "host_value" for item in result["redactions"])
         )
+        self.assertTrue(any("ambiguous" in item for item in result["limitations"]))
 
     def test_short_hostname_is_removed_from_gate_evidence(self) -> None:
         hostname = "xy"
@@ -291,9 +292,10 @@ class GateRunnerTest(unittest.TestCase):
         output = self.store.read_bytes(
             result["artifacts"][0]["path"].removeprefix("evidence/")
         )
-        self.assertEqual("PASS", result["status"])
+        self.assertEqual("UNKNOWN", result["status"])
         self.assertNotIn(hostname.encode(), output)
         self.assertIn(b"<REDACTED_HOST_VALUE>", output)
+        self.assertTrue(any("ambiguous" in item for item in result["limitations"]))
 
     def test_address_shaped_endpoint_is_ambiguous_and_not_retained(self) -> None:
         endpoint = ".".join(("198", "51", "100", "7")) + ":" + str(8443)

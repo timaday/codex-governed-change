@@ -522,7 +522,8 @@ def run_gate(
     )
     redactions = stdout_redactions + stderr_redactions
     ambiguous_redaction = any(
-        item.get("category") in {"credential", "endpoint", "generic_host_path"}
+        item.get("category")
+        in {"credential", "endpoint", "generic_host_path", "host_value"}
         for item in redactions
     )
     if ambiguous_redaction:

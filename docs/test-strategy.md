@@ -154,11 +154,10 @@ forces `UNKNOWN` without persisting the canary.
 
 Reviewer-stream canaries cover exact runtime values, credentials, hostnames,
 IPv4/local endpoints and generic host paths. Exact-value normalization is
-reported; an exact immutable-source literal is replaced by its distinct portable
-token without invalidating JSONL, an exact same-name method-call assignment is
-recognized as source syntax while a nested or standalone credential remains
-forbidden, ambiguous pattern normalization forces `UNKNOWN`, and no original
-bytes may enter retained evidence.
+reported; parsed command-execution command and aggregated-output payloads become
+fixed omission tokens without invalidating JSONL or removing structural process
+facts. The same shaped values in final messages, raw stderr or malformed JSONL
+remain ambiguous, force `UNKNOWN`, and may not enter retained evidence.
 
 Reviewer-result tests require the exact unique protected claim-ID set, non-empty
 resolved evidence per claim, and reject omitted, duplicate, unknown or
@@ -174,9 +173,8 @@ chronology, and add limitations. A production-path test runs the separately
 selected rollback producer from an exact-closure read-only protected package
 mount, excludes ignored package files, substitutes a candidate-local
 success-printer, and reconstructs its emitted rollback evidence.
-Reviewer source-literal tests nest credential-shaped arguments inside otherwise
-allowlisted same-name expressions. Reviewer deadline
-tests stall pre/post identity Git observations and snapshot Git helpers. Container
+Reviewer deadline tests stall pre/post identity Git observations and snapshot Git
+helpers. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
 
@@ -425,7 +423,9 @@ For a fixed authorization set, adding failure, unknown, limitation or defeater;
 removing evidence; changing repository/candidate/policy/producer/environment; or
 making evidence stale must never improve disposition. Resolve every typed
 artifact and line/excerpt locator; a nonexistent or digest-mismatched locator is
-unknown.
+unknown. For each reviewer finding, substitute a missing path, out-of-range
+line and unrelated or non-covering locator and require `UNKNOWN` even when every
+substituted reference is otherwise digest-valid.
 
 ## Context compiler and reviewer qualification
 
@@ -470,9 +470,11 @@ requirement/path/line target. Require a blocking finding to match that target
 and its resolved corpus evidence; blanket `BLOCK`, empty findings and unrelated
 findings—including the right file with the wrong line in either mode or the
 wrong rapid-review finding ID—must produce zero recall and prevent
-qualification. Emit a shaped candidate literal on raw stderr and require ambiguous
-redaction plus `UNKNOWN`, while the identical literal remains portable only in
-a parsed command-execution event,
+qualification. Emit shaped or credential-like candidate text through a parsed
+command-execution event and require command text and aggregated output to become
+fixed omission tokens while structural status, exit and usage remain
+reconstructable. Emit the same shaped value through raw stderr or the final
+agent message and require ambiguous redaction plus `UNKNOWN`,
 then independently recompute case counts, critical recall, false pass/block,
 unknown, latency and the qualified flag. Reject missing, substituted,
 expired-only, self-asserted or internally inconsistent qualification evidence. Compare
@@ -481,6 +483,13 @@ optimization variants using critical recall, false pass/block, unknown rate,
 mutation kill, RST findings, traceability, unresolved unknowns, tokens, bytes,
 latency, retrieval and cost. Reject any optimization with material assurance
 regression regardless of token savings.
+
+Assurance/admission tests require exactly nine protected assurance claim IDs,
+exactly once each, with the fixed claim-to-rule mapping. Omission, duplicate ID
+with otherwise distinct content, and rule substitution are all unknown.
+Reviewer CLI tests mutate the copied snapshot during execution independently of
+the source repository. Status CLI tests feed a schema-valid forged
+`READY_FOR_HUMAN` disposition and require display-only `UNKNOWN` plus exit 2.
 
 ## Debrief template
 

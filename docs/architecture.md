@@ -215,7 +215,7 @@ codex exec
   -
 ```
 
-The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. The fixed protected prompt and normalized permitted inputs are sent on stdin. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
+The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
@@ -226,13 +226,14 @@ run/attempt, bounds, materials, primitive supervisor/capture observations,
 direct event-stream references and Codex CLI-reported token usage. Admission
 re-hashes both streams and derives the final result, usage and execution state
 from those observations. No host path or environment value is persisted.
-The retained stream bytes are the complete bounded captures after one fixed
-trusted normalization pass replaces supervisor-only paths and allowlisted
-parent-environment values with `<REVIEWER_RUNTIME>`; their digests bind those
-portable bytes. Endpoint- or host-path-shaped decoded values in command-
-execution events proven to occur byte-for-byte in the immutable candidate or
-protected reviewer inputs are replaced with `<REVIEWER_SOURCE_LITERAL>`;
-credentials and final agent output are not eligible for that exception. Other
+The retained stream bytes are deterministic evidence projections of the
+complete bounded captures. For parsed command-execution events, command text and
+aggregated output are replaced wholesale with fixed omission tokens while item
+identity, lifecycle status and exit code remain. One fixed trusted normalization
+pass then replaces supervisor-only paths and allowlisted parent-environment
+values with `<REVIEWER_RUNTIME>`; stream digests bind those portable bytes.
+Credentials, endpoints or host paths outside the command-event projection,
+including any in final agent output, remain ambiguous. Other
 credential, endpoint and generic host-path patterns are removed before
 persistence and make the execution `UNKNOWN` because their causal meaning
 cannot be reconstructed safely. JSONL events are parsed and deterministically

@@ -28,7 +28,10 @@ from codex_governance.context import (
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.admission import evaluate_admission
-from codex_governance.assurance import evaluate_assurance_claim
+from codex_governance.assurance import (
+    assurance_claim_set_is_fixed,
+    evaluate_assurance_claim,
+)
 from codex_governance.attestation import (
     gate_implementation_sha256,
     mutation_implementation_sha256,
@@ -395,15 +398,22 @@ def evaluate_manifest(
         return DispositionState.BLOCK, ["PREVIOUS_LKG_POLICY_NOT_AUTHENTICATED"]
     try:
         locators = [load(reference, "evidence-locator") for reference in manifest["evidence_locators"]]
-        resolved_locators = {
-            locator["locator_id"]: sha256_bytes(resolve_evidence_locator(repository, locator))
-            for locator in locators
-            if verify_content_address(locator, "locator_id")
-            and locator.get("repository_id") == repository_id
-            and locator.get("task_contract_sha256") == task_sha
-            and locator.get("candidate_id") == current_candidate_id
-        }
+        locator_by_id: dict[str, Mapping[str, Any]] = {}
+        resolved_locators: dict[str, str] = {}
+        for locator in locators:
+            if (
+                verify_content_address(locator, "locator_id")
+                and locator.get("repository_id") == repository_id
+                and locator.get("task_contract_sha256") == task_sha
+                and locator.get("candidate_id") == current_candidate_id
+            ):
+                locator_id = str(locator["locator_id"])
+                locator_by_id[locator_id] = locator
+                resolved_locators[locator_id] = sha256_bytes(
+                    resolve_evidence_locator(repository, locator)
+                )
     except (KeyError, OSError, TypeError, ValueError):
+        locator_by_id = {}
         resolved_locators = {}
 
     def references_resolve(references: Sequence[Mapping[str, Any]]) -> bool:
@@ -412,6 +422,52 @@ def evaluate_manifest(
             and resolved_locators.get(reference.get("locator_id")) == reference.get("sha256")
             for reference in references
         )
+
+    def finding_location_resolves(finding: Mapping[str, Any]) -> bool:
+        try:
+            path = normalize_repo_path(finding.get("path"))
+            line = finding.get("line")
+            references = finding.get("evidence_refs")
+            if (
+                not isinstance(line, int)
+                or isinstance(line, bool)
+                or line < 1
+                or not isinstance(references, Sequence)
+                or isinstance(references, (str, bytes))
+                or not references
+            ):
+                return False
+            source = read_bounded_repository_file(
+                repository, path, max_bytes=8_000_000
+            )
+            if line > len(source.splitlines()):
+                return False
+            for reference in references:
+                if not isinstance(reference, Mapping):
+                    continue
+                locator_id = reference.get("locator_id")
+                locator = locator_by_id.get(str(locator_id))
+                if (
+                    not isinstance(locator, Mapping)
+                    or resolved_locators.get(str(locator_id))
+                    != reference.get("sha256")
+                    or locator.get("kind")
+                    not in {"repository_file", "repository_excerpt"}
+                    or normalize_repo_path(locator.get("path")) != path
+                ):
+                    continue
+                if locator.get("kind") == "repository_excerpt" and not (
+                    isinstance(locator.get("start_line"), int)
+                    and not isinstance(locator.get("start_line"), bool)
+                    and isinstance(locator.get("end_line"), int)
+                    and not isinstance(locator.get("end_line"), bool)
+                    and locator["start_line"] <= line <= locator["end_line"]
+                ):
+                    continue
+                return True
+        except (OSError, TypeError, ValueError):
+            return False
+        return False
 
     def model_usage_reconciles(
         execution: Mapping[str, Any], context_execution: Mapping[str, Any]
@@ -1416,16 +1472,25 @@ def evaluate_manifest(
             reviewer_verdict = "UNKNOWN"
         if reviewer.get("missing_evidence") or reviewer.get("findings"):
             reviewer_verdict = "BLOCK" if reviewer.get("findings") else "UNKNOWN"
-        reviewer_references = [
+        reviewer_finding_references = [
             reference
             for finding in reviewer.get("findings", ())
             for reference in finding.get("evidence_refs", ())
-        ] + [
+        ]
+        reviewer_claim_references = [
             reference
             for claim in reviewer.get("claims", ())
             for reference in claim.get("evidence_refs", ())
         ]
-        if not references_resolve(reviewer_references):
+        if (
+            not references_resolve(reviewer_finding_references)
+            or not references_resolve(reviewer_claim_references)
+            or not all(
+                isinstance(finding, Mapping)
+                and finding_location_resolves(finding)
+                for finding in reviewer.get("findings", ())
+            )
+        ):
             reviewer_verdict = "UNKNOWN"
     except (KeyError, OSError, TypeError, ValueError):
         reviewer_verdict = "UNKNOWN"
@@ -1761,6 +1826,7 @@ def evaluate_manifest(
             and assurance_case.get("effective_policy_sha256") == policy_sha
             and assurance_case.get("state") == "READY_FOR_HUMAN"
             and not assurance_case.get("unresolved_defeaters")
+            and assurance_claim_set_is_fixed(assurance_claims)
             and all(
                 references_resolve(item.get("supporting_evidence", ()))
                 and references_resolve(item.get("refuting_evidence", ()))

@@ -110,13 +110,15 @@ authority.
 
 The installed CLI exposes `scope`, `identify`, `run-gates`, `mutate`,
 `prepare-review`, `assemble-manifest`, `review`, `import-reviewer-result`,
-`evaluate`, `status`, `verify` and `hook`. Every command returns `0` only for a
-valid/ready bounded outcome, `1` for a confirmed block and `2` for unknown or
-incomplete evidence. Use `codex-governance COMMAND --help` for the portable
+`evaluate`, `status`, `verify` and `hook`. Evidence-producing commands return
+`0` only for a valid/ready bounded outcome, `1` for a confirmed block and `2`
+for unknown or incomplete evidence. `status` is deliberately display-only: it
+always emits `state: UNKNOWN`, places the untrusted input under
+`reported_state`, and exits 2. Use `codex-governance COMMAND --help` for the portable
 argument contract. Evidence paths are repository-relative; do not place user,
 home-directory, host or local endpoint values in policy or committed artifacts.
 `prepare-review` reports the non-authoritative component state `CONTEXT_READY`;
-only `evaluate` may report `READY_FOR_HUMAN`.
+only `evaluate` may report or successfully return `READY_FOR_HUMAN`.
 `prepare-review` requires the repository, policy, task, candidate, complete gate
 and mutation summaries, protected context qualification, protected observation
 time, profile/model/effort and exact policy-selected budget. It re-identifies the

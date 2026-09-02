@@ -14,14 +14,16 @@
     "effective_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "claims": {
       "type": "array",
-      "minItems": 8,
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["claim_id", "argument_rule", "supporting_evidence", "refuting_evidence", "limitations", "unresolved_defeaters", "classification"],
         "properties": {
           "claim_id": { "enum": ["scope_authorized", "candidate_current", "gates_complete", "governance_integrity", "rst_complete", "mutation_complete", "fresh_review_complete", "residual_risk_visible", "context_complete"] },
-          "argument_rule": { "type": "string", "pattern": "^[A-Z][A-Z0-9._-]{2,127}$" },
+          "argument_rule": { "enum": ["RULE_SCOPE_AUTH", "RULE_CANDIDATE_CURRENT", "RULE_GATES_COMPLETE", "RULE_GOVERNANCE_LKG", "RULE_RST_COMPLETE", "RULE_MUTATION_COMPLETE", "RULE_FRESH_REVIEW", "RULE_RISK_VISIBLE", "RULE_CONTEXT_COMPLETE"] },
           "supporting_evidence": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
           "refuting_evidence": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
           "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },

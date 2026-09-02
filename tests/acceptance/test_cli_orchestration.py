@@ -642,7 +642,42 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
     def test_illustrative_disposition_never_reports_ready(self) -> None:
         status = self.run_cli("status", "--disposition", "examples/disposition.json")
         self.assertEqual(2, status.returncode)
-        self.assertEqual("UNKNOWN", json.loads(status.stdout)["state"])
+        payload = json.loads(status.stdout)
+        self.assertEqual("UNKNOWN", payload["state"])
+        self.assertEqual("UNKNOWN", payload["reported_state"])
+        self.assertFalse(payload["authoritative"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            forged = json.loads(
+                (self.ROOT / "examples/disposition.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            forged["state"] = "READY_FOR_HUMAN"
+            path = Path(directory) / "forged-ready.json"
+            path.write_bytes(canonical_json_bytes(forged))
+            ready = self.run_cli("status", "--disposition", str(path))
+        self.assertEqual(2, ready.returncode)
+        ready_payload = json.loads(ready.stdout)
+        self.assertEqual("UNKNOWN", ready_payload["state"])
+        self.assertEqual("READY_FOR_HUMAN", ready_payload["reported_state"])
+        self.assertFalse(ready_payload["authoritative"])
+
+    def test_review_candidate_supplier_rejects_source_or_snapshot_drift(self) -> None:
+        from codex_governance.cli import _composite_review_candidate_supplier
+
+        source = Path("source")
+        snapshot = Path("snapshot")
+        identities = {source: "sha256:" + "a" * 64, snapshot: "sha256:" + "a" * 64}
+        supplier = _composite_review_candidate_supplier(
+            source_repository=source,
+            snapshot_repository=snapshot,
+            identify=lambda repository, _deadline: identities[repository],
+        )
+        self.assertEqual("sha256:" + "a" * 64, supplier(1.0))
+        identities[snapshot] = "sha256:" + "b" * 64
+        with self.assertRaisesRegex(ValueError, "source and copied snapshot"):
+            supplier(1.0)
 
     def test_evaluate_accepts_nonempty_verified_decision_ids(self) -> None:
         from codex_governance import cli

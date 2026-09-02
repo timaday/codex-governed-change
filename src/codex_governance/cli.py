@@ -66,7 +66,6 @@ from codex_governance.reviewer import (
     observe_codex_cli_version,
     prepare_sanitized_harness,
     reviewer_launcher_sha256,
-    reviewer_portable_source_literals,
     reviewer_stream_is_portable,
 )
 from codex_governance.rollback import protected_rollback_command
@@ -868,6 +867,21 @@ def _mutate(args: argparse.Namespace) -> int:
     )
 
 
+def _composite_review_candidate_supplier(
+    *, source_repository: Path, snapshot_repository: Path, identify: Any
+) -> Any:
+    """Bind each reviewer identity observation to source and copied snapshot."""
+
+    def current_candidate(deadline: float) -> str:
+        source_id = identify(source_repository, deadline)
+        snapshot_id = identify(snapshot_repository, deadline)
+        if source_id != snapshot_id:
+            raise ValueError("reviewer source and copied snapshot diverged")
+        return snapshot_id
+
+    return current_candidate
+
+
 def _review(args: argparse.Namespace) -> int:
     review_deadline = time.monotonic() + args.timeout_seconds
     schema_cache: dict[str, Mapping[str, Any]] = dict(
@@ -1075,9 +1089,9 @@ def _review(args: argparse.Namespace) -> int:
         if sha256_bytes(data) != permitted.get(digest_key):
             raise ValueError("reviewer evidence digest mismatch")
         prepared_evidence[relative] = data
-    def current_candidate(deadline: float) -> str:
+    def identify_current(repository: Path, deadline: float) -> str:
         return GitCliRepositoryAdapter(
-            args.repository, deadline=deadline
+            repository, deadline=deadline
         ).identify(
             repository_id=policy["repository_id"],
             mode=candidate["mode"],
@@ -1101,6 +1115,13 @@ def _review(args: argparse.Namespace) -> int:
             output_schema_bytes=output_schema_bytes,
             deadline=review_deadline,
         )
+
+        current_candidate = _composite_review_candidate_supplier(
+            source_repository=args.repository,
+            snapshot_repository=harness["candidate"],
+            identify=identify_current,
+        )
+
         command = build_reviewer_command(
             codex_executable=args.codex,
             model=args.model,
@@ -1124,16 +1145,6 @@ def _review(args: argparse.Namespace) -> int:
             review_mode=review_mode,
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
-            portable_source_literals=reviewer_portable_source_literals(
-                harness["candidate"],
-                protected_sources=(
-                    prompt_bytes,
-                    output_schema_bytes,
-                    permitted_bytes,
-                    *prepared_evidence.values(),
-                ),
-                deadline=review_deadline,
-            ),
             absolute_deadline=review_deadline,
         )
         reviewer_output_bytes = result.pop("output_bytes", b"")
@@ -1327,21 +1338,27 @@ def _evaluate(args: argparse.Namespace) -> int:
 
 def _status(args: argparse.Namespace) -> int:
     disposition = _validated(args.disposition, args.schema_root, "disposition")
+    reason = (
+        "status is display-only; run evaluate to reconstruct authoritative "
+        "readiness"
+    )
     if args.candidate:
         candidate = _validated(args.candidate, args.schema_root, "candidate")
         if candidate["candidate_id"] != disposition["candidate_id"]:
-            _emit({"state": "UNKNOWN", "reason": "disposition is stale"})
-            return EXIT_UNKNOWN
+            reason = "disposition is stale; run evaluate for the current candidate"
     _emit(
         {
             "repository_id": disposition["repository_id"],
             "candidate_id": disposition["candidate_id"],
-            "state": disposition["state"],
+            "state": "UNKNOWN",
+            "reported_state": disposition["state"],
+            "reason": reason,
             "human_action_required": True,
             "approved": False,
+            "authoritative": False,
         }
     )
-    return _state_exit(disposition["state"])
+    return EXIT_UNKNOWN
 
 
 def _verify(args: argparse.Namespace) -> int:

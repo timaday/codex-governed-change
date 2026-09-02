@@ -30,7 +30,6 @@ from codex_governance.reviewer import (
     launch_reviewer,
     observe_codex_cli_version,
     prepare_sanitized_harness,
-    reviewer_portable_source_literals,
     reviewer_stream_is_portable,
     resolve_reviewer_runtime_read_roots,
     sanitized_invocation_descriptor,
@@ -947,22 +946,20 @@ print(%r + ' ' + %r + ' ' + %r, file=sys.stderr)
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
         self.assertFalse(result["execution_valid"])
+        self.assertTrue(result["capture_threads_completed"])
+        self.assertFalse(result["observation_complete"])
+        self.assertNotIn(
+            "reviewer capture threads did not complete", result["limitations"]
+        )
         self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
         for original in (token, host_path, endpoint):
             self.assertNotIn(original.encode(), result["stderr_bytes"])
             self.assertFalse(reviewer_stream_is_portable(original.encode()))
         self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
 
-    def test_immutable_source_literal_is_portable_and_preserves_jsonl(self) -> None:
+    def test_command_event_payload_is_omitted_and_preserves_jsonl(self) -> None:
         source_literal = "/" + "var" + "/lib/public-example"
-        source_expression = b'token = token.replace("~1"'
-        credential_literal = ("gh" + "p_" + "Q" * 32).encode("utf-8")
-        nested_token = (
-            'token = token.replace("' + "sk" + "-" + "Q" * 32 + '")'
-        ).encode("utf-8")
-        nested_assignment = (
-            'token = token.replace("api_' + "key=" + "Q" * 32 + '")'
-        ).encode("utf-8")
+        credential_literal = "gh" + "p_" + "Q" * 32
         fake = self.fake_codex(
             """
 import json, pathlib, sys
@@ -985,6 +982,7 @@ output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'source-literal'}))
 print(json.dumps({'type': 'item.completed', 'item': {
   'type': 'command_execution',
+  'command': %r,
   'aggregated_output': %r + chr(34)
 }}))
 print(json.dumps({'type': 'item.completed', 'item': {
@@ -994,29 +992,14 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
   'input_tokens': 1, 'cached_input_tokens': 0,
   'output_tokens': 1, 'reasoning_output_tokens': 0
 }}))
-print(%r, file=sys.stderr)
 """
             % (
                 self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
                 self.inputs["context_receipt_sha256"], self.PROMPT,
-                self.inputs["reviewer_qualification_id"], source_literal,
+                self.inputs["reviewer_qualification_id"], credential_literal,
                 source_literal,
             )
         )
-        literals = reviewer_portable_source_literals(
-            self.repository,
-            protected_sources=(
-                source_literal.encode("utf-8"),
-                source_expression,
-                credential_literal,
-                nested_token,
-                nested_assignment,
-            ),
-        )
-        self.assertIn(source_expression, literals)
-        self.assertNotIn(credential_literal, literals)
-        self.assertNotIn(nested_token, literals)
-        self.assertNotIn(nested_assignment, literals)
         result = launch_reviewer(
             command=self.command(fake), stdin_text=self.stdin(),
             schema_path=self.harness["schema"], output_path=self.harness["output"],
@@ -1024,17 +1007,20 @@ print(%r, file=sys.stderr)
             candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
-            portable_source_literals=literals,
         )
-        self.assertFalse(result["execution_valid"])
-        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertTrue(result["execution_valid"])
+        self.assertEqual(
+            ReviewerVerdict.NO_BLOCKING_FINDING_OBSERVED, result["verdict"]
+        )
         self.assertTrue(result["usage_observed"])
         self.assertFalse(result["observation"]["stdout"]["ambiguous_redaction"])
-        self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
+        self.assertFalse(result["observation"]["stderr"]["ambiguous_redaction"])
         self.assertNotIn(source_literal.encode("utf-8"), result["stdout_bytes"])
-        self.assertNotIn(source_literal.encode("utf-8"), result["stderr_bytes"])
-        self.assertIn(b"<REVIEWER_SOURCE_LITERAL>", result["stdout_bytes"])
-        self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])
+        self.assertNotIn(credential_literal.encode("utf-8"), result["stdout_bytes"])
+        self.assertIn(b"<REVIEWER_COMMAND_OMITTED>", result["stdout_bytes"])
+        self.assertIn(
+            b"<REVIEWER_COMMAND_OUTPUT_OMITTED>", result["stdout_bytes"]
+        )
         for line in result["stdout_bytes"].splitlines():
             json.loads(line)
 
@@ -1053,7 +1039,6 @@ print(%r, file=sys.stderr)
             candidate_supplier=lambda _deadline: self.CANDIDATE,
             expected_bindings={"repository_id": self.inputs["repository_id"]},
             timeout_seconds=2,
-            portable_source_literals=literals,
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, final_output["verdict"])
         self.assertTrue(final_output["observation"]["stdout"]["ambiguous_redaction"])

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:562ddc6705fde76368283de901ea7d1d78935c96c1737a147e65294eb4ff1fc4",
+  "corpus_id": "sha256:269ad19603b0a33e7402798b6eb75434056ee7e0929615d111a3169ff6fce45a",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -159,8 +159,8 @@
     {
       "mutant_id": "raw-stream-success",
       "path": "src/codex_governance/evidence.py",
-      "old": "        except (OSError, TypeError, ValueError):\n            return False",
-      "new": "        except (OSError, TypeError, ValueError):\n            return True",
+      "old": "                raw_streams[str(stream)] = data\n        except (OSError, TypeError, ValueError):\n            return False",
+      "new": "                raw_streams[str(stream)] = data\n        except (OSError, TypeError, ValueError):\n            return True",
       "operator": "accept missing or tampered raw execution streams",
       "requirement_id": "GOV-026",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction"]
@@ -211,13 +211,13 @@
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_attestation"]
     },
     {
-      "mutant_id": "nested-source-credential",
+      "mutant_id": "reviewer-command-payload-unprojected",
       "path": "src/codex_governance/reviewer.py",
-      "old": "                for pattern in REVIEWER_CREDENTIAL_PATTERNS",
-      "new": "                for pattern in ()",
-      "operator": "allow a nested credential through the source-literal exception",
-      "requirement_id": "GOV-055",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl"]
+      "old": "            if isinstance(item, Mapping) and item.get(\"type\") == \"command_execution\":",
+      "new": "            if False:",
+      "operator": "retain transient command and aggregated-output payloads in reviewer JSONL evidence",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_command_event_payload_is_omitted_and_preserves_jsonl"]
     },
     {
       "mutant_id": "rollback-output-unbound",
@@ -328,13 +328,13 @@
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_concrete_tree_recursively_binds_dirty_submodule_bytes"]
     },
     {
-      "mutant_id": "raw-stderr-source-literal",
-      "path": "src/codex_governance/reviewer.py",
-      "old": "    stderr_bytes, stderr_redactions = _normalize_reviewer_stream(\n        bytes(stderr_capture.data),\n        command=actual_command,\n        schema_path=schema_path,\n        output_path=output_path,\n        environment=sanitized_environment,\n        portable_source_literals=frozenset(),\n    )",
-      "new": "    stderr_bytes, stderr_redactions = _normalize_reviewer_stream(\n        bytes(stderr_capture.data),\n        command=actual_command,\n        schema_path=schema_path,\n        output_path=output_path,\n        environment=sanitized_environment,\n        portable_source_literals=portable_source_literals,\n    )",
-      "operator": "apply the parsed-command source-literal exception to raw reviewer stderr",
-      "requirement_id": "GOV-055",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_immutable_source_literal_is_portable_and_preserves_jsonl"]
+      "mutant_id": "host-value-redaction-nonblocking",
+      "path": "src/codex_governance/gate.py",
+      "old": "        in {\"credential\", \"endpoint\", \"generic_host_path\", \"host_value\"}",
+      "new": "        in {\"credential\", \"endpoint\", \"generic_host_path\"}",
+      "operator": "treat an exact host-value replacement as sufficient gate evidence",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_exact_host_value_redaction_is_reported_without_hiding_exit"]
     },
     {
       "mutant_id": "qualification-output-unchecked",
@@ -461,6 +461,42 @@
       "operator": "retain an address-shaped endpoint in gate evidence",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_address_shaped_endpoint_is_ambiguous_and_not_retained"]
+    },
+    {
+      "mutant_id": "review-snapshot-source-only",
+      "path": "src/codex_governance/cli.py",
+      "old": "        snapshot_id = identify(snapshot_repository, deadline)",
+      "new": "        snapshot_id = source_id",
+      "operator": "reidentify only the source repository around fresh review",
+      "requirement_id": "GOV-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_review_candidate_supplier_rejects_source_or_snapshot_drift"]
+    },
+    {
+      "mutant_id": "assurance-fixed-set-removed",
+      "path": "src/codex_governance/assurance.py",
+      "old": "            or claim.get(\"argument_rule\") != ASSURANCE_ARGUMENT_RULES.get(claim_id)",
+      "new": "            or False",
+      "operator": "accept a rule-substituted assurance claim",
+      "requirement_id": "GOV-051",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_assurance_case.AssuranceCaseAcceptanceTest.test_assurance_claim_set_is_exact_unique_and_rule_bound"]
+    },
+    {
+      "mutant_id": "status-ready-passthrough",
+      "path": "src/codex_governance/cli.py",
+      "old": "            \"state\": \"UNKNOWN\",\n            \"reported_state\": disposition[\"state\"],",
+      "new": "            \"state\": disposition[\"state\"],\n            \"reported_state\": disposition[\"state\"],",
+      "operator": "echo an untrusted disposition as an authoritative-looking status",
+      "requirement_id": "GOV-041",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_illustrative_disposition_never_reports_ready"]
+    },
+    {
+      "mutant_id": "reviewer-finding-location-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and finding_location_resolves(finding)",
+      "new": "                and True",
+      "operator": "accept a reviewer finding whose path line and locator do not bind",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_reviewer_findings_require_concrete_digest_bound_locations"]
     }
   ]
 }

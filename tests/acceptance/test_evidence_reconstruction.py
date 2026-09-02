@@ -12,6 +12,7 @@ from codex_governance.attestation import (
     gate_implementation_sha256,
     mutation_implementation_sha256,
 )
+from codex_governance.assurance import ASSURANCE_ARGUMENT_RULES
 from codex_governance.canonical import (
     canonical_json_bytes,
     content_address,
@@ -791,8 +792,29 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "locator_id",
         )
         locator_ref = self.write("locator.json", locator, "evidence-locator")
-        locator_refs = [locator_ref]
+        service_bytes = (self.repository / "src/service.py").read_bytes()
+        source_locator = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": self.REPOSITORY_ID,
+                "task_contract_sha256": task_sha,
+                "candidate_id": self.CANDIDATE_ID,
+                "kind": "repository_file",
+                "path": "src/service.py",
+                "artifact_sha256": sha256_bytes(service_bytes),
+                "media_type": "text/x-python",
+            },
+            "locator_id",
+        )
+        source_locator_ref = self.write(
+            "source-locator.json", source_locator, "evidence-locator"
+        )
+        locator_refs = [locator_ref, source_locator_ref]
         typed_reference = {"locator_id": locator["locator_id"], "sha256": observation["sha256"]}
+        source_reference = {
+            "locator_id": source_locator["locator_id"],
+            "sha256": sha256_bytes(service_bytes),
+        }
 
         gate_execution_identity = sandbox_execution_identity(
             provider="docker", provider_version="fixture",
@@ -1228,6 +1250,35 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             reviewer["affected_closure"] = affected_closure[:-1]
         elif reviewer_defect == "unresolved-claim":
             reviewer["claims"][0]["classification"] = "UNKNOWN"
+        elif reviewer_defect in {
+            "valid-finding",
+            "missing-finding-path",
+            "out-of-range-finding-line",
+            "swapped-finding-locator",
+        }:
+            reviewer["verdict"] = "BLOCK"
+            reviewer["findings"] = [
+                {
+                    "severity": "high",
+                    "category": "authority",
+                    "path": (
+                        "src/missing.py"
+                        if reviewer_defect == "missing-finding-path"
+                        else "src/service.py"
+                    ),
+                    "line": (
+                        99 if reviewer_defect == "out-of-range-finding-line" else 1
+                    ),
+                    "claim": "The review found a concrete authority defect.",
+                    "violated_oracle": "GOV-052",
+                    "evidence_refs": [
+                        typed_reference
+                        if reviewer_defect == "swapped-finding-locator"
+                        else source_reference
+                    ],
+                    "remediation": "Repair the cited authority boundary.",
+                }
+            ]
         reviewer_ref = self.write("reviewer.json", reviewer, "reviewer-result")
         context_execution = finalize_context_receipt(
             context_receipt,
@@ -1527,7 +1578,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "candidate_id": self.CANDIDATE_ID, "task_contract_sha256": task_sha,
                 "effective_policy_sha256": policy_sha,
                 "claims": [
-                    {"claim_id": claim_id, "argument_rule": "RULE_" + claim_id.upper(),
+                    {"claim_id": claim_id, "argument_rule": ASSURANCE_ARGUMENT_RULES[claim_id],
                      "supporting_evidence": [typed_reference], "refuting_evidence": [],
                      "limitations": ["bounded claim"], "unresolved_defeaters": [],
                      "classification": "VERIFIED_WITHIN_SCOPE"}
@@ -1889,6 +1940,65 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
     def test_reviewer_success_requires_exact_closure_surfaces_and_resolved_claims(self) -> None:
         for defect in ("missing-surface", "incomplete-closure", "unresolved-claim"):
             manifest = self.complete_manifest(reviewer_defect=defect)
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_reviewer_findings_require_concrete_digest_bound_locations(self) -> None:
+        valid_manifest = self.complete_manifest(reviewer_defect="valid-finding")
+        valid_state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=valid_manifest,
+            schema_root=self.ROOT / "schemas",
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(valid_manifest),
+        )
+        self.assertEqual(DispositionState.BLOCK, valid_state)
+
+        for defect in (
+            "missing-finding-path",
+            "out-of-range-finding-line",
+            "swapped-finding-locator",
+        ):
+            manifest = self.complete_manifest(reviewer_defect=defect)
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_assurance_admission_rejects_omission_duplication_and_rule_swap(self) -> None:
+        for defect in ("omission", "duplication", "rule-swap"):
+            manifest = self.complete_manifest()
+            reference = manifest["assurance_case"]
+            path = self.repository / reference["path"]
+            assurance = json.loads(path.read_text(encoding="utf-8"))
+            if defect == "omission":
+                assurance["claims"].pop()
+            elif defect == "duplication":
+                assurance["claims"][-1] = deepcopy(assurance["claims"][0])
+            else:
+                assurance["claims"][0]["argument_rule"] = assurance["claims"][1][
+                    "argument_rule"
+                ]
+            assurance = content_address(assurance, "assurance_case_id")
+            data = canonical_json_bytes(assurance)
+            path.write_bytes(data)
+            reference["sha256"] = sha256_bytes(data)
+            manifest = content_address(manifest, "manifest_id")
             state, _ = evaluate_manifest(
                 repository=self.repository,
                 manifest=manifest,

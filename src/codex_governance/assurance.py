@@ -12,6 +12,39 @@ SATISFIED_CLASSIFICATIONS = frozenset(
     {"DIRECTLY_OBSERVED", "VERIFIED_WITHIN_SCOPE"}
 )
 
+ASSURANCE_ARGUMENT_RULES = {
+    "scope_authorized": "RULE_SCOPE_AUTH",
+    "candidate_current": "RULE_CANDIDATE_CURRENT",
+    "gates_complete": "RULE_GATES_COMPLETE",
+    "governance_integrity": "RULE_GOVERNANCE_LKG",
+    "rst_complete": "RULE_RST_COMPLETE",
+    "mutation_complete": "RULE_MUTATION_COMPLETE",
+    "fresh_review_complete": "RULE_FRESH_REVIEW",
+    "residual_risk_visible": "RULE_RISK_VISIBLE",
+    "context_complete": "RULE_CONTEXT_COMPLETE",
+}
+
+
+def assurance_claim_set_is_fixed(claims: Any) -> bool:
+    """Require exactly one protected claim-to-argument-rule pair."""
+    if not isinstance(claims, (list, tuple)) or len(claims) != len(
+        ASSURANCE_ARGUMENT_RULES
+    ):
+        return False
+    observed: set[str] = set()
+    for claim in claims:
+        if not isinstance(claim, Mapping):
+            return False
+        claim_id = claim.get("claim_id")
+        if (
+            not isinstance(claim_id, str)
+            or claim_id in observed
+            or claim.get("argument_rule") != ASSURANCE_ARGUMENT_RULES.get(claim_id)
+        ):
+            return False
+        observed.add(claim_id)
+    return observed == set(ASSURANCE_ARGUMENT_RULES)
+
 
 def evaluate_assurance_claim(claim: Mapping[str, Any]) -> DispositionState:
     classification = claim.get("classification")

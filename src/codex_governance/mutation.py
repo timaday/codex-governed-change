@@ -49,7 +49,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "protected-risk-floor-downgrade",
         "old-policy-self-replacement",
         "missing-provenance",
-        "nested-source-credential",
+        "reviewer-command-payload-unprojected",
         "rollback-output-unbound",
         "legacy-context-schema",
         "gate-copy-source-identity",
@@ -62,7 +62,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "rollback-sibling-sitecustomize",
         "noncausal-mutation-kill",
         "submodule-head-only",
-        "raw-stderr-source-literal",
+        "host-value-redaction-nonblocking",
         "qualification-output-unchecked",
         "artifact-leaf-rebind",
         "fcntl-signal-escape",
@@ -77,6 +77,10 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "fcntl-benign-status-denied",
         "short-host-value-unredacted",
         "gate-endpoint-unredacted",
+        "review-snapshot-source-only",
+        "assurance-fixed-set-removed",
+        "status-ready-passthrough",
+        "reviewer-finding-location-unchecked",
     }
 )
 
