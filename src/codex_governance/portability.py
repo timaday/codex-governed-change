@@ -43,6 +43,13 @@ SHAPED_VALUE_PATTERNS: tuple[tuple[re.Pattern[bytes], str], ...] = (
     (re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), "credential"),
     (
         re.compile(
+            rb"(?i)\b(?:https?|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp):/{3,}"
+            + _VALUE_TAIL
+        ),
+        "endpoint",
+    ),
+    (
+        re.compile(
             rb"(?<![A-Za-z0-9._~/-])(?:/(?!/)|"
             + _SCHEME_QUALIFIED_AUTHORITY_GUARDS
             + rb"//+)"

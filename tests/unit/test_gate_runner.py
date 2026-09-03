@@ -349,6 +349,28 @@ class GateRunnerTest(unittest.TestCase):
             {item["category"] for item in result["redactions"]},
         )
 
+    def test_malformed_scheme_host_paths_are_endpoint_ambiguity(self) -> None:
+        values = (
+            "http:///private/host/key",
+            "https:" + "/" * 4 + "Users/private/key.pem",
+            "ssh:///etc/passwd",
+        )
+        result = self.observe(
+            "print(" + repr(" ".join(values)) + ")", max_output_bytes=1024
+        )
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        for value in values:
+            self.assertNotIn(value.encode(), output)
+        self.assertIn(b"<REDACTED_ENDPOINT>", output)
+        self.assertNotIn(b"<REDACTED_HOST_PATH>", output)
+        self.assertEqual(
+            {"endpoint"},
+            {item["category"] for item in result["redactions"]},
+        )
+
     def test_clock_values_are_not_misclassified_as_ipv6_endpoints(self) -> None:
         result = self.observe(
             "print('2026-08-26T12:38:00Z face:feed:cafe:dead')"

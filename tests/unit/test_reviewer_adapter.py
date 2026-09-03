@@ -999,6 +999,7 @@ print(os.environ['CODEX_HOME'] + ' ' + str(output), file=sys.stderr)
         unc_share_root = "\\" * 2 + "build-host\\workspace"
         endpoint = "192" + ".168.50.7:8443"
         named_endpoint = "https://runner.internal.invalid/review/status"
+        malformed_endpoint = "https:" + "/" * 4 + "Users/private/key.pem"
         fake = self.fake_codex(
             """
 import json, pathlib, sys
@@ -1020,14 +1021,14 @@ output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'redaction'}))
 print(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(payload)}}))
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}))
-print(%r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
+print(%r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
 """
             % (
                 self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
                 self.inputs["context_receipt_sha256"], self.PROMPT,
                 self.inputs["reviewer_qualification_id"], token, host_path,
                 multi_separator_path, colon_multi_path, colon_triple_path,
-                unc_share_root, endpoint, named_endpoint,
+                unc_share_root, endpoint, named_endpoint, malformed_endpoint,
             )
         )
         result = launch_reviewer(
@@ -1055,6 +1056,7 @@ print(%r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' '
             unc_share_root,
             endpoint,
             named_endpoint,
+            malformed_endpoint,
         ):
             self.assertNotIn(original.encode(), result["stderr_bytes"])
             self.assertFalse(reviewer_stream_is_portable(original.encode()))

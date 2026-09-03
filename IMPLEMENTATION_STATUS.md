@@ -715,3 +715,17 @@ and protected byte digest
 `sha256:7fde4633c995ba9a47a2b3d9da1eff702b87284e596351607e62d607fb376590`.
 All `e71cde4` evidence is non-qualifying; deterministic gates, paired controls,
 fresh review and candidate identity must be regenerated.
+
+Immutable candidate `3bee288` passed the complete local 108-operator
+paired-control corpus and its release authority passed its deterministic suite,
+but the exact fresh ChatGPT-authenticated `gpt-5.6-sol` release audit declared
+`BLOCK`. A listed endpoint scheme followed by three or more separators could
+avoid both endpoint and generic-host-path recognition. This working-copy
+successor treats that malformed form as endpoint ambiguity in the shared
+gate/reviewer recognizer and adds gate, reviewer and semantic-mutation canaries.
+The 109-entry corpus now has content ID
+`sha256:1b35bacc6f97b32103deee9b3a15ecc4aa0b017e65971fb97b03e12641437cfe`
+and protected byte digest
+`sha256:2d5c0103e61ae16165b90c3365b1fa39592993a656aee2ed3e724065126b5e35`.
+All `3bee288` evidence is non-qualifying; deterministic gates, paired controls,
+fresh review and candidate identity must be regenerated.

@@ -378,8 +378,10 @@ local and named network endpoints
 including scheme-qualified endpoints. The generic POSIX path family does not
 consume the authority separator of a scheme-qualified URL; the endpoint family
 must independently recognize and remove that complete value. That exception is
-limited to a listed scheme beginning at a word boundary. An arbitrary label and
-colon followed by two or more separators remains a generic absolute POSIX path.
+limited to a listed scheme beginning at a word boundary and exactly two authority
+separators. A listed scheme followed by three or more separators is a malformed
+endpoint/absolute-host-path value and MUST also be removed. An arbitrary label
+and colon followed by two or more separators remains a generic absolute POSIX path.
 Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working
@@ -912,7 +914,10 @@ access is `UNKNOWN`. The same retained-descriptor reader is mandatory while
 materializing permitted evidence into the reviewer harness. The reviewer CLI
 reads each permitted artifact once, validates and hashes those retained bytes,
 and passes those same bytes to harness materialization; it must not reopen the
-pathname between validation and copy.
+pathname between validation and copy. Qualification MUST likewise retain the
+exact reviewer-output bytes returned by the launcher observation; classification,
+execution identity, hashing and retained case evidence MUST NOT reopen or replace
+that output.
 
 Gate and mutation implementation identities hash a canonical manifest containing
 the repository-relative filename, byte length and SHA-256 digest of every Python

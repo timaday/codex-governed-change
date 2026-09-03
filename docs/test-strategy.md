@@ -193,7 +193,9 @@ gap between entry and launch, require path resolution inside that child, and
 prove an expired deadline cannot launch it. Shared gate/reviewer portability
 cases include multi-leading-separator POSIX paths and UNC share roots. A dedicated
 scheme-qualified named-endpoint case asserts endpoint-family classification so
-generic path redaction cannot mask removal of an endpoint scheme. Gate and
+generic path redaction cannot mask removal of an endpoint scheme. Malformed
+listed schemes followed by three or more separators are also endpoint-family
+ambiguity and must be removed by both gate and reviewer normalization. Gate and
 reviewer cases also place two and three leading separators after an ordinary
 colon, and a paired mutant broadens the scheme exception to every colon. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
