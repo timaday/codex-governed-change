@@ -334,6 +334,21 @@ class GateRunnerTest(unittest.TestCase):
         self.assertIn(b"<REDACTED_HOST_PATH>", output)
         self.assertIn(b"<REDACTED_ENDPOINT>", output)
 
+    def test_scheme_qualified_named_endpoint_uses_endpoint_family(self) -> None:
+        endpoint = "https://runner.internal.invalid/api/status"
+        result = self.observe(f"print({endpoint!r})", max_output_bytes=1024)
+        output = self.store.read_bytes(
+            result["artifacts"][0]["path"].removeprefix("evidence/")
+        )
+        self.assertEqual("UNKNOWN", result["status"])
+        self.assertNotIn(endpoint.encode(), output)
+        self.assertIn(b"<REDACTED_ENDPOINT>", output)
+        self.assertNotIn(b"<REDACTED_HOST_PATH>", output)
+        self.assertEqual(
+            {"endpoint"},
+            {item["category"] for item in result["redactions"]},
+        )
+
     def test_clock_values_are_not_misclassified_as_ipv6_endpoints(self) -> None:
         result = self.observe(
             "print('2026-08-26T12:38:00Z face:feed:cafe:dead')"

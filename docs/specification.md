@@ -375,7 +375,9 @@ It consumes every delimited absolute POSIX path with one or more leading
 separators, complete Windows user-root paths, and UNC server/share roots with
 or without a trailing separator or descendant, as well as bare IPv4/IPv6,
 local and named network endpoints
-including scheme-qualified endpoints. Parsing and execution-statement digests use those normalized captured
+including scheme-qualified endpoints. The generic POSIX path family does not
+consume the authority separator of a scheme-qualified URL; the endpoint family
+must independently recognize and remove that complete value. Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working
 material and MUST be projected to fixed omission tokens before shaped-value

@@ -681,3 +681,20 @@ and protected byte digest
 `sha256:28fd15c3f823ddc3e2d5a8a084ff4d30a2ba14485507d4e907270175fb45c9fa`.
 All evidence for `b75c3f9` is non-qualifying; deterministic gates, paired
 controls, fresh review and candidate identity must be regenerated.
+
+Immutable candidate `901793b` passed blueprint integrity, 212 acceptance tests,
+93 unit tests, compilation, rollback rehearsal and public portability. Its
+600-second corpus baseline passed and 106 paired operators were killed, but the
+complete 107-operator aggregate correctly returned `BLOCK` because
+`named-endpoint-unredacted` survived. Multi-leading POSIX recognition consumed
+the URL authority portion after the endpoint mutant removed HTTP support, so the
+combined oracle still observed ambiguity without proving the named-endpoint
+family worked. This working-copy successor excludes scheme-qualified URL
+authority separators from generic POSIX matching, adds an endpoint-specific
+classification oracle, and re-addresses the affected path and endpoint mutants.
+The 107-entry corpus now has content ID
+`sha256:1f5f337c576950373c2535adfd87f5b52bbf67520d06495d648a21eeee379b30`
+and protected byte digest
+`sha256:0126171816204fcd19d68d5bd2fced690b4b3e1465fc245aa930f04623ead4d4`.
+All `901793b` evidence is non-qualifying; deterministic gates, paired controls,
+fresh review and candidate identity must be regenerated.

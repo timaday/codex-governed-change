@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:e23044f9b17dd89c7597a7b201a8deaec94a967f3cadde319ad854db282a2f24",
+  "corpus_id": "sha256:1f5f337c576950373c2535adfd87f5b52bbf67520d06495d648a21eeee379b30",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -501,8 +501,8 @@
     {
       "mutant_id": "shared-host-root-truncated",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~/-])/+(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "recognize only user-profile prefixes instead of complete host-root families",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -514,7 +514,7 @@
       "new": "            rb\"(?i)\\b(?:ftp|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp)://\"",
       "operator": "retain a scheme-qualified named endpoint",
       "requirement_id": "GOV-021",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_scheme_qualified_named_endpoint_uses_endpoint_family"]
     },
     {
       "mutant_id": "ioctl-signal-escape",
@@ -735,8 +735,8 @@
     {
       "mutant_id": "colon-delimited-posix-unredacted",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~:/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "retain an absolute POSIX host path after an ordinary colon delimiter",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed"]
@@ -942,8 +942,8 @@
     {
       "mutant_id": "multi-leading-posix-unredacted",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "exclude multi-leading-separator absolute POSIX paths from shared recognition",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
