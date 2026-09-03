@@ -7,6 +7,20 @@ import re
 
 _VALUE_TAIL = rb"[^\s\"'<>|,;)}\]]+"
 _OPTIONAL_VALUE_TAIL = rb"[^\s\"'<>|,;)}\]]*"
+_SCHEME_QUALIFIED_AUTHORITY_GUARDS = (
+    rb"(?<!(?i:\bhttp:))"
+    rb"(?<!(?i:\bhttps:))"
+    rb"(?<!(?i:\bws:))"
+    rb"(?<!(?i:\bwss:))"
+    rb"(?<!(?i:\bssh:))"
+    rb"(?<!(?i:\btcp:))"
+    rb"(?<!(?i:\btls:))"
+    rb"(?<!(?i:\bpostgres:))"
+    rb"(?<!(?i:\bpostgresql:))"
+    rb"(?<!(?i:\bmysql:))"
+    rb"(?<!(?i:\bredis:))"
+    rb"(?<!(?i:\bamqp:))"
+)
 
 SHAPED_VALUE_PATTERNS: tuple[tuple[re.Pattern[bytes], str], ...] = (
     (
@@ -29,8 +43,10 @@ SHAPED_VALUE_PATTERNS: tuple[tuple[re.Pattern[bytes], str], ...] = (
     (re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), "credential"),
     (
         re.compile(
-            rb"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)"
-            rb"[^\s\"'<>|,;)}\]]+"
+            rb"(?<![A-Za-z0-9._~/-])(?:/(?!/)|"
+            + _SCHEME_QUALIFIED_AUTHORITY_GUARDS
+            + rb"//+)"
+            + _VALUE_TAIL
         ),
         "generic_host_path",
     ),

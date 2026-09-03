@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:1f5f337c576950373c2535adfd87f5b52bbf67520d06495d648a21eeee379b30",
+  "corpus_id": "sha256:23964762357b071d85f59962c85cecd83101be1bc92b8e25e251938bb7c5b494",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -501,8 +501,8 @@
     {
       "mutant_id": "shared-host-root-truncated",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|\"\n            + _SCHEME_QUALIFIED_AUTHORITY_GUARDS\n            + rb\"//+)\"\n            + _VALUE_TAIL",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|\"\n            + _SCHEME_QUALIFIED_AUTHORITY_GUARDS\n            + rb\"//+)\"\n            + rb\"(?:home|Users)/\" + _VALUE_TAIL",
       "operator": "recognize only user-profile prefixes instead of complete host-root families",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -735,8 +735,8 @@
     {
       "mutant_id": "colon-delimited-posix-unredacted",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~:/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~:/-])(?:/(?!/)|\"",
       "operator": "retain an absolute POSIX host path after an ordinary colon delimiter",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed"]
@@ -942,8 +942,8 @@
     {
       "mutant_id": "multi-leading-posix-unredacted",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])(?:/(?!/)|(?<!:)//+)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)\"\n            rb\"[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            + rb\"//+)\"",
+      "new": "            + rb\"/(?!/))\"",
       "operator": "exclude multi-leading-separator absolute POSIX paths from shared recognition",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -965,6 +965,15 @@
       "operator": "reuse the stale permission-finalization entry budget after argument preparation",
       "requirement_id": "GOV-025",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store.ArtifactStoreTest.test_permission_finalization_rechecks_deadline_before_launch"]
+    },
+    {
+      "mutant_id": "colon-multi-posix-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "_SCHEME_QUALIFIED_AUTHORITY_GUARDS = (\n    rb\"(?<!(?i:\\bhttp:))\"",
+      "new": "_SCHEME_QUALIFIED_AUTHORITY_GUARDS = (\n    rb\"(?<!:)\"\n    rb\"(?<!(?i:\\bhttp:))\"",
+      "operator": "exempt every colon-delimited multi-separator path as though it were a scheme-qualified endpoint",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_ambiguous_reviewer_stream_values_are_redacted_and_unknown"]
     }
   ]
 }

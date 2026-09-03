@@ -139,6 +139,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "multi-leading-posix-unredacted",
         "unc-share-root-unredacted",
         "permission-finalization-deadline-rebased",
+        "colon-multi-posix-unredacted",
     }
 )
 

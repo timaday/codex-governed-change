@@ -698,3 +698,20 @@ and protected byte digest
 `sha256:0126171816204fcd19d68d5bd2fced690b4b3e1465fc245aa930f04623ead4d4`.
 All `901793b` evidence is non-qualifying; deterministic gates, paired controls,
 fresh review and candidate identity must be regenerated.
+
+Immutable candidate `e71cde4` passed blueprint integrity, 212 acceptance tests,
+94 unit tests, compilation, rollback rehearsal, public portability and the
+complete 107-operator paired-control corpus. Its fresh ChatGPT-authenticated
+`gpt-5.6-sol` source review completed with valid bounded execution and declared
+`BLOCK` on one high-severity finding: the generic POSIX pattern excluded every
+colon before multiple separators, so an ordinary label followed by a colon and
+two or three leading separators could survive both shared normalizers. This
+working-copy successor limits the exception to the endpoint family's listed
+word-boundary schemes, adds gate and reviewer adversarial cases for ordinary
+colon-delimited multi-separator paths, and adds a dedicated semantic mutant for
+the overbroad exception. The 108-entry corpus now has content ID
+`sha256:23964762357b071d85f59962c85cecd83101be1bc92b8e25e251938bb7c5b494`
+and protected byte digest
+`sha256:7fde4633c995ba9a47a2b3d9da1eff702b87284e596351607e62d607fb376590`.
+All `e71cde4` evidence is non-qualifying; deterministic gates, paired controls,
+fresh review and candidate identity must be regenerated.

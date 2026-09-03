@@ -164,6 +164,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "multi-leading-posix-unredacted",
             "unc-share-root-unredacted",
             "permission-finalization-deadline-rebased",
+            "colon-multi-posix-unredacted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

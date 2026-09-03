@@ -377,7 +377,10 @@ or without a trailing separator or descendant, as well as bare IPv4/IPv6,
 local and named network endpoints
 including scheme-qualified endpoints. The generic POSIX path family does not
 consume the authority separator of a scheme-qualified URL; the endpoint family
-must independently recognize and remove that complete value. Parsing and execution-statement digests use those normalized captured
+must independently recognize and remove that complete value. That exception is
+limited to a listed scheme beginning at a word boundary. An arbitrary label and
+colon followed by two or more separators remains a generic absolute POSIX path.
+Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working
 material and MUST be projected to fixed omission tokens before shaped-value

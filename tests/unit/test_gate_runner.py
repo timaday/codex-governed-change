@@ -441,13 +441,17 @@ class GateRunnerTest(unittest.TestCase):
         self.assertNotIn(("opaque-" + "A" * 24).encode(), output)
 
     def test_colon_delimited_absolute_path_is_removed(self) -> None:
-        host_path = "cache:" + "/" + "/".join(("srv", "worker", "state.bin"))
-        result = self.observe(f"print({host_path!r})")
+        host_paths = tuple(
+            "cache:" + "/" * separators + "/".join(("srv", "worker", "state.bin"))
+            for separators in (1, 2, 3)
+        )
+        result = self.observe(f"print({' '.join(host_paths)!r})")
         output = self.store.read_bytes(
             result["artifacts"][0]["path"].removeprefix("evidence/")
         )
         self.assertEqual("UNKNOWN", result["status"])
-        self.assertNotIn(host_path.encode(), output)
+        for host_path in host_paths:
+            self.assertNotIn(host_path.encode(), output)
         self.assertIn(b"<REDACTED_HOST_PATH>", output)
 
     def test_hostname_lookup_failure_does_not_bypass_normalization(self) -> None:
