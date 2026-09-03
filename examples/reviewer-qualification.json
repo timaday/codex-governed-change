@@ -1,10 +1,11 @@
 {
-  "schema_version": "2.0.0",
-  "qualification_id": "sha256:a9e2be155e56643e1496e6938beb4e9534ca4ae5825aae1417f29e12ea7471b4",
+  "schema_version": "3.0.0",
+  "qualification_id": "sha256:6fbc6982c09e94788abda743a3093d115f8a19f42bef587df0c1a4eac2141b8f",
   "prompt_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "schema_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "launcher_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "codex_cli_version": "codex-cli 0.149.1",
+  "authentication": "chatgpt",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "xhigh",
   "corpus_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",

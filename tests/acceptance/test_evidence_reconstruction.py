@@ -269,6 +269,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 ),
                 "launcher_sha256": "sha256:" + "5" * 64,
                 "codex_cli_version": "codex-cli 0.149.1",
+                "authentication": "chatgpt",
                 "model": "gpt-5.6-sol",
                 "reasoning_effort": "xhigh",
             }
@@ -641,6 +642,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     timeout_seconds=60,
                     max_output_bytes=1000,
                     codex_cli_version=identity["codex_cli_version"],
+                    authentication=identity["authentication"],
                     execution=qualification_execution_facts,
                     stdout_reference=stdout_reference,
                     stderr_reference=stderr_reference,
@@ -681,7 +683,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 )
             return content_address(
                 {
-                    "schema_version": "4.0.0",
+                    "schema_version": "5.0.0",
                     "mode": mode,
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -722,7 +724,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         def qualification_record(identity: dict, cases: dict) -> dict:
             return content_address(
                 {
-                    "schema_version": "2.0.0",
+                    "schema_version": "3.0.0",
                     **identity,
                     "corpus_sha256": corpus_sha,
                     "label_decision_id": label_decision["decision_id"],
@@ -1584,6 +1586,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             timeout_seconds=policy["reviewer"]["timeout_seconds"],
             max_output_bytes=policy["reviewer"]["max_output_bytes"],
             codex_cli_version="codex-cli 0.149.1",
+            authentication="chatgpt",
             stdout_reference=reviewer_stdout_ref,
             stderr_reference=reviewer_stderr_ref,
             execution=execution_facts,
@@ -1745,6 +1748,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             timeout_seconds=policy["reviewer"]["timeout_seconds"],
             max_output_bytes=policy["reviewer"]["max_output_bytes"],
             codex_cli_version="codex-cli 0.149.1",
+            authentication="chatgpt",
             stdout_reference=rapid_stdout_ref,
             stderr_reference=rapid_stderr_ref,
             execution=rapid_execution_facts,
@@ -1828,7 +1832,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         assurance_ref = self.write("assurance.json", assurance, "assurance-case")
         manifest = content_address(
             {
-                "schema_version": "3.0.0", "repository_id": self.REPOSITORY_ID,
+                "schema_version": "4.0.0", "repository_id": self.REPOSITORY_ID,
                 "candidate_id": self.CANDIDATE_ID, "task_contract": task_ref,
                 "effective_policy": policy_ref,
                 "lkg_policy_decision": lkg_policy_decision_ref,

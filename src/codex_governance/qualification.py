@@ -44,6 +44,7 @@ REVIEWER_IDENTITY_FIELDS = (
     "schema_sha256",
     "launcher_sha256",
     "codex_cli_version",
+    "authentication",
     "model",
     "reasoning_effort",
 )
@@ -663,7 +664,7 @@ def bootstrap_qualification_record(
         raise ValueError("qualification identity fields are incomplete")
     return content_address(
         {
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             **dict(identity),
             "corpus_sha256": require_sha256(corpus_sha256),
             "label_decision_id": require_sha256(label_decision_id),
@@ -1267,6 +1268,7 @@ def qualification_evidence_valid(
             or not reviewer_stream_is_portable(artifacts["stdout"])
             or artifacts["stderr"] != b""
             or execution.get("limitations") != []
+            or execution.get("authentication") != identity["authentication"]
             or tools != [
                 {"name": "codex-cli", "version": identity["codex_cli_version"]}
             ]

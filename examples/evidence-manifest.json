@@ -1,6 +1,6 @@
 {
-  "schema_version": "3.0.0",
-  "manifest_id": "sha256:644927813f86e70e686bd5a9e09ef51bbe8c53c990a9c8461851cb7f9a449a38",
+  "schema_version": "4.0.0",
+  "manifest_id": "sha256:56dc11cfde6e357f14ecb2258aa95978e4aae4a4d196230c07fcc17867cab9dc",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "task_contract": {

@@ -25,6 +25,8 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "2.0.0", "3.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "3.0.0", "4.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-execution", "4.0.0", "5.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-qualification", "2.0.0", "3.0.0"))
         self.assertEqual(
             "explicit_required",
             migration_policy("reviewer-qualification-cases", "2.0.0", "3.0.0"),
@@ -32,6 +34,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             "explicit_required",
             migration_policy("reviewer-qualification-cases", "3.0.0", "4.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
+            migration_policy("reviewer-qualification-cases", "4.0.0", "5.0.0"),
         )
         self.assertEqual(
             "explicit_required",
@@ -44,6 +50,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             "explicit_required",
             migration_policy("evidence-manifest", "2.0.0", "3.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
+            migration_policy("evidence-manifest", "3.0.0", "4.0.0"),
         )
         self.assertEqual(
             "explicit_required",
@@ -88,6 +98,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                 ("1.0.0", "2.0.0"),
                 ("2.0.0", "3.0.0"),
                 ("3.0.0", "4.0.0"),
+                ("4.0.0", "5.0.0"),
             )
             if migration_policy(kind, source, target) == "explicit_required"
         }
@@ -106,17 +117,21 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_effective_policy_v2_to_v3,
             migrate_evidence_manifest_v1_to_v2,
             migrate_evidence_manifest_v2_to_v3,
+            migrate_evidence_manifest_v3_to_v4,
             migrate_provenance_statement_v1_to_v2,
             migrate_rapid_review_session_v1_to_v2,
             migrate_reviewer_execution_v1_to_v2,
             migrate_reviewer_execution_v2_to_v3,
             migrate_reviewer_execution_v3_to_v4,
+            migrate_reviewer_execution_v4_to_v5,
             migrate_reviewer_qualification_cases_v1_to_v2,
             migrate_reviewer_qualification_cases_v2_to_v3,
             migrate_reviewer_qualification_cases_v3_to_v4,
+            migrate_reviewer_qualification_cases_v4_to_v5,
             migrate_reviewer_qualification_corpus_v1_to_v2,
             migrate_reviewer_qualification_corpus_v2_to_v3,
             migrate_reviewer_qualification_v1_to_v2,
+            migrate_reviewer_qualification_v2_to_v3,
             migrate_reviewer_result_v1_to_v2,
             migrate_reviewer_result_v2_to_v3,
             migrate_rollback_evidence_v1_to_v2,
@@ -173,7 +188,8 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("effective-policy", migrated_policy_v3)
         observed.add(("effective-policy", "2.0.0", "3.0.0"))
 
-        manifest_v3 = example("evidence-manifest")
+        manifest_v4 = example("evidence-manifest")
+        manifest_v3 = addressed(deepcopy(manifest_v4), "3.0.0", "manifest_id")
         lkg_policy_decision = manifest_v3["lkg_policy_decision"]
         manifest_v2 = deepcopy(manifest_v3)
         manifest_v2.pop("lkg_policy_decision")
@@ -204,10 +220,21 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_manifest_v2, lkg_policy_decision=lkg_policy_decision
         )
         self.assertEqual(manifest_v3, rebuilt_manifest_v3)
-        current("evidence-manifest", rebuilt_manifest_v3)
         observed.add(("evidence-manifest", "2.0.0", "3.0.0"))
+        rebuilt_manifest_v4 = migrate_evidence_manifest_v3_to_v4(
+            rebuilt_manifest_v3
+        )
+        self.assertEqual(manifest_v4, rebuilt_manifest_v4)
+        current("evidence-manifest", rebuilt_manifest_v4)
+        observed.add(("evidence-manifest", "3.0.0", "4.0.0"))
 
-        qualification_v2 = example("reviewer-qualification")
+        qualification_v3 = example("reviewer-qualification")
+        authentication = qualification_v3["authentication"]
+        qualification_v2 = deepcopy(qualification_v3)
+        qualification_v2.pop("authentication")
+        qualification_v2 = addressed(
+            qualification_v2, "2.0.0", "qualification_id"
+        )
         label_id = qualification_v2["label_decision_id"]
         case_evidence_sha = qualification_v2["case_evidence_sha256"]
         qualification_v1 = deepcopy(qualification_v2)
@@ -223,10 +250,25 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             case_evidence_sha256=case_evidence_sha,
         )
         self.assertEqual(qualification_v2, rebuilt_qualification)
-        current("reviewer-qualification", rebuilt_qualification)
         observed.add(("reviewer-qualification", "1.0.0", "2.0.0"))
+        with self.assertRaises(ValueError):
+            migrate_reviewer_qualification_v2_to_v3(
+                rebuilt_qualification, authentication="api-key"
+            )
+        rebuilt_qualification_v3 = migrate_reviewer_qualification_v2_to_v3(
+            rebuilt_qualification, authentication=authentication
+        )
+        self.assertEqual(qualification_v3, rebuilt_qualification_v3)
+        current("reviewer-qualification", rebuilt_qualification_v3)
+        observed.add(("reviewer-qualification", "2.0.0", "3.0.0"))
 
-        qualification_cases_v4 = example("reviewer-qualification-cases")
+        qualification_cases_v5 = example("reviewer-qualification-cases")
+        cases_authentication = qualification_cases_v5["identity"]["authentication"]
+        qualification_cases_v4 = deepcopy(qualification_cases_v5)
+        qualification_cases_v4["identity"].pop("authentication")
+        qualification_cases_v4 = addressed(
+            qualification_cases_v4, "4.0.0", "case_evidence_id"
+        )
         invocation_names = {"permitted_inputs"}
         invocation_references = {
             item["case_id"]: {
@@ -282,8 +324,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_cases_v3, evidence_references=invocation_references
         )
         self.assertEqual(qualification_cases_v4, rebuilt_cases_v4)
-        current("reviewer-qualification-cases", rebuilt_cases_v4)
         observed.add(("reviewer-qualification-cases", "3.0.0", "4.0.0"))
+        rebuilt_cases_v5 = migrate_reviewer_qualification_cases_v4_to_v5(
+            rebuilt_cases_v4, authentication=cases_authentication
+        )
+        self.assertEqual(qualification_cases_v5, rebuilt_cases_v5)
+        current("reviewer-qualification-cases", rebuilt_cases_v5)
+        observed.add(("reviewer-qualification-cases", "4.0.0", "5.0.0"))
 
         qualification_corpus_v3 = example("reviewer-qualification-corpus")
         expected_findings = {
@@ -390,7 +437,11 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("reviewer-result", rebuilt_result_v3)
         observed.add(("reviewer-result", "2.0.0", "3.0.0"))
 
-        execution_v4 = example("reviewer-execution")
+        execution_v5 = example("reviewer-execution")
+        execution_authentication = execution_v5["authentication"]
+        execution_v4 = deepcopy(execution_v5)
+        execution_v4.pop("authentication")
+        execution_v4 = addressed(execution_v4, "4.0.0", "execution_id")
         exact_argv_sha256 = execution_v4["executed_argv_sha256"]
         execution_v3 = deepcopy(execution_v4)
         execution_v3.pop("executed_argv_sha256")
@@ -437,8 +488,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_execution_v3, executed_argv_sha256=exact_argv_sha256
         )
         self.assertEqual(execution_v4, rebuilt_execution_v4)
-        current("reviewer-execution", rebuilt_execution_v4)
         observed.add(("reviewer-execution", "3.0.0", "4.0.0"))
+        rebuilt_execution_v5 = migrate_reviewer_execution_v4_to_v5(
+            rebuilt_execution_v4, authentication=execution_authentication
+        )
+        self.assertEqual(execution_v5, rebuilt_execution_v5)
+        current("reviewer-execution", rebuilt_execution_v5)
+        observed.add(("reviewer-execution", "4.0.0", "5.0.0"))
 
         rollback_v2 = example("rollback-evidence")
         rollback_references = {

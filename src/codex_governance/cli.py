@@ -67,6 +67,7 @@ from codex_governance.reviewer import (
     build_reviewer_execution_statement,
     build_reviewer_stdin,
     launch_reviewer,
+    observe_codex_authentication,
     observe_codex_cli_version,
     prepare_sanitized_harness,
     reviewer_launcher_sha256,
@@ -1114,11 +1115,15 @@ def _review(args: argparse.Namespace) -> int:
     codex_cli_version = observe_codex_cli_version(
         args.codex, deadline=review_deadline
     )
+    codex_authentication = observe_codex_authentication(
+        args.codex, deadline=review_deadline
+    )
     identity = {
         "prompt_sha256": prompt_sha,
         "schema_sha256": schema_sha,
         "launcher_sha256": reviewer_launcher_sha256(deadline=review_deadline),
         "codex_cli_version": codex_cli_version,
+        "authentication": codex_authentication,
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
     }
@@ -1268,6 +1273,11 @@ def _review(args: argparse.Namespace) -> int:
             fixed_prompt=prompt_bytes.decode("utf-8"),
             permitted_inputs=permitted,
         )
+        if (
+            observe_codex_authentication(args.codex, deadline=review_deadline)
+            != codex_authentication
+        ):
+            raise ValueError("Codex authentication changed before reviewer invocation")
         result = launch_reviewer(
             command=command,
             stdin_text=stdin_text,
@@ -1356,6 +1366,7 @@ def _review(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,
             codex_cli_version=codex_cli_version,
+            authentication=codex_authentication,
             stdout_reference=stdout_reference,
             stderr_reference=stderr_reference,
             execution=result,

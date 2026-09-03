@@ -253,6 +253,32 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
 
             if not assurance_claim_set_is_fixed(instance.get("claims")):
                 errors.append("$/claims: fixed assurance claim set does not reconstruct")
+        if schema_name == "evidence-manifest":
+            bootstrap_fields = {
+                "initial_bootstrap_decision",
+                "initial_bootstrap_verification",
+            }
+            present_bootstrap_fields = bootstrap_fields.intersection(instance)
+            if present_bootstrap_fields:
+                missing = bootstrap_fields.difference(instance)
+                for name in sorted(missing):
+                    errors.append(f"$: missing required initial-bootstrap property {name!r}")
+                for name in (
+                    "proposed_policy",
+                    "lkg_promotion_decision",
+                    "rollback_evidence",
+                ):
+                    if name not in instance:
+                        errors.append(
+                            f"$: missing required initial-bootstrap property {name!r}"
+                        )
+                if "lkg_policy_decision" in instance:
+                    errors.append(
+                        "$: initial-bootstrap manifests must not contain "
+                        "'lkg_policy_decision'"
+                    )
+            elif "lkg_policy_decision" not in instance:
+                errors.append("$: missing required property 'lkg_policy_decision'")
     return sorted(set(errors))
 
 

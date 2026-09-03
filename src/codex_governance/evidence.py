@@ -219,7 +219,6 @@ def assemble_evidence_manifest(
     candidate_id: str,
     task_contract: Mapping[str, str],
     effective_policy: Mapping[str, str],
-    lkg_policy_decision: Mapping[str, str],
     required_gate_ids: Sequence[str],
     gate_references: Mapping[str, Mapping[str, str]],
     gate_manifest: Mapping[str, str],
@@ -255,18 +254,20 @@ def assemble_evidence_manifest(
     rapid_review_sessions: Sequence[Mapping[str, str]] = (),
     rapid_review_debrief: Mapping[str, str] | None = None,
     risk_disposition: Mapping[str, str] | None = None,
+    lkg_policy_decision: Mapping[str, str] | None = None,
     proposed_policy: Mapping[str, str] | None = None,
     lkg_promotion_decision: Mapping[str, str] | None = None,
     rollback_evidence: Mapping[str, str] | None = None,
+    initial_bootstrap_decision: Mapping[str, str] | None = None,
+    initial_bootstrap_verification: Mapping[str, str] | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     document: dict[str, Any] = {
-        "schema_version": "3.0.0",
+        "schema_version": "4.0.0",
         "repository_id": repository_id,
         "candidate_id": require_sha256(candidate_id, name="candidate_id"),
         "task_contract": dict(task_contract),
         "effective_policy": dict(effective_policy),
-        "lkg_policy_decision": dict(lkg_policy_decision),
         "authenticated_decisions": [dict(item) for item in authenticated_decisions],
         "evidence_locators": [dict(item) for item in evidence_locators],
         "sandbox_capabilities": [dict(item) for item in sandbox_capabilities],
@@ -317,12 +318,20 @@ def assemble_evidence_manifest(
         document["rapid_review_debrief"] = dict(rapid_review_debrief)
     if risk_disposition is not None:
         document["risk_disposition"] = dict(risk_disposition)
+    if lkg_policy_decision is not None:
+        document["lkg_policy_decision"] = dict(lkg_policy_decision)
     if proposed_policy is not None:
         document["proposed_policy"] = dict(proposed_policy)
     if lkg_promotion_decision is not None:
         document["lkg_promotion_decision"] = dict(lkg_promotion_decision)
     if rollback_evidence is not None:
         document["rollback_evidence"] = dict(rollback_evidence)
+    if initial_bootstrap_decision is not None:
+        document["initial_bootstrap_decision"] = dict(initial_bootstrap_decision)
+    if initial_bootstrap_verification is not None:
+        document["initial_bootstrap_verification"] = dict(
+            initial_bootstrap_verification
+        )
     return content_address(document, "manifest_id")
 
 
@@ -649,6 +658,7 @@ def evaluate_manifest(
             == primitive.get("supervisor", {}).get("executed_argv_sha256")
             and execution.get("stdin_sha256") == expected_stdin_sha256
             and execution.get("usage_observed") is True
+            and execution.get("authentication") == "chatgpt"
             and all(
                 execution.get(key) == parsed_stream.get(key)
                 for key in (
@@ -1547,7 +1557,7 @@ def evaluate_manifest(
         )
         identity = {
             field: qualification.get(field)
-            for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "model", "reasoning_effort")
+            for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "reasoning_effort")
         }
         conformance_permitted_inputs = reconstruct_permitted_inputs(
             review_mode="conformance",
@@ -1625,6 +1635,9 @@ def evaluate_manifest(
             and reviewer_execution.get("model") == qualification.get("model")
             and reviewer_execution.get("reasoning_effort")
             == qualification.get("reasoning_effort")
+            and reviewer_execution.get("authentication")
+            == qualification.get("authentication")
+            == "chatgpt"
             and reviewer_execution.get("tools")
             == [{"name": "codex-cli", "version": qualification.get("codex_cli_version")}]
             and reviewer_execution.get("input_context_receipt_sha256")
@@ -1786,7 +1799,7 @@ def evaluate_manifest(
                 field: rapid_qualification.get(field)
                 for field in (
                     "prompt_sha256", "schema_sha256", "launcher_sha256",
-                    "codex_cli_version", "model", "reasoning_effort",
+                    "codex_cli_version", "authentication", "model", "reasoning_effort",
                 )
             }
             rapid_qualification_ok = qualification_evidence_valid(
@@ -1936,6 +1949,9 @@ def evaluate_manifest(
                     and execution.get("model") == rapid_qualification.get("model")
                     and execution.get("reasoning_effort")
                     == rapid_qualification.get("reasoning_effort")
+                    and execution.get("authentication")
+                    == rapid_qualification.get("authentication")
+                    == "chatgpt"
                     and execution.get("tools")
                     == [{"name": "codex-cli", "version": rapid_qualification.get("codex_cli_version")}]
                     and execution.get("input_context_receipt_sha256")

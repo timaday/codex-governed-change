@@ -108,13 +108,14 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             ),
             "launcher_sha256": "sha256:" + "c" * 64,
             "codex_cli_version": "codex-cli 0.149.1",
+            "authentication": "chatgpt",
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
         }
 
     def record(self) -> dict:
         return content_address(self.identity() | {
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "corpus_sha256": "sha256:" + "6" * 64,
             "label_decision_id": "sha256:" + "8" * 64,
             "case_evidence_sha256": "sha256:" + "7" * 64,
@@ -145,10 +146,12 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 protected_label_decision_id="sha256:" + "8" * 64,
             ),
         )
-        for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "model"):
+        for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model"):
             identity = self.identity()
             identity[field] = (
-                "changed"
+                "api-key"
+                if field == "authentication"
+                else "changed"
                 if field == "model"
                 else "codex-cli 9.9.9"
                 if field == "codex_cli_version"
@@ -700,6 +703,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     timeout_seconds=10,
                     max_output_bytes=10000,
                     codex_cli_version=identity["codex_cli_version"],
+                    authentication=identity["authentication"],
                     stdout_reference=stdout_reference,
                     stderr_reference=stderr_reference,
                     execution=execution_facts,
@@ -729,7 +733,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
             case_evidence = content_address(
                 {
-                    "schema_version": "4.0.0",
+                    "schema_version": "5.0.0",
                     "mode": "conformance",
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -742,7 +746,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             record = content_address(
                 {
                     **identity,
-                    "schema_version": "2.0.0",
+                    "schema_version": "3.0.0",
                     "corpus_sha256": corpus_sha,
                     "label_decision_id": decision["decision_id"],
                     "case_evidence_sha256": sha256_bytes(

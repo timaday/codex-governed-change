@@ -1,6 +1,6 @@
 {
-  "schema_version": "4.0.0",
-  "case_evidence_id": "sha256:70d1ce83f14a843301e48dcc35129a2cadfe839481ab18bdf2bb8fc8f70903af",
+  "schema_version": "5.0.0",
+  "case_evidence_id": "sha256:41605e729f5079ff1b654997ae799c1020e01e951d09cbd72a5ceeae43bce99a",
   "mode": "conformance",
   "evaluation_repository_id": "repo:example/codex-governed-change-qualification",
   "corpus_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -10,6 +10,7 @@
     "schema_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "launcher_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "codex_cli_version": "codex-cli 0.149.1",
+    "authentication": "chatgpt",
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh"
   },

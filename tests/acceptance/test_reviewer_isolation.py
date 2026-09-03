@@ -104,6 +104,11 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
                 self.assertNotIn('"gpt-5.6"', text)
                 self.assertNotIn("--model gpt-5.6 ", text)
                 self.assertNotIn("OPENAI_API_KEY", text)
+        workflow = Path("examples/github/governed-change.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("codex login status", workflow)
+        self.assertIn("Logged in using ChatGPT", workflow)
 
     def test_command_never_resumes_or_allows_write(self) -> None:
         command = self.command()

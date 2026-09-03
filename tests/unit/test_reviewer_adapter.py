@@ -29,6 +29,7 @@ from codex_governance.reviewer import (
     build_reviewer_execution_statement,
     build_reviewer_stdin,
     launch_reviewer,
+    observe_codex_authentication,
     observe_codex_cli_version,
     prepare_sanitized_harness,
     reviewer_argv_sha256,
@@ -1444,6 +1445,28 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         with self.assertRaisesRegex(RuntimeError, "version is unavailable"):
             observe_codex_cli_version(str(invalid))
 
+    def test_reviewer_authentication_requires_chatgpt_under_sanitized_env(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["codex", "login", "status"],
+            0,
+            stdout=b"Logged in using an API key\n",
+            stderr=b"",
+        )
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "CODEX_HOME": "/portable/auth-root",
+            "OPENAI_API_KEY": "must-not-cross",
+        }
+        with patch.object(
+            subprocess, "run", return_value=completed
+        ) as observed, self.assertRaisesRegex(
+            RuntimeError, "not authenticated through ChatGPT"
+        ):
+            observe_codex_authentication("codex", environment=environment)
+        sanitized = observed.call_args.kwargs["env"]
+        self.assertEqual("/portable/auth-root", sanitized["CODEX_HOME"])
+        self.assertNotIn("OPENAI_API_KEY", sanitized)
+
     def test_missing_jsonl_usage_is_explicitly_unobserved(self) -> None:
         fake = self.fake_codex(
             "import json, sys\n"
@@ -1547,6 +1570,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 timeout_seconds=60,
                 max_output_bytes=1000,
                 codex_cli_version="codex-cli 0.149.1",
+                authentication="chatgpt",
                 stdout_reference={"path": "evidence/stdout.bin", "sha256": execution["stdout_sha256"]},
                 stderr_reference={"path": "evidence/stderr.bin", "sha256": execution["stderr_sha256"]},
                 execution=execution,

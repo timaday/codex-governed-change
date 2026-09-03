@@ -1,6 +1,6 @@
 {
-  "schema_version": "4.0.0",
-  "execution_id": "sha256:e2f807b3c39fa0e1838bb7bb3bc52537a253b231ce10e1f1015361e16667cc45",
+  "schema_version": "5.0.0",
+  "execution_id": "sha256:f8100c1c631c0cb1296489bfd3bf53febfce3c5330e0b11a71e0136684962fd9",
   "repository_id": "repo:example/codex-governed-change",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -12,6 +12,7 @@
   "qualification_id": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "xhigh",
+  "authentication": "chatgpt",
   "input_context_receipt_sha256": "sha256:1717171717171717171717171717171717171717171717171717171717171717",
   "context_execution_receipt_sha256": "sha256:2727272727272727272727272727272727272727272727272727272727272727",
   "reviewer_output_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",

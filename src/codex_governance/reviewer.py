@@ -598,6 +598,41 @@ def observe_codex_cli_version(
     return value
 
 
+def observe_codex_authentication(
+    executable: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+    deadline: float | None = None,
+) -> str:
+    """Require ChatGPT authentication under the exact reviewer environment."""
+    remaining = None if deadline is None else deadline - time.monotonic()
+    if remaining is not None and remaining <= 0:
+        raise RuntimeError("Codex authentication deadline expired")
+    sanitized = build_reviewer_environment(environment or os.environ)
+    try:
+        completed = subprocess.run(
+            [executable, "login", "status"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=sanitized,
+            timeout=min(10.0, remaining) if remaining is not None else 10.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("Codex ChatGPT authentication is unavailable") from exc
+    if (
+        completed.returncode != 0
+        or completed.stdout.decode("utf-8", "replace").strip()
+        != "Logged in using ChatGPT"
+        or completed.stderr.strip()
+    ):
+        raise RuntimeError("Codex reviewer is not authenticated through ChatGPT")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise RuntimeError("Codex authentication deadline expired")
+    return "chatgpt"
+
+
 def parse_codex_jsonl_evidence(data: bytes) -> dict[str, Any]:
     """Parse bounded Codex JSONL into independently checkable terminal facts."""
     usage = {
@@ -800,6 +835,7 @@ def build_reviewer_execution_statement(
     timeout_seconds: float,
     max_output_bytes: int,
     codex_cli_version: str,
+    authentication: str,
     stdout_reference: Mapping[str, str],
     stderr_reference: Mapping[str, str],
     execution: Mapping[str, Any],
@@ -826,6 +862,7 @@ def build_reviewer_execution_statement(
         or max_output_bytes < 1
         or not isinstance(codex_cli_version, str)
         or not codex_cli_version
+        or authentication != "chatgpt"
     ):
         raise ValueError("reviewer workflow, tool and limit evidence is incomplete")
     descriptor = sanitized_invocation_descriptor(
@@ -883,7 +920,7 @@ def build_reviewer_execution_statement(
             raise ValueError("reviewer stream reference digest mismatch")
         stream_references[name] = {"path": normalized, "sha256": digest}
     document = {
-        "schema_version": "4.0.0",
+        "schema_version": "5.0.0",
         "repository_id": repository_id,
         "task_contract_sha256": require_sha256(task_contract_sha256),
         "effective_policy_sha256": require_sha256(effective_policy_sha256),
@@ -895,6 +932,7 @@ def build_reviewer_execution_statement(
         "qualification_id": require_sha256(qualification_id),
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "authentication": authentication,
         "input_context_receipt_sha256": require_sha256(input_context_receipt_sha256),
         "context_execution_receipt_sha256": require_sha256(
             context_execution_receipt_sha256

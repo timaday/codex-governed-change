@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:23964762357b071d85f59962c85cecd83101be1bc92b8e25e251938bb7c5b494",
+  "corpus_id": "sha256:6c46404c24d87841bb33e077ac525d75ae261d76bed97834ff3f5f70b26f83a9",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -753,8 +753,8 @@
     {
       "mutant_id": "reviewer-version-deadline-omitted",
       "path": "src/codex_governance/reviewer.py",
-      "old": "    remaining = None if deadline is None else deadline - time.monotonic()",
-      "new": "    remaining = None",
+      "old": "    \"\"\"Observe a portable Codex CLI version without persisting its host path.\"\"\"\n    remaining = None if deadline is None else deadline - time.monotonic()",
+      "new": "    \"\"\"Observe a portable Codex CLI version without persisting its host path.\"\"\"\n    remaining = None",
       "operator": "remove the absolute review deadline from Codex CLI version observation",
       "requirement_id": "GOV-025",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_codex_version_observation_honors_expired_deadline"]

@@ -301,6 +301,23 @@ def migrate_evidence_manifest_v2_to_v3(
     )
 
 
+def migrate_evidence_manifest_v3_to_v4(
+    document: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Move a valid previous-LKG v3 manifest to the dual-mode v4 contract."""
+    migrated = _migration_document(
+        document, from_version="3.0.0", identity_field="manifest_id"
+    )
+    if "lkg_policy_decision" not in migrated or {
+        "initial_bootstrap_decision",
+        "initial_bootstrap_verification",
+    } & set(migrated):
+        raise ValueError("legacy evidence manifest is not a previous-LKG v3 input")
+    return _finish_migration(
+        migrated, to_version="4.0.0", identity_field="manifest_id"
+    )
+
+
 def migrate_reviewer_qualification_v1_to_v2(
     document: Mapping[str, Any], *, label_decision_id: str,
     case_evidence_sha256: str,
@@ -316,6 +333,21 @@ def migrate_reviewer_qualification_v1_to_v2(
     migrated["case_evidence_sha256"] = require_sha256(case_evidence_sha256)
     return _finish_migration(
         migrated, to_version="2.0.0", identity_field="qualification_id"
+    )
+
+
+def migrate_reviewer_qualification_v2_to_v3(
+    document: Mapping[str, Any], *, authentication: str
+) -> dict[str, Any]:
+    """Bind a legacy reviewer qualification to protected ChatGPT authentication."""
+    migrated = _migration_document(
+        document, from_version="2.0.0", identity_field="qualification_id"
+    )
+    if "authentication" in migrated or authentication != "chatgpt":
+        raise ValueError("protected ChatGPT authentication is required")
+    migrated["authentication"] = authentication
+    return _finish_migration(
+        migrated, to_version="3.0.0", identity_field="qualification_id"
     )
 
 
@@ -418,6 +450,26 @@ def migrate_reviewer_qualification_cases_v3_to_v4(
     migrated["observations"] = rebuilt
     return _finish_migration(
         migrated, to_version="4.0.0", identity_field="case_evidence_id"
+    )
+
+
+def migrate_reviewer_qualification_cases_v4_to_v5(
+    document: Mapping[str, Any], *, authentication: str
+) -> dict[str, Any]:
+    """Bind qualification case evidence to protected ChatGPT authentication."""
+    migrated = _migration_document(
+        document, from_version="4.0.0", identity_field="case_evidence_id"
+    )
+    identity = migrated.get("identity")
+    if (
+        not isinstance(identity, Mapping)
+        or "authentication" in identity
+        or authentication != "chatgpt"
+    ):
+        raise ValueError("protected ChatGPT authentication is required")
+    migrated["identity"] = {**identity, "authentication": authentication}
+    return _finish_migration(
+        migrated, to_version="5.0.0", identity_field="case_evidence_id"
     )
 
 
@@ -661,6 +713,21 @@ def migrate_reviewer_execution_v3_to_v4(
     )
 
 
+def migrate_reviewer_execution_v4_to_v5(
+    document: Mapping[str, Any], *, authentication: str
+) -> dict[str, Any]:
+    """Bind a reviewer execution statement to protected ChatGPT authentication."""
+    migrated = _migration_document(
+        document, from_version="4.0.0", identity_field="execution_id"
+    )
+    if "authentication" in migrated or authentication != "chatgpt":
+        raise ValueError("protected ChatGPT authentication is required")
+    migrated["authentication"] = authentication
+    return _finish_migration(
+        migrated, to_version="5.0.0", identity_field="execution_id"
+    )
+
+
 def migrate_rollback_evidence_v1_to_v2(
     document: Mapping[str, Any], *, gate_result: Mapping[str, Any],
     sandbox_capability: Mapping[str, Any], provenance_statement: Mapping[str, Any],
@@ -695,10 +762,13 @@ EXECUTABLE_MIGRATIONS = {
     ("effective-policy", "2.0.0", "3.0.0"): migrate_effective_policy_v2_to_v3,
     ("evidence-manifest", "1.0.0", "2.0.0"): migrate_evidence_manifest_v1_to_v2,
     ("evidence-manifest", "2.0.0", "3.0.0"): migrate_evidence_manifest_v2_to_v3,
+    ("evidence-manifest", "3.0.0", "4.0.0"): migrate_evidence_manifest_v3_to_v4,
     ("reviewer-qualification", "1.0.0", "2.0.0"): migrate_reviewer_qualification_v1_to_v2,
+    ("reviewer-qualification", "2.0.0", "3.0.0"): migrate_reviewer_qualification_v2_to_v3,
     ("reviewer-qualification-cases", "1.0.0", "2.0.0"): migrate_reviewer_qualification_cases_v1_to_v2,
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
     ("reviewer-qualification-cases", "3.0.0", "4.0.0"): migrate_reviewer_qualification_cases_v3_to_v4,
+    ("reviewer-qualification-cases", "4.0.0", "5.0.0"): migrate_reviewer_qualification_cases_v4_to_v5,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
     ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
     ("rapid-review-session", "1.0.0", "2.0.0"): migrate_rapid_review_session_v1_to_v2,
@@ -707,6 +777,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-execution", "1.0.0", "2.0.0"): migrate_reviewer_execution_v1_to_v2,
     ("reviewer-execution", "2.0.0", "3.0.0"): migrate_reviewer_execution_v2_to_v3,
     ("reviewer-execution", "3.0.0", "4.0.0"): migrate_reviewer_execution_v3_to_v4,
+    ("reviewer-execution", "4.0.0", "5.0.0"): migrate_reviewer_execution_v4_to_v5,
     ("rollback-evidence", "1.0.0", "2.0.0"): migrate_rollback_evidence_v1_to_v2,
     ("context-receipt", "1.0.0", "2.0.0"): migrate_context_receipt_v1_to_v2,
     ("sandbox-capability", "1.0.0", "2.0.0"): migrate_sandbox_capability_v1_to_v2,
@@ -719,7 +790,7 @@ def migration_policy(kind: str, from_version: str, to_version: str) -> str:
     if (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:
         return "explicit_required"
     if from_version == to_version and from_version in {
-        "1.0.0", "2.0.0", "3.0.0", "4.0.0"
+        "1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"
     }:
         return "identity"
     return "unsupported"
