@@ -217,14 +217,23 @@ codex exec
 
 The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. One reviewer deadline begins before lock/policy selection and governs all candidate/authority reads, CLI-version observation, preparation, execution, cleanup, identity and final output. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries plus the final output are read or copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use that one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
+Launcher-closure source identity uses retained descriptor-bound reads and
+verification under that same absolute reviewer deadline. The permitted-input
+shape rejects any optional path/digest pair that protected qualification and
+admission cannot reconstruct. Admission validation schemas resolve only beneath
+the distinct protected authority root and remain retained for the locked
+command.
+
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
 qualification, prompt, output schema, model, launcher package closure, prepared
 and post-run context receipts, reviewer output, termination, candidate pre/post
-identity, digest-only argv/stdin identities, Codex thread/CLI versions, workflow
+identity, separate exact-executed and semantically validated portable argv
+digests plus the exact stdin digest, Codex thread/CLI versions, workflow
 run/attempt, bounds, materials, primitive supervisor/capture observations,
 direct event-stream references and Codex CLI-reported token usage. Admission
-re-hashes both streams, reconstructs the portable sanitized argv and exact stdin
+re-hashes both streams, reconstructs the portable sanitized argv, reconciles the
+exact executed digest with the primitive launcher observation, and rebuilds exact stdin
 from the protected prompt plus canonical permitted inputs, and derives the final
 result, usage and execution state from those observations. Rapid-review
 execution additionally material-binds exactly one risk assessment and charter.

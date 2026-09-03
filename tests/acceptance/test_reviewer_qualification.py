@@ -3,8 +3,10 @@ import unittest
 import shutil
 import sys
 import tempfile
+import time
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 from codex_governance.canonical import canonical_json_bytes, sha256_bytes
 from codex_governance.evidence import content_address
 
@@ -39,6 +41,44 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     target.write_bytes(original + b"\n# qualification drift\n")
                     self.assertNotEqual(baseline, reviewer_launcher_sha256(root))
                     target.write_bytes(original)
+
+    def test_launcher_identity_obeys_deadline_and_rejects_replacement(self) -> None:
+        from codex_governance import reviewer
+
+        package = Path("src/codex_governance")
+        with self.assertRaises(ValueError):
+            reviewer.reviewer_launcher_sha256(
+                package, deadline=time.monotonic() - 0.001
+            )
+
+        original = reviewer.read_bounded_repository_file
+        calls = 0
+
+        def replace_after_observation(repository, relative, **kwargs):
+            nonlocal calls
+            data = original(repository, relative, **kwargs)
+            calls += 1
+            if calls == len(reviewer.REVIEWER_LAUNCHER_FILES):
+                target = repository.joinpath(
+                    *reviewer.REVIEWER_LAUNCHER_FILES[0].split("/")
+                )
+                target.write_bytes(target.read_bytes() + b"\n# raced\n")
+            return data
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in reviewer.REVIEWER_LAUNCHER_FILES:
+                destination = root.joinpath(*relative.split("/"))
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(package.joinpath(*relative.split("/")), destination)
+            with patch.object(
+                reviewer,
+                "read_bounded_repository_file",
+                side_effect=replace_after_observation,
+            ), self.assertRaisesRegex(ValueError, "changed"):
+                reviewer.reviewer_launcher_sha256(
+                    root, deadline=time.monotonic() + 10
+                )
 
     def identity(self) -> dict:
         return {
@@ -719,7 +759,31 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 "evaluated_at": "2026-08-26T10:00:03Z",
                 "prompt_bytes": self.PROMPT_BYTES,
             }
-            self.assertTrue(qualification_evidence_valid(**arguments))
+            from codex_governance import qualification as qualification_module
+
+            real_schema_read = qualification_module.read_bounded_path_file
+            observed_schema_reads: list[str] = []
+
+            def observe_schema(path, **kwargs):
+                observed_schema_reads.append(Path(path).name)
+                return real_schema_read(path, **kwargs)
+
+            with patch.object(
+                qualification_module,
+                "read_bounded_path_file",
+                side_effect=observe_schema,
+            ):
+                self.assertTrue(qualification_evidence_valid(**arguments))
+            self.assertTrue(observed_schema_reads)
+            self.assertIn(
+                "reviewer-result.schema.json", observed_schema_reads
+            )
+            self.assertTrue(
+                all(
+                    observed_schema_reads.count(name) == 1
+                    for name in set(observed_schema_reads)
+                )
+            )
             noncanonical_corpus = json.dumps(corpus, indent=2).encode("utf-8")
             self.assertFalse(
                 qualification_evidence_valid(

@@ -23,6 +23,7 @@ from codex_governance.candidate import (
     verify_candidate_identity,
 )
 from codex_governance.lifecycle import parse_rfc3339
+from codex_governance.artifacts import read_bounded_path_file
 from codex_governance.reviewer import (
     build_reviewer_stdin,
     parse_codex_jsonl_evidence,
@@ -30,7 +31,11 @@ from codex_governance.reviewer import (
     reviewer_observation_facts,
     reviewer_stream_is_portable,
 )
-from codex_governance.schema import JsonRepresentationAdapter
+from codex_governance.schema import (
+    parse_json_bytes,
+    validate_instance,
+    validate_semantics,
+)
 
 
 REVIEWER_IDENTITY_FIELDS = (
@@ -729,6 +734,32 @@ def qualification_evidence_valid(
     if mode not in {"conformance", "rapid_review"}:
         return False
 
+    retained_schemas: dict[str, tuple[bytes, dict[str, Any]]] = {}
+
+    def retained_schema(name: str) -> tuple[bytes, dict[str, Any]]:
+        retained = retained_schemas.get(name)
+        if retained is not None:
+            return retained
+        path = schema_root / f"{name}.schema.json"
+        data = read_bounded_path_file(path, max_bytes=2_000_000)
+        schema = parse_json_bytes(data)
+        if not isinstance(schema, dict):
+            raise ValueError("protected qualification schema must be an object")
+        retained = (data, schema)
+        retained_schemas[name] = retained
+        return retained
+
+    def validate_document(value: Any, name: str) -> Any:
+        _data, schema = retained_schema(name)
+        errors = validate_instance(value, schema)
+        errors.extend(validate_semantics(value, name))
+        if errors:
+            raise ValueError("document fails retained qualification schema")
+        return value
+
+    def parse_document(data: bytes, name: str) -> Any:
+        return validate_document(parse_json_bytes(data), name)
+
     def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         document: dict[str, Any] = {}
         for key, value in pairs:
@@ -760,9 +791,7 @@ def qualification_evidence_valid(
             (corpus, "reviewer-qualification-corpus"),
             (label_decision, "reviewer-qualification-label-decision"),
         ):
-            JsonRepresentationAdapter(
-                schema_root / f"{schema_name}.schema.json"
-            ).serialize(dict(document))
+            validate_document(dict(document), schema_name)
         now = parse_rfc3339(evaluated_at)
         issued = parse_rfc3339(label_decision["issued_at"])
         expires = parse_rfc3339(label_decision["expires_at"])
@@ -878,17 +907,13 @@ def qualification_evidence_valid(
         corpus_sha256=corpus_sha256,
         label_decision_id=str(decision_id),
     )
-    result_adapter = JsonRepresentationAdapter(
-        schema_root
-        / ("reviewer-result.schema.json" if mode == "conformance" else "rapid-review-session.schema.json")
+    result_schema_name = (
+        "reviewer-result" if mode == "conformance" else "rapid-review-session"
     )
-    if identity.get("schema_sha256") != sha256_bytes(
-        result_adapter.schema_path.read_bytes()
-    ):
+    result_schema_bytes, _result_schema = retained_schema(result_schema_name)
+    if identity.get("schema_sha256") != sha256_bytes(result_schema_bytes):
         return False
-    execution_adapter = JsonRepresentationAdapter(
-        schema_root / "reviewer-execution.schema.json"
-    )
+    retained_schema("reviewer-execution")
     observed_rows: list[dict[str, Any]] = []
     for case, observation in zip(cases, observations, strict=True):
         if not isinstance(observation, Mapping):
@@ -917,8 +942,12 @@ def qualification_evidence_valid(
                 for name in artifacts
             ):
                 return False
-            result = result_adapter.parse(artifacts["reviewer_output"])
-            execution = execution_adapter.parse(artifacts["reviewer_execution"])
+            result = parse_document(
+                artifacts["reviewer_output"], result_schema_name
+            )
+            execution = parse_document(
+                artifacts["reviewer_execution"], "reviewer-execution"
+            )
             permitted_inputs = json.loads(artifacts["permitted_inputs"])
             if (
                 not isinstance(permitted_inputs, dict)
@@ -927,9 +956,7 @@ def qualification_evidence_valid(
             ):
                 return False
             parsed_context = {
-                name: JsonRepresentationAdapter(
-                    schema_root / f"{schema_name}.schema.json"
-                ).parse(artifacts[name])
+                name: parse_document(artifacts[name], schema_name)
                 for name, schema_name in (
                     ("context_sources", "context-source-bundle"),
                     ("context_projection", "context-projection"),

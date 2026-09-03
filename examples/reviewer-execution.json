@@ -1,6 +1,6 @@
 {
-  "schema_version": "3.0.0",
-  "execution_id": "sha256:6906d287366370099dcc116fa00206ea1c96ebe47c70f1b7dd58508883d2a4be",
+  "schema_version": "4.0.0",
+  "execution_id": "sha256:e2f807b3c39fa0e1838bb7bb3bc52537a253b231ce10e1f1015361e16667cc45",
   "repository_id": "repo:example/codex-governed-change",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -25,7 +25,7 @@
     "stdin": {"complete": true, "bytes_expected": 100, "bytes_written": 100},
     "stdout": {"bytes_observed": 200, "bytes_captured": 200, "bytes_normalized": 180, "thread_completed": true, "eof": true, "read_failed": false, "truncated": false, "ambiguous_redaction": false},
     "stderr": {"bytes_observed": 0, "bytes_captured": 0, "bytes_normalized": 0, "thread_completed": true, "eof": true, "read_failed": false, "truncated": false, "ambiguous_redaction": false},
-    "supervisor": {"boundary_available": true, "boundary_kind": "pid_namespace", "descendants_observed": false, "cleanup_complete": true},
+    "supervisor": {"boundary_available": true, "boundary_kind": "pid_namespace", "descendants_observed": false, "cleanup_complete": true, "executed_argv_sha256": "sha256:4141414141414141414141414141414141414141414141414141414141414141"},
     "process_cleanup_complete": true,
     "output": {"present": true, "regular": true, "bytes": 500, "schema_valid": true, "candidate_matches": true, "bindings_match": true, "truncated": false}
   },
@@ -56,6 +56,7 @@
     "environment_values_recorded": false
   },
   "argv_sha256": "sha256:3131313131313131313131313131313131313131313131313131313131313131",
+  "executed_argv_sha256": "sha256:4141414141414141414141414141414141414141414141414141414141414141",
   "stdin_sha256": "sha256:3232323232323232323232323232323232323232323232323232323232323232",
   "codex_thread_id": "example-thread-001",
   "workflow": {

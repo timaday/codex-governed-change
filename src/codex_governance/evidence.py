@@ -645,6 +645,8 @@ def evaluate_manifest(
             and execution.get("timed_out") == primitive.get("timed_out") is False
             and sha256_bytes(prompt_bytes) == execution.get("prompt_sha256")
             and execution.get("argv_sha256") == expected_argv_sha256
+            and execution.get("executed_argv_sha256")
+            == primitive.get("supervisor", {}).get("executed_argv_sha256")
             and execution.get("stdin_sha256") == expected_stdin_sha256
             and execution.get("usage_observed") is True
             and all(

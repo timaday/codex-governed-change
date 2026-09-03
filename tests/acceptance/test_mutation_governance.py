@@ -142,6 +142,14 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "unqualified-finding-confirmed",
             "reviewer-version-deadline-omitted",
             "local-mutation-timeout-regression",
+            "unreconstructable-reviewer-input-accepted",
+            "admission-schema-root-unprotected",
+            "qualification-schema-cache-bypassed",
+            "launcher-closure-deadline-omitted",
+            "launcher-closure-recheck-omitted",
+            "permission-profile-prefix-only",
+            "executed-reviewer-argv-unchecked",
+            "executed-reviewer-argv-not-recorded",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

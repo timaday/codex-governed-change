@@ -155,6 +155,39 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
                 },
             )
 
+    def test_unreconstructable_provenance_input_is_rejected(self) -> None:
+        permitted = {
+            "task_contract_path": "artifacts/task.json",
+            "task_contract_sha256": "sha256:" + "1" * 64,
+            "repository_id": "repo:example/project",
+            "candidate_id": "sha256:" + "a" * 64,
+            "candidate_path": "candidate",
+            "effective_policy_path": "artifacts/policy.json",
+            "effective_policy_sha256": "sha256:" + "b" * 64,
+            "gate_manifest_path": "artifacts/gates.json",
+            "gate_manifest_sha256": "sha256:" + "2" * 64,
+            "context_receipt_path": "artifacts/context.json",
+            "context_receipt_sha256": "sha256:" + "3" * 64,
+            "context_sources_path": "artifacts/sources.json",
+            "context_sources_sha256": "sha256:" + "4" * 64,
+            "context_projection_path": "artifacts/projection.json",
+            "context_projection_sha256": "sha256:" + "5" * 64,
+            "context_qualification_path": "artifacts/context-qualification.json",
+            "context_qualification_sha256": "sha256:" + "6" * 64,
+            "context_qualification_id": "sha256:" + "7" * 64,
+            "reviewer_qualification_path": "artifacts/qualification.json",
+            "reviewer_qualification_sha256": "sha256:" + "8" * 64,
+            "reviewer_qualification_id": "sha256:" + "9" * 64,
+            "reviewer_prompt_sha256": "sha256:" + "c" * 64,
+            "review_mode": "conformance",
+            "provenance_manifest_path": "artifacts/candidate.json",
+            "provenance_manifest_sha256": "sha256:" + "d" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "forbidden keys"):
+            build_reviewer_stdin(
+                fixed_prompt="FIXED", permitted_inputs=permitted
+            )
+
     def test_any_process_or_binding_uncertainty_is_unknown(self) -> None:
         cases = [
             {"return_code": 1},

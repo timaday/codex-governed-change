@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:afacbf64980643b719f35f254e0599a7aae2ffe607d657a179205f732ee66d70",
+  "corpus_id": "sha256:d8e321f6a655316e5902d61003a92f26bb70e0edf0e76b3f2083e10f23151843",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -776,6 +776,78 @@
       "operator": "discard incomplete candidate preparation before gate launch",
       "requirement_id": "GOV-044",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_incomplete_preparation_is_retained_unknown_without_launch"]
+    },
+    {
+      "mutant_id": "unreconstructable-reviewer-input-accepted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        \"reviewer_qualification_id\",\n        \"evidence_root\",",
+      "new": "        \"reviewer_qualification_id\",\n        \"provenance_manifest_path\",\n        \"provenance_manifest_sha256\",\n        \"evidence_root\",",
+      "operator": "accept reviewer input fields that admission cannot reconstruct",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation.ReviewerIsolationAcceptanceTest.test_unreconstructable_provenance_input_is_rejected"]
+    },
+    {
+      "mutant_id": "admission-schema-root-unprotected",
+      "path": "src/codex_governance/cli.py",
+      "old": "    return args.authority_root.absolute().joinpath(*relative.split(\"/\"))",
+      "new": "    return raw",
+      "operator": "resolve admission schemas from the caller path instead of protected authority",
+      "requirement_id": "GOV-043",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_admission_schema_root_is_unprefixed_and_authority_relative"]
+    },
+    {
+      "mutant_id": "qualification-schema-cache-bypassed",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        retained = retained_schemas.get(name)",
+      "new": "        retained = None",
+      "operator": "reopen protected qualification schemas between identity and validation",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
+    },
+    {
+      "mutant_id": "launcher-closure-deadline-omitted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        data = read_bounded_repository_file(\n            root, relative, max_bytes=8_000_000, deadline=deadline\n        )\n        retained[relative] = data",
+      "new": "        data = read_bounded_repository_file(\n            root, relative, max_bytes=8_000_000, deadline=None\n        )\n        retained[relative] = data",
+      "operator": "remove the shared review deadline from launcher-closure identity reads",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_launcher_identity_obeys_deadline_and_rejects_replacement"]
+    },
+    {
+      "mutant_id": "launcher-closure-recheck-omitted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        if read_bounded_repository_file(\n            root, relative, max_bytes=8_000_000, deadline=deadline\n        ) != expected:\n            raise ValueError(\"reviewer launcher closure changed during observation\")",
+      "new": "        if False:\n            raise ValueError(\"reviewer launcher closure changed during observation\")",
+      "operator": "omit the post-observation launcher-closure replacement check",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_launcher_identity_obeys_deadline_and_rejects_replacement"]
+    },
+    {
+      "mutant_id": "permission-profile-prefix-only",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    if normalized[permission_indexes[0]] != expected_permission_profile:\n        raise ValueError(\"reviewer command permission profile is not exact\")",
+      "new": "    if False:\n        raise ValueError(\"reviewer command permission profile is not exact\")",
+      "operator": "normalize a security-distinct reviewer permission profile by prefix only",
+      "requirement_id": "GOV-054",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_security_distinct_permission_profile_is_not_portably_normalized"]
+    },
+    {
+      "mutant_id": "executed-reviewer-argv-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "            and execution.get(\"executed_argv_sha256\")\n            == primitive.get(\"supervisor\", {}).get(\"executed_argv_sha256\")",
+      "new": "            and True",
+      "operator": "accept an exact executed argv digest that conflicts with primitive observation",
+      "requirement_id": "GOV-046",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_raw_reviewer_stream_and_primitive_observation_must_reconstruct"]
+    },
+    {
+      "mutant_id": "executed-reviewer-argv-not-recorded",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        executed_argv_sha256 = sha256_canonical(actual_command)\n        process = subprocess.Popen(",
+      "new": "        executed_argv_sha256 = sha256_canonical(list(command))\n        process = subprocess.Popen(",
+      "operator": "record only the child argv digest instead of the exact supervised command",
+      "requirement_id": "GOV-046",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_fake_codex_proves_allowlist_environment_and_schema_binding"]
     }
   ]
 }

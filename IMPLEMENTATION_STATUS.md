@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-02
+Status date: 2026-09-03
 
 ## Current disposition
 
@@ -528,3 +528,34 @@ the launcher-to-reader handoff. The current test remediation launches the
 isolated reviewer under a known absolute deadline and observes that exact value
 at final output materialization. This test/status mutation invalidates all
 `c12d31e` evidence; the successor requires complete rebinding.
+
+The immutable `448fa4f` successor then passed blueprint integrity, 206
+acceptance tests, 91 unit tests, compilation, rollback rehearsal, public
+portability and the complete 86-operator paired-control corpus: every clean
+control survived and every mutant was killed. Its exact fresh
+ChatGPT-authenticated `gpt-5.6-sol` review was fully observed and candidate-bound
+but returned `BLOCK` with five admissible findings. Admission omitted an
+allowlisted provenance input when reconstructing reviewer stdin and materials;
+admission schemas could be caller-selected outside the protected authority
+root; qualification reopened a result schema between identity and validation;
+launcher-closure hashing used unbounded pathname reads; and permission-profile
+normalization allowed security-distinct argv to share one portable digest.
+
+This working-copy successor rejects permitted-input keys that protected
+qualification and admission cannot reconstruct, resolves every admission schema
+only beneath the distinct protected authority root, retains each qualification
+schema's one descriptor-read representation, and binds launcher-closure reads
+and verification to the shared reviewer deadline. Reviewer execution schema
+`4.0.0` separately binds the exact executed argv digest while preserving a
+reconstructable portable digest, and portable normalization now requires exact
+semantic equality with the generated root-denying, network-disabled permission
+profile. These candidate changes invalidate all `448fa4f` evidence. The next
+immutable successor requires complete deterministic, rollback, portability,
+paired-control mutation and fresh-review qualification before release work can
+continue.
+
+Eight protected semantic operators cover those five findings, bringing the
+paired-control corpus to 94 operators with content ID
+`sha256:d8e321f6a655316e5902d61003a92f26bb70e0edf0e76b3f2083e10f23151843`
+and protected byte digest
+`sha256:14f3fcf4759ed03583bfb19da1b4be09147eee9dd3bdcf2a3692cf3477307aac`.

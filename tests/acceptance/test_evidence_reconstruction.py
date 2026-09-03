@@ -482,7 +482,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "stdin": {"complete": True, "bytes_expected": 10, "bytes_written": 10},
                     "stdout": {"bytes_observed": len(stdout), "bytes_captured": len(stdout), "bytes_normalized": len(stdout), "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
                     "stderr": {"bytes_observed": 0, "bytes_captured": 0, "bytes_normalized": 0, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
-                    "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True},
+                    "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True, "executed_argv_sha256": "sha256:" + "4" * 64},
                     "process_cleanup_complete": True,
                     "output": {"present": True, "regular": True, "bytes": len(result_bytes), "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
                 }
@@ -579,6 +579,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         model=identity["model"],
                         reasoning_effort=identity["reasoning_effort"],
                     ),
+                    "executed_argv_sha256": "sha256:" + "4" * 64,
                     "stdin_sha256": sha256_bytes(
                         build_reviewer_stdin(
                             fixed_prompt=prompt_bytes.decode("utf-8"),
@@ -1517,7 +1518,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "stdin": {"complete": True, "bytes_expected": 10, "bytes_written": 10},
             "stdout": {"bytes_observed": len(reviewer_stdout), "bytes_captured": len(reviewer_stdout), "bytes_normalized": len(reviewer_stdout), "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
             "stderr": {"bytes_observed": 0, "bytes_captured": 0, "bytes_normalized": 0, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
-            "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True},
+            "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True, "executed_argv_sha256": "sha256:" + "4" * 64},
             "process_cleanup_complete": True,
             "output": {"present": True, "regular": True, "bytes": len(reviewer_bytes), "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
         }
@@ -1531,6 +1532,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 model=qualification["model"],
                 reasoning_effort=qualification["reasoning_effort"],
             ),
+            "executed_argv_sha256": "sha256:" + "4" * 64,
             "stdin_sha256": sha256_bytes(
                 build_reviewer_stdin(
                     fixed_prompt=protected_prompt_bytes.decode("utf-8"),
@@ -2168,6 +2170,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ("rapid_review", "tampered-stream"),
             ("conformance", "fabricated-observation"),
             ("conformance", "forged-argv"),
+            ("conformance", "forged-executed-argv"),
             ("conformance", "forged-stdin"),
             ("conformance", "forged-permitted-inputs"),
             ("rapid_review", "forged-risk-material"),
@@ -2191,6 +2194,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     execution["observation"]["stdin"]["bytes_written"] -= 1
                 elif defect == "forged-argv":
                     execution["argv_sha256"] = "sha256:" + "0" * 64
+                elif defect == "forged-executed-argv":
+                    execution["executed_argv_sha256"] = "sha256:" + "0" * 64
                 elif defect == "forged-stdin":
                     execution["stdin_sha256"] = "sha256:" + "0" * 64
                 else:

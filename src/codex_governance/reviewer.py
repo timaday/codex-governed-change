@@ -74,8 +74,6 @@ PERMITTED_REVIEWER_INPUTS = frozenset(
         "reviewer_qualification_path",
         "reviewer_qualification_sha256",
         "reviewer_qualification_id",
-        "provenance_manifest_path",
-        "provenance_manifest_sha256",
         "evidence_root",
         "reviewer_prompt_sha256",
         "review_mode",
@@ -261,6 +259,11 @@ def _validate_portable_reviewer_command(
     ]
     if len(permission_indexes) != 1:
         raise ValueError("reviewer command permission profile is unavailable")
+    expected_permission_profile = build_reviewer_permission_profile(
+        resolve_reviewer_runtime_read_roots(command[0])
+    )
+    if normalized[permission_indexes[0]] != expected_permission_profile:
+        raise ValueError("reviewer command permission profile is not exact")
     normalized[permission_indexes[0]] = _PORTABLE_PERMISSION_PROFILE
     if normalized != _portable_reviewer_command(
         model=model, reasoning_effort=reasoning_effort
@@ -819,9 +822,22 @@ def build_reviewer_execution_statement(
         reasoning_effort=reasoning_effort,
         prompt_sha256=execution.get("reviewer_prompt_sha256"),
     )
-    observation = execution.get("observation")
-    if not isinstance(observation, Mapping):
+    supplied_observation = execution.get("observation")
+    if not isinstance(supplied_observation, Mapping):
         raise ValueError("reviewer primitive observation is unavailable")
+    observation = dict(supplied_observation)
+    supervisor = observation.get("supervisor")
+    if not isinstance(supervisor, Mapping):
+        raise ValueError("reviewer supervisor observation is unavailable")
+    exact_argv_sha256 = require_sha256(
+        execution.get("executed_argv_sha256"),
+        name="executed_argv_sha256",
+    )
+    observed_supervisor = dict(supervisor)
+    observed_exact = observed_supervisor.get("executed_argv_sha256")
+    if observed_exact != exact_argv_sha256:
+        raise ValueError("exact reviewer argv observation does not reconstruct")
+    observation["supervisor"] = observed_supervisor
     facts = reviewer_observation_facts(observation)
     expected_argv_sha256 = reviewer_argv_sha256(
         model=model, reasoning_effort=reasoning_effort
@@ -856,7 +872,7 @@ def build_reviewer_execution_statement(
             raise ValueError("reviewer stream reference digest mismatch")
         stream_references[name] = {"path": normalized, "sha256": digest}
     document = {
-        "schema_version": "3.0.0",
+        "schema_version": "4.0.0",
         "repository_id": repository_id,
         "task_contract_sha256": require_sha256(task_contract_sha256),
         "effective_policy_sha256": require_sha256(effective_policy_sha256),
@@ -878,6 +894,7 @@ def build_reviewer_execution_statement(
         "observation": dict(observation),
         "invocation": descriptor,
         "argv_sha256": expected_argv_sha256,
+        "executed_argv_sha256": exact_argv_sha256,
         "stdin_sha256": require_sha256(execution.get("stdin_sha256")),
         "codex_thread_id": (
             execution.get("thread_id")
@@ -1120,13 +1137,24 @@ def _stop_reviewer_supervisor(
         return False
 
 
-def reviewer_launcher_sha256(package_root: Path | None = None) -> str:
+def reviewer_launcher_sha256(
+    package_root: Path | None = None, *, deadline: float | None = None
+) -> str:
     """Identify the full import-time Python orchestration boundary."""
     root = package_root or Path(__file__).resolve().parent
-    closure = []
+    closure: list[dict[str, str]] = []
+    retained: dict[str, bytes] = {}
     for relative in REVIEWER_LAUNCHER_FILES:
-        path = root.joinpath(*relative.split("/"))
-        closure.append({"path": relative, "sha256": sha256_bytes(path.read_bytes())})
+        data = read_bounded_repository_file(
+            root, relative, max_bytes=8_000_000, deadline=deadline
+        )
+        retained[relative] = data
+        closure.append({"path": relative, "sha256": sha256_bytes(data)})
+    for relative, expected in retained.items():
+        if read_bounded_repository_file(
+            root, relative, max_bytes=8_000_000, deadline=deadline
+        ) != expected:
+            raise ValueError("reviewer launcher closure changed during observation")
     return sha256_canonical(closure)
 
 
@@ -1694,6 +1722,7 @@ def launch_reviewer(
     }
     stdin_thread: Any = None
     actual_command = list(command)
+    executed_argv_sha256 = sha256_canonical(actual_command)
     sanitized_environment = build_reviewer_environment(environment or os.environ)
     try:
         if time.monotonic() >= execution_deadline:
@@ -1710,6 +1739,7 @@ def launch_reviewer(
             "--",
             *command,
         ]
+        executed_argv_sha256 = sha256_canonical(actual_command)
         process = subprocess.Popen(
             actual_command,
             stdin=subprocess.PIPE,
@@ -1992,6 +2022,7 @@ def launch_reviewer(
                 supervisor_status
                 and supervisor_status.get("cleanup_complete") is True
             ),
+            "executed_argv_sha256": executed_argv_sha256,
         },
         "process_cleanup_complete": process_cleanup_complete,
         "output": {
@@ -2055,6 +2086,7 @@ def launch_reviewer(
         "candidate_after": after,
         "environment_keys": sorted(sanitized_environment),
         "argv_sha256": portable_argv_sha256 or sha256_canonical(actual_command),
+        "executed_argv_sha256": executed_argv_sha256,
         "stdin_sha256": sha256_bytes(stdin_text.encode("utf-8")),
         "output_sha256": output_sha256,
         "timed_out": timed_out,

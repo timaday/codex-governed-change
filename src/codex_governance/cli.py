@@ -306,6 +306,30 @@ def _read_authority_argument(
     )
 
 
+def _admission_schema_root(args: argparse.Namespace) -> Path:
+    """Resolve the unprefixed admission schema directory beneath authority."""
+    raw = args.schema_root
+    if not isinstance(raw, Path):
+        raise ValueError("admission schema root must be a path")
+    if not raw.is_absolute():
+        normalized = normalize_repo_path(raw.as_posix())
+        if normalized.split("/", 1)[0] == args.authority_root.name:
+            raise ValueError("admission schema root is checkout-prefixed")
+        relative = normalized
+    else:
+        relative = _authority_argument_path(args.authority_root, raw)
+    return args.authority_root.absolute().joinpath(*relative.split("/"))
+
+
+def _admission_validated(
+    args: argparse.Namespace, path: Path, name: str
+) -> dict[str, Any]:
+    """Validate one candidate document only with retained authority schemas."""
+    relative = _repository_argument_path(args.repository, path)
+    instance = args.repository.absolute().joinpath(*relative.split("/"))
+    return _validated(instance, _admission_schema_root(args), name)
+
+
 def _review_policy(args: argparse.Namespace) -> dict[str, Any]:
     """Read and validate the review policy once through its two declared roots."""
     cached = getattr(args, "_review_policy_document", None)
@@ -1075,7 +1099,7 @@ def _review(args: argparse.Namespace) -> int:
     identity = {
         "prompt_sha256": prompt_sha,
         "schema_sha256": schema_sha,
-        "launcher_sha256": reviewer_launcher_sha256(),
+        "launcher_sha256": reviewer_launcher_sha256(deadline=review_deadline),
         "codex_cli_version": codex_cli_version,
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
@@ -1390,12 +1414,13 @@ def _import_reviewer(args: argparse.Namespace) -> int:
 
 
 def _evaluate(args: argparse.Namespace) -> int:
-    manifest = _validated(args.manifest, args.schema_root, "evidence-manifest")
-    declared_candidate = _validated(args.candidate, args.schema_root, "candidate")
+    protected_schema_root = _admission_schema_root(args)
+    manifest = _admission_validated(args, args.manifest, "evidence-manifest")
+    declared_candidate = _admission_validated(args, args.candidate, "candidate")
     policy = load_referenced_json(
         repository=args.repository,
         reference=manifest["effective_policy"],
-        schema_path=args.schema_root / "effective-policy.schema.json",
+        schema_path=protected_schema_root / "effective-policy.schema.json",
     )
     candidate = GitCliRepositoryAdapter(args.repository).identify(
         repository_id=manifest["repository_id"],
@@ -1411,7 +1436,7 @@ def _evaluate(args: argparse.Namespace) -> int:
     state, reasons = evaluate_manifest(
         repository=args.repository,
         manifest=manifest,
-        schema_root=args.schema_root,
+        schema_root=protected_schema_root,
         protected_prompt_bytes=protected_prompt_bytes,
         current_candidate=candidate,
         evaluated_at=args.evaluated_at,
@@ -1743,11 +1768,14 @@ def _pipeline_lock_for(args: argparse.Namespace):
             evidence_root=args.evidence_root,
         )
     if args.command == "evaluate":
-        manifest = _validated(args.manifest, args.schema_root, "evidence-manifest")
+        protected_schema_root = _admission_schema_root(args)
+        manifest = _admission_validated(
+            args, args.manifest, "evidence-manifest"
+        )
         policy = load_referenced_json(
             repository=args.repository,
             reference=manifest["effective_policy"],
-            schema_path=args.schema_root / "effective-policy.schema.json",
+            schema_path=protected_schema_root / "effective-policy.schema.json",
         )
         return PipelineLock(
             repository=args.repository,

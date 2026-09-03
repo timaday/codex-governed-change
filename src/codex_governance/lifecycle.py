@@ -630,6 +630,37 @@ def migrate_reviewer_execution_v2_to_v3(
     )
 
 
+def migrate_reviewer_execution_v3_to_v4(
+    document: Mapping[str, Any], *, executed_argv_sha256: str
+) -> dict[str, Any]:
+    from codex_governance.canonical import require_sha256
+
+    migrated = _migration_document(
+        document, from_version="3.0.0", identity_field="execution_id"
+    )
+    exact = require_sha256(
+        executed_argv_sha256, name="protected exact reviewer argv"
+    )
+    if "executed_argv_sha256" in migrated:
+        raise ValueError("legacy reviewer execution already contains v4 field")
+    observation = migrated.get("observation")
+    if not isinstance(observation, Mapping) or not isinstance(
+        observation.get("supervisor"), Mapping
+    ):
+        raise ValueError("legacy reviewer supervisor observation is required")
+    rebuilt_observation = dict(observation)
+    rebuilt_supervisor = dict(observation["supervisor"])
+    if "executed_argv_sha256" in rebuilt_supervisor:
+        raise ValueError("legacy reviewer supervisor already contains v4 field")
+    rebuilt_supervisor["executed_argv_sha256"] = exact
+    rebuilt_observation["supervisor"] = rebuilt_supervisor
+    migrated["observation"] = rebuilt_observation
+    migrated["executed_argv_sha256"] = exact
+    return _finish_migration(
+        migrated, to_version="4.0.0", identity_field="execution_id"
+    )
+
+
 def migrate_rollback_evidence_v1_to_v2(
     document: Mapping[str, Any], *, gate_result: Mapping[str, Any],
     sandbox_capability: Mapping[str, Any], provenance_statement: Mapping[str, Any],
@@ -675,6 +706,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-result", "2.0.0", "3.0.0"): migrate_reviewer_result_v2_to_v3,
     ("reviewer-execution", "1.0.0", "2.0.0"): migrate_reviewer_execution_v1_to_v2,
     ("reviewer-execution", "2.0.0", "3.0.0"): migrate_reviewer_execution_v2_to_v3,
+    ("reviewer-execution", "3.0.0", "4.0.0"): migrate_reviewer_execution_v3_to_v4,
     ("rollback-evidence", "1.0.0", "2.0.0"): migrate_rollback_evidence_v1_to_v2,
     ("context-receipt", "1.0.0", "2.0.0"): migrate_context_receipt_v1_to_v2,
     ("sandbox-capability", "1.0.0", "2.0.0"): migrate_sandbox_capability_v1_to_v2,

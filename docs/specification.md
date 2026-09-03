@@ -287,7 +287,8 @@ The launcher MUST:
 - require `--output-schema`, `--json` event output and a dedicated final-output path;
 - establish one absolute monotonic deadline before review lock/policy selection
   and pass its remaining budget through every candidate/authority input read,
-  schema/prompt/evidence materialization, CLI-version observation, snapshot,
+  schema/prompt/evidence materialization, descriptor-bound launcher-closure
+  identity read and verification, CLI-version observation, snapshot,
   process, cleanup, final identity and stop-capable descriptor-bound output read;
 - start Codex in a sanitized harness Git root, with the immutable candidate checkout nested beneath it as read-only evidence, so candidate-owned `.codex` configuration, hooks, skills and execpolicy are inspectable files but not active reviewer configuration;
 - expose no author chat, plan, self-review, persisted/hidden reasoning,
@@ -298,10 +299,14 @@ The launcher MUST:
   files into the sanitized harness through descriptor-bound stop-capable copy
   helpers sharing the reviewer deadline; caller-selected harness roots,
   absolute paths, symlinks, path traversal and undeclared evidence are forbidden;
+- accept only the canonical permitted-input shape that qualification and
+  admission can reconstruct exactly; an optional path/digest pair without a
+  protected evidence-contract field is forbidden;
 - record and material-bind the canonical permitted-input manifest and, for
   rapid review, the exact risk assessment and one approved charter; record
-  digest-only argv/stdin identities rebuilt from a fixed portable sanitized
-  argv plus the exact protected prompt/permitted-input bytes and the exact sanitized invocation
+  separate digest-only identities for the exact executed argv and the fixed,
+  completely semantically validated portable argv, plus the stdin identity
+  rebuilt from the exact protected prompt/permitted-input bytes and the exact sanitized invocation
   configuration in a content-addressed reviewer-execution statement that also
   binds the Codex thread and CLI versions, workflow run/attempt, limits,
   materials, prompt/schema/model/qualification/launcher identities,
@@ -432,8 +437,10 @@ execution statement binds both receipts, both direct stream references, the
 canonical permitted-input manifest, any rapid-review risk/charter material and
 the output without creating a circular content address. Admission MUST resolve
 the raw streams, reconstruct their JSONL result/usage and primitive observation
-facts, rebuild the portable sanitized argv and exact stdin bytes from protected
-inputs, compare both digests, and then reconstruct those links;
+facts, rebuild the completely validated portable sanitized argv, reconcile the
+separate exact executed-argv digest with the primitive launcher observation,
+rebuild exact stdin bytes from protected inputs, compare the digests, and then
+reconstruct those links;
 a schema-valid reviewer document or ambient workflow success is insufficient.
 
 The reviewer and admission CLIs have two non-overlapping input authorities. Candidate,
@@ -442,8 +449,10 @@ the declared candidate repository. Prompt, output-schema and validation-schema
 paths are relative to a separately declared protected authority root. Both roots
 use the same bounded descriptor-relative, no-follow reader. A split-checkout
 workflow MUST pass paths relative to the appropriate root. Admission MUST receive
-the protected authority root explicitly and rebuild reviewer stdin from the same
-descriptor-read protected prompt bytes; it MUST NOT reopen a candidate-owned
+the protected authority root explicitly, resolve every validation schema only
+as an unprefixed authority-relative path beneath that root, retain each schema's
+single descriptor-read representation for the complete locked command, and
+rebuild reviewer stdin from the same descriptor-read protected prompt bytes; it MUST NOT reopen a candidate-owned
 prompt path. The workflow MUST derive timeout and
 output bounds from the already protected policy, and rely on the CLI's exact
 policy comparison; checkout-directory-prefixed or caller-default bounds are not
@@ -831,7 +840,8 @@ with full candidate and per-case context evidence and `4.0.0` with the retained
 permitted-input manifest plus mode-specific risk-assessment and charter references;
 `reviewer-qualification-corpus` is `3.0.0` with
 mandatory typed case classes and human-labelled critical expected-finding targets; and `reviewer-execution` is `3.0.0` with primitive
-observation plus direct stream references. `rapid-review-session` is `2.0.0`
+observation plus direct stream references and `4.0.0` with a separate exact
+executed-argv digest. `rapid-review-session` is `2.0.0`
 with typed path and line fields on every finding. The initial-release
 `assurance-case` 1.0 shape requires exactly nine claims and the initial-release
 `reviewer-result` 3.0 shape requires a concrete line for every finding; neither

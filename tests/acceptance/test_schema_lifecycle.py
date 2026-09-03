@@ -24,6 +24,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual("explicit_required", migration_policy("reviewer-result", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "1.0.0", "2.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "2.0.0", "3.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-execution", "3.0.0", "4.0.0"))
         self.assertEqual(
             "explicit_required",
             migration_policy("reviewer-qualification-cases", "2.0.0", "3.0.0"),
@@ -109,6 +110,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_rapid_review_session_v1_to_v2,
             migrate_reviewer_execution_v1_to_v2,
             migrate_reviewer_execution_v2_to_v3,
+            migrate_reviewer_execution_v3_to_v4,
             migrate_reviewer_qualification_cases_v1_to_v2,
             migrate_reviewer_qualification_cases_v2_to_v3,
             migrate_reviewer_qualification_cases_v3_to_v4,
@@ -388,7 +390,12 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("reviewer-result", rebuilt_result_v3)
         observed.add(("reviewer-result", "2.0.0", "3.0.0"))
 
-        execution_v3 = example("reviewer-execution")
+        execution_v4 = example("reviewer-execution")
+        exact_argv_sha256 = execution_v4["executed_argv_sha256"]
+        execution_v3 = deepcopy(execution_v4)
+        execution_v3.pop("executed_argv_sha256")
+        execution_v3["observation"]["supervisor"].pop("executed_argv_sha256")
+        execution_v3 = addressed(execution_v3, "3.0.0", "execution_id")
         v3_execution_fields = {
             name: execution_v3[name]
             for name in (
@@ -425,8 +432,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_execution_v2, **v3_execution_fields
         )
         self.assertEqual(execution_v3, rebuilt_execution_v3)
-        current("reviewer-execution", rebuilt_execution_v3)
         observed.add(("reviewer-execution", "2.0.0", "3.0.0"))
+        rebuilt_execution_v4 = migrate_reviewer_execution_v3_to_v4(
+            rebuilt_execution_v3, executed_argv_sha256=exact_argv_sha256
+        )
+        self.assertEqual(execution_v4, rebuilt_execution_v4)
+        current("reviewer-execution", rebuilt_execution_v4)
+        observed.add(("reviewer-execution", "3.0.0", "4.0.0"))
 
         rollback_v2 = example("rollback-evidence")
         rollback_references = {

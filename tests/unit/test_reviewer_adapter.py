@@ -17,11 +17,12 @@ except ImportError:  # pragma: no cover - unavailable on Windows
     resource = None
 
 from codex_governance.candidate import GitCliRepositoryAdapter
-from codex_governance.canonical import sha256_bytes
+from codex_governance.canonical import sha256_bytes, sha256_canonical
 from codex_governance.domain.model import ReviewerVerdict
 from codex_governance import reviewer_signal_guard
 from codex_governance.reviewer import (
     _ReviewerOutputAuthority,
+    _validate_portable_reviewer_command,
     build_reviewer_command,
     build_reviewer_environment,
     build_reviewer_permission_profile,
@@ -219,6 +220,24 @@ class ReviewerAdapterTest(unittest.TestCase):
             fixed_prompt=self.harness["prompt"].read_text(encoding="utf-8"),
             permitted_inputs=self.inputs,
         )
+
+    def test_security_distinct_permission_profile_is_not_portably_normalized(self) -> None:
+        command = self.command(Path(sys.executable))
+        permission_index = next(
+            index + 1
+            for index, value in enumerate(command[:-1])
+            if value == "--config"
+            and command[index + 1].startswith(
+                'permissions={governed_reviewer={extends=":read-only"'
+            )
+        )
+        command[permission_index] = command[permission_index].replace(
+            "network={enabled=false}", "network={enabled=true}"
+        )
+        with self.assertRaisesRegex(ValueError, "permission profile"):
+            _validate_portable_reviewer_command(
+                command, model="fake-gpt", reasoning_effort="xhigh"
+            )
 
     @staticmethod
     def host_processes_with_command_token(token: str) -> list[int]:
@@ -802,6 +821,14 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertEqual(30, result["output_tokens"])
         self.assertEqual(10, result["reasoning_output_tokens"])
         self.assertEqual("fake-thread-1", result["thread_id"])
+        self.assertNotEqual(
+            sha256_canonical(self.command(fake)),
+            result["executed_argv_sha256"],
+        )
+        self.assertEqual(
+            result["observation"]["supervisor"]["executed_argv_sha256"],
+            result["executed_argv_sha256"],
+        )
         exact_output = (
             json.dumps(result["result"], indent=2) + "\n"
         ).encode("utf-8")
@@ -1427,6 +1454,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "argv_sha256": reviewer_argv_sha256(
                 model="fake-gpt", reasoning_effort="xhigh"
             ),
+            "executed_argv_sha256": "sha256:" + "4" * 64,
             "stdin_sha256": "sha256:" + "c" * 64,
             "thread_id": "fixture-thread",
             "started_at": "2026-08-26T10:00:00Z",
@@ -1457,7 +1485,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 "stdin": {"complete": True, "bytes_expected": 10, "bytes_written": 10},
                 "stdout": {"bytes_observed": 20, "bytes_captured": 20, "bytes_normalized": 20, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
                 "stderr": {"bytes_observed": 0, "bytes_captured": 0, "bytes_normalized": 0, "thread_completed": True, "eof": True, "read_failed": False, "truncated": False, "ambiguous_redaction": False},
-                "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True},
+                "supervisor": {"boundary_available": True, "boundary_kind": "pid_namespace", "descendants_observed": False, "cleanup_complete": True, "executed_argv_sha256": "sha256:" + "4" * 64},
                 "process_cleanup_complete": True,
                 "output": {"present": True, "regular": True, "bytes": 30, "schema_valid": True, "candidate_matches": True, "bindings_match": True, "truncated": False},
             },
@@ -1493,6 +1521,16 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             )
 
         baseline = statement()["execution_id"]
+        missing_exact = json.loads(json.dumps(facts))
+        missing_exact.pop("executed_argv_sha256")
+        with self.assertRaisesRegex(ValueError, "executed_argv_sha256"):
+            statement(missing_exact)
+        mismatched_exact = json.loads(json.dumps(facts))
+        mismatched_exact["observation"]["supervisor"][
+            "executed_argv_sha256"
+        ] = "sha256:" + "5" * 64
+        with self.assertRaisesRegex(ValueError, "does not reconstruct"):
+            statement(mismatched_exact)
         for field, value in (
             ("output_sha256", "sha256:" + "9" * 64),
             ("usage_observed", False),

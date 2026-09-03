@@ -208,10 +208,18 @@ Reviewer CLI tests place symlinks, FIFOs, oversized leaves and parent swaps at
 permitted-input paths and prove the validated bytes are the same bytes copied to
 the harness. Split-checkout admission tests give the candidate and protected
 authority different prompt bytes and require stdin reconstruction to consume
-only the protected-authority observation. Qualification tests replace or omit
+only the protected-authority observation. They also prove every admission schema
+comes from one retained authority-root observation and reject outside,
+candidate-owned and checkout-prefixed schema roots. Qualification tests replace
+schemas between identity and validation, inject special schema leaves, or omit
 every per-case context, permitted-input, risk and charter artifact, tamper the
-portable argv or exact stdin digest, and re-address the outer case record;
+portable argv, exact executed-argv binding or exact stdin digest, and re-address the outer case record;
 reconstruction must still reject it.
+
+Reviewer launcher tests reject unreconstructable optional permitted-input keys,
+exercise expired and replaced launcher-closure observations, and prove that
+security-distinct permission profiles sharing a textual prefix cannot normalize
+to the protected portable argv identity.
 
 Schema lifecycle tests cover every transition advertised by `migration_policy`,
 construct schema-valid legacy documents, prove current schemas reject them,

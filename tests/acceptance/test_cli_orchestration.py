@@ -269,6 +269,28 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "repository-relative"):
                 _read_repository_argument(candidate, authority / "prompt.md")
 
+    def test_admission_schema_root_is_unprefixed_and_authority_relative(self) -> None:
+        from codex_governance.cli import _admission_schema_root
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            authority = root / "authority"
+            candidate = root / "candidate"
+            (authority / "schemas").mkdir(parents=True)
+            (candidate / "schemas").mkdir(parents=True)
+            args = Namespace(
+                authority_root=authority,
+                repository=candidate,
+                schema_root=Path("schemas"),
+            )
+            self.assertEqual(authority / "schemas", _admission_schema_root(args))
+            args.schema_root = candidate / "schemas"
+            with self.assertRaisesRegex(ValueError, "authority-relative"):
+                _admission_schema_root(args)
+            args.schema_root = Path("authority/schemas")
+            with self.assertRaisesRegex(ValueError, "checkout-prefixed"):
+                _admission_schema_root(args)
+
     def test_every_output_producing_command_is_in_the_containment_inventory(self) -> None:
         from codex_governance import cli
 
