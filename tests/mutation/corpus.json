@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:1b35bacc6f97b32103deee9b3a15ecc4aa0b017e65971fb97b03e12641437cfe",
+  "corpus_id": "sha256:765ac3acb571fc67ffb1eb55d6c3e25b5ec72b9ac92b1d6e925632008528fd22",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -976,11 +976,11 @@
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_ambiguous_reviewer_stream_values_are_redacted_and_unknown"]
     },
     {
-      "mutant_id": "malformed-scheme-host-path-unredacted",
+      "mutant_id": "malformed-scheme-endpoint-family-omitted",
       "path": "src/codex_governance/portability.py",
       "old": "            rb\"(?i)\\b(?:https?|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp):/{3,}\"",
-      "new": "            rb\"(?i)\\b(?:https?|wss?|ssh|tcp|tls|postgres(?:ql)?|mysql|redis|amqp)://\"",
-      "operator": "treat every listed scheme as a valid two-separator endpoint and retain malformed scheme host paths",
+      "new": "            rb\"(?!)\"",
+      "operator": "omit dedicated malformed-scheme endpoint classification and fall back to generic path handling",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_malformed_scheme_host_paths_are_endpoint_ambiguity", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_ambiguous_reviewer_stream_values_are_redacted_and_unknown"]
     }

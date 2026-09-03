@@ -724,8 +724,8 @@ avoid both endpoint and generic-host-path recognition. This working-copy
 successor treats that malformed form as endpoint ambiguity in the shared
 gate/reviewer recognizer and adds gate, reviewer and semantic-mutation canaries.
 The 109-entry corpus now has content ID
-`sha256:1b35bacc6f97b32103deee9b3a15ecc4aa0b017e65971fb97b03e12641437cfe`
+`sha256:765ac3acb571fc67ffb1eb55d6c3e25b5ec72b9ac92b1d6e925632008528fd22`
 and protected byte digest
-`sha256:2d5c0103e61ae16165b90c3365b1fa39592993a656aee2ed3e724065126b5e35`.
+`sha256:f41359f6899fc8e9dc1d126157f9977dd3d003ccd84f5355e0dcc3edb2bb4704`.
 All `3bee288` evidence is non-qualifying; deterministic gates, paired controls,
 fresh review and candidate identity must be regenerated.
