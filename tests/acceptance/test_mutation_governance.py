@@ -159,6 +159,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "reviewer-output-schema-reopened",
             "container-create-cidfile-pathname-read",
             "container-cleanup-cidfile-deadline-omitted",
+            "container-helper-deadline-rebased",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

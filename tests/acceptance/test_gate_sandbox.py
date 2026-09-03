@@ -315,12 +315,18 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                     side_effect=observe_cidfile_read,
                 ),
             ):
+                create_deadline = time.monotonic() + 2
                 self.assertEqual(
                     container_id,
-                    create_container(invocation, timeout_seconds=2),
+                    create_container(invocation, deadline=create_deadline),
                 )
                 create_deadlines = list(observed_deadlines)
-                self.assertTrue(cleanup_container(invocation, container_id))
+                cleanup_deadline = time.monotonic() + 10
+                self.assertTrue(
+                    cleanup_container(
+                        invocation, container_id, deadline=cleanup_deadline
+                    )
+                )
                 cleanup_deadlines = observed_deadlines[len(create_deadlines):]
             self.assertIn(
                 ["docker", "rm", "--force", container_id],
@@ -328,8 +334,8 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
             )
             self.assertEqual(1, len(create_deadlines))
             self.assertTrue(cleanup_deadlines)
-            self.assertIsInstance(create_deadlines[0], float)
-            self.assertIsInstance(cleanup_deadlines[0], float)
+            self.assertEqual(create_deadline, create_deadlines[0])
+            self.assertEqual(cleanup_deadline, cleanup_deadlines[0])
             self.assertEqual(
                 [cleanup_deadlines[0]] * len(cleanup_deadlines),
                 cleanup_deadlines,
@@ -372,7 +378,9 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 ) as bounded_read,
             ):
                 self.assertIsNone(
-                    create_container(invocation, timeout_seconds=1)
+                    create_container(
+                        invocation, deadline=time.monotonic() + 1
+                    )
                 )
             self.assertTrue(bounded_read.called)
             self.assertIsInstance(bounded_read.call_args.kwargs["deadline"], float)
@@ -386,11 +394,53 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 ) as bounded_read,
             ):
                 self.assertFalse(
-                    cleanup_container(invocation, container_id, timeout_seconds=1)
+                    cleanup_container(
+                        invocation,
+                        container_id,
+                        deadline=time.monotonic() + 1,
+                    )
                 )
             provider.assert_not_called()
             self.assertTrue(bounded_read.called)
             self.assertIsInstance(bounded_read.call_args.kwargs["deadline"], float)
+
+    def test_expired_absolute_container_deadlines_never_launch_provider(self) -> None:
+        from codex_governance import sandbox as sandbox_module
+        from codex_governance.sandbox import (
+            SandboxInvocation,
+            cleanup_container,
+            create_container,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            invocation = SandboxInvocation(
+                ("docker", "create"),
+                self.capability(),
+                root,
+                root,
+                "docker",
+                "codex-governance-fixture",
+                root / "fixture.cid",
+            )
+            caller_deadline = 100.0
+            with (
+                patch.object(
+                    sandbox_module.time, "monotonic", return_value=100.01
+                ),
+                patch.object(sandbox_module.subprocess, "run") as provider,
+            ):
+                self.assertIsNone(
+                    create_container(invocation, deadline=caller_deadline)
+                )
+                self.assertFalse(
+                    cleanup_container(
+                        invocation,
+                        "a" * 64,
+                        deadline=caller_deadline,
+                    )
+                )
+            provider.assert_not_called()
 
     def test_delayed_or_renamed_container_create_never_becomes_complete(self) -> None:
         from codex_governance.sandbox import (
@@ -415,7 +465,11 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 "codex_governance.sandbox.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(["docker", "create"], 0.01),
             ):
-                self.assertIsNone(create_container(invocation, timeout_seconds=0.01))
+                self.assertIsNone(
+                    create_container(
+                        invocation, deadline=time.monotonic() + 0.01
+                    )
+                )
 
             created = subprocess.CompletedProcess(
                 [], 0, stdout=("a" * 64 + "\n").encode(), stderr=b""
@@ -433,11 +487,21 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 "codex_governance.sandbox.subprocess.run",
                 side_effect=renamed_provider,
             ):
-                self.assertIsNone(create_container(invocation, timeout_seconds=2))
+                self.assertIsNone(
+                    create_container(
+                        invocation, deadline=time.monotonic() + 2
+                    )
+                )
 
             failed = subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"")
             with patch("codex_governance.sandbox.subprocess.run", return_value=failed):
-                self.assertFalse(cleanup_container(invocation, "a" * 64))
+                self.assertFalse(
+                    cleanup_container(
+                        invocation,
+                        "a" * 64,
+                        deadline=time.monotonic() + 10,
+                    )
+                )
 
     def test_cleanup_resolves_late_identity_and_never_treats_provider_failure_as_absence(self) -> None:
         from codex_governance.sandbox import SandboxInvocation, cleanup_container
@@ -482,7 +546,9 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 side_effect=delayed_provider,
             ) as run:
                 self.assertFalse(
-                    cleanup_container(invocation, None, timeout_seconds=2)
+                    cleanup_container(
+                        invocation, None, deadline=time.monotonic() + 2
+                    )
                 )
             self.assertIn(
                 ["docker", "rm", "--force", late_id],
@@ -497,7 +563,9 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                 return_value=unavailable,
             ):
                 self.assertFalse(
-                    cleanup_container(invocation, late_id, timeout_seconds=1)
+                    cleanup_container(
+                        invocation, late_id, deadline=time.monotonic() + 1
+                    )
                 )
 
     def test_cleanup_identity_taint_survives_later_absence(self) -> None:
@@ -539,7 +607,11 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                     "codex_governance.sandbox.subprocess.run", side_effect=provider
                 ) as run:
                     self.assertFalse(
-                        cleanup_container(invocation, original, timeout_seconds=2)
+                        cleanup_container(
+                            invocation,
+                            original,
+                            deadline=time.monotonic() + 2,
+                        )
                     )
                 removed = {
                     call.args[0][-1]

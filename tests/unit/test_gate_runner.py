@@ -189,8 +189,11 @@ class GateRunnerTest(unittest.TestCase):
             self.sandbox_area / "fixture.cid",
         )
         container_id = "a" * 64
+        absolute_deadline = time.monotonic() + 0.05
         with (
-            patch("codex_governance.gate.create_container", return_value=container_id),
+            patch(
+                "codex_governance.gate.create_container", return_value=container_id
+            ) as create,
             patch(
                 "codex_governance.gate.build_container_start_command",
                 return_value=[sys.executable, "-c", "import time; time.sleep(5)"],
@@ -201,11 +204,14 @@ class GateRunnerTest(unittest.TestCase):
                 "pass",
                 sandbox_invocation=invocation,
                 timeout_seconds=0.05,
+                absolute_deadline=absolute_deadline,
             )
+        create.assert_called_once_with(
+            invocation, deadline=absolute_deadline - 0.01
+        )
         cleanup.assert_called_once()
         self.assertEqual((invocation, container_id), cleanup.call_args.args)
-        self.assertGreaterEqual(cleanup.call_args.kwargs["timeout_seconds"], 0.0)
-        self.assertLessEqual(cleanup.call_args.kwargs["timeout_seconds"], 0.05)
+        self.assertEqual(absolute_deadline, cleanup.call_args.kwargs["deadline"])
         self.assertEqual("timeout", timed_out["termination"]["kind"])
         with (
             patch("codex_governance.gate.create_container", return_value=container_id),
@@ -221,6 +227,37 @@ class GateRunnerTest(unittest.TestCase):
             "sandbox container cleanup could not be proven",
             incomplete["limitations"],
         )
+
+        with (
+            patch(
+                "codex_governance.gate.time.monotonic",
+                side_effect=[99.7, 100.0, 100.0],
+            ),
+            patch(
+                "codex_governance.gate.create_container", return_value=container_id
+            ) as create,
+            patch(
+                "codex_governance.gate.build_container_start_command",
+                return_value=[sys.executable, "-c", "pass"],
+            ),
+            patch("codex_governance.gate.subprocess.Popen") as launch,
+            patch(
+                "codex_governance.gate.cleanup_container", return_value=True
+            ) as cleanup,
+        ):
+            delayed = self.observe(
+                "pass",
+                sandbox_invocation=invocation,
+                timeout_seconds=2,
+                absolute_deadline=100.0,
+                observation_started_ns=1,
+            )
+        create.assert_called_once_with(invocation, deadline=99.8)
+        launch.assert_not_called()
+        cleanup.assert_called_once_with(
+            invocation, container_id, deadline=100.0
+        )
+        self.assertEqual("launch_error", delayed["termination"]["kind"])
 
     def test_missing_sandbox_never_falls_back_to_host_execution(self) -> None:
         marker = self.repository / "must-not-exist"

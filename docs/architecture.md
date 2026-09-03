@@ -485,7 +485,8 @@ self-contained: src-layout Python test gates declare `PYTHONPATH=src` through
 the command array and cannot inherit a developer or supervisor import path.
 Each per-gate timeout becomes one absolute deadline before the fresh candidate
 copy begins. Clone, checkout, submodule reconstruction, copy identity,
-container creation, execution and cleanup receive only its remaining budget;
+container creation, execution and cleanup receive the unchanged applicable
+absolute deadline and derive remaining subprocess time only at the launch site;
 incomplete preparation emits retained `UNKNOWN` evidence without launching the
 gate. Container-backed invocations
 first complete a bounded create transaction using a runtime-only supervisor-owned

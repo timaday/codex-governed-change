@@ -417,15 +417,16 @@ def run_gate(
             )
             runtime_argv = list(sandbox_invocation.argv)
             if sandbox_invocation.container_provider is not None:
-                remaining = execution_deadline - time.monotonic()
                 container_id = create_container(
-                    sandbox_invocation, timeout_seconds=remaining
+                    sandbox_invocation, deadline=execution_deadline
                 )
                 if container_id is None:
                     raise OSError("container identity unavailable")
                 runtime_argv = build_container_start_command(
                     sandbox_invocation, container_id
                 )
+            if time.monotonic() >= execution_deadline:
+                raise OSError("execution deadline expired before process launch")
             process = subprocess.Popen(
                 runtime_argv,
                 cwd=sandbox_invocation.supervisor_cwd,
@@ -473,7 +474,7 @@ def run_gate(
                 container_cleanup_complete = cleanup_container(
                     sandbox_invocation,
                     container_id,
-                    timeout_seconds=max(0.0, deadline - time.monotonic()),
+                    deadline=deadline,
                 )
                 if not container_cleanup_complete:
                     observation_complete = False

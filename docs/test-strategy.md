@@ -192,7 +192,10 @@ through a stop-capable child. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
 Gate deadline tests stall initial clone, checkout and submodule helpers, prove
-the same absolute timeout budget reaches execution, and require retained
+the same absolute timeout budget reaches execution, pass the unchanged absolute
+execution and cleanup deadlines across container helper boundaries, inject a
+scheduler gap between caller calculation and callee entry, and prove that no
+provider or candidate process starts after expiry. They require retained
 `UNKNOWN` preparation evidence without command launch.
 
 Context reconstruction tests independently alter every protected source class,

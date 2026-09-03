@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import secrets
@@ -747,24 +748,32 @@ def _container_identity(invocation: SandboxInvocation) -> tuple[str, str, Path] 
 
 
 def create_container(
-    invocation: SandboxInvocation, *, timeout_seconds: float
+    invocation: SandboxInvocation, *, deadline: float
 ) -> str | None:
     """Complete bounded container creation and validate its immutable identity."""
     identity = _container_identity(invocation)
-    if identity is None or timeout_seconds <= 0:
+    if (
+        identity is None
+        or isinstance(deadline, bool)
+        or not isinstance(deadline, (int, float))
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
         return None
     provider, name, cidfile = identity
-    deadline = time.monotonic() + timeout_seconds
     if cidfile.exists() or cidfile.is_symlink():
         return None
     try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
         created = subprocess.run(
             list(invocation.argv),
             cwd=invocation.supervisor_cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=max(0.001, deadline - time.monotonic()),
+            timeout=remaining,
             check=False,
         )
         if created.returncode != 0:
@@ -888,14 +897,19 @@ def cleanup_container(
     invocation: SandboxInvocation,
     container_id: str | None,
     *,
-    timeout_seconds: float = 10.0,
+    deadline: float,
 ) -> bool:
     """Remove resolved exact IDs and prove stable provider-confirmed absence."""
     identity = _container_identity(invocation)
-    if identity is None or timeout_seconds <= 0:
+    if (
+        identity is None
+        or isinstance(deadline, bool)
+        or not isinstance(deadline, (int, float))
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
         return False
     provider, name, cidfile = identity
-    deadline = time.monotonic() + timeout_seconds
     supplied_valid = (
         isinstance(container_id, str)
         and CONTAINER_ID_RE.fullmatch(container_id) is not None

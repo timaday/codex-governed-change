@@ -197,8 +197,8 @@ Requirements: GOV-004, GOV-026 through GOV-028, GOV-044, GOV-046, GOV-061
 - Replace direct host candidate execution with a disposable sandbox provider.
 - Default to no network and no secrets; bound time, process tree, resources and
   output; expose a deterministic capability report.
-- Start one absolute per-gate deadline before candidate reconstruction, pass its
-  remaining budget to every Git/container/execution helper and retain an
+- Start one absolute per-gate deadline before candidate reconstruction, pass the
+  unchanged applicable absolute deadline to every Git/container/execution helper and retain an
   `UNKNOWN` gate record when preparation is incomplete.
 - Keep protected governance, supervisor, reviewer harness and authoritative
   evidence unwritable and package observations in a later trusted phase.

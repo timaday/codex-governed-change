@@ -612,3 +612,29 @@ required. The revised 103-operator corpus has content ID
 `sha256:d313dc236a62da0151cd767c32640f1de927e880481887f1ae64099f338ee4af`
 and protected byte digest
 `sha256:8e6adae43cc628d6674e35387cbfb1bf761fc4e369627a6f5f7e1d740efd9977`.
+
+Immutable candidate `676833d` then passed blueprint integrity, 211 acceptance
+tests, 92 unit tests, compilation, rollback rehearsal, public portability and
+the complete 103-operator paired-control corpus: every clean control survived
+and every mutant was killed. Its exact fresh ChatGPT-authenticated
+`gpt-5.6-sol` source review emitted a schema-valid `BLOCK` result, but the
+launcher conservatively admitted only `UNKNOWN` because stream observation was
+incomplete after ambiguous machine- or credential-shaped bytes were redacted.
+The retained diagnostic finding was independently confirmed: `run_gate`
+converted its execution and cleanup deadlines to remaining durations, while
+the container helpers rebased those durations from later clock observations.
+A scheduler pause could therefore extend the protected GOV-044 budget.
+
+This working-copy successor passes the unchanged absolute execution deadline
+to container creation and the unchanged gate deadline to cleanup, derives
+subprocess timeouts only from those received deadlines, refuses expired helper
+entry, and rechecks the execution deadline immediately before candidate launch.
+Direct helper-expiry and adversarial caller-to-callee scheduling-gap tests cover
+the boundary. A dedicated semantic operator restores deadline rebasing, bringing
+the corpus to 104 entries with content ID
+`sha256:371315008833d73d149efb744c7e0d44161a604d066e0aaf4c03277221d6ac67`
+and protected byte digest
+`sha256:0d33d00c13ff93a733956b7130e9970783df5041c3a507a5d623bf45d59eb2aa`.
+All evidence for `676833d` is non-qualifying; complete deterministic, rollback,
+portability, paired-control mutation and fresh-review rebinding is required for
+the immutable successor.

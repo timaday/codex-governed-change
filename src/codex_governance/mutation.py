@@ -135,6 +135,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "reviewer-output-schema-reopened",
         "container-create-cidfile-pathname-read",
         "container-cleanup-cidfile-deadline-omitted",
+        "container-helper-deadline-rebased",
     }
 )
 

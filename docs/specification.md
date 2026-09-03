@@ -655,13 +655,18 @@ removal or absence cannot restore certainty.
 Creation and cleanup MUST read the supervisor-owned ID file through the same
 deadline-bound, no-follow, nonblocking descriptor mechanism, with bounded size
 and post-read parent/leaf replacement verification; pathname type-check-then-
-read is not identity evidence.
+read is not identity evidence. Both helpers derive a subprocess timeout only
+immediately before that subprocess launch from their received absolute deadline.
 Every gate receives a newly reconstructed candidate copy. The gate's one
-absolute monotonic deadline starts before that reconstruction and is passed to
-every clone, checkout, submodule, identity and file-copy helper. Regular source
+absolute monotonic deadline starts before that reconstruction and is passed
+unchanged to every clone, checkout, submodule, identity, file-copy and cleanup
+helper; container creation receives the unchanged earlier absolute execution
+deadline that reserves cleanup time. Neither deadline is converted to a
+remaining duration and then rebased from a callee's later clock observation,
+and no provider or candidate process starts after its applicable deadline. Regular source
 leaves are opened no-follow, type-checked and copied through a terminable
 descriptor-only helper; source leaf identity is re-stated afterward. Command launch and cleanup
-receive only the remaining budget. If preparation expires, fails or cannot be
+derive timeouts from the applicable absolute deadline. If preparation expires, fails or cannot be
 observed completely, the supervisor publishes an `UNKNOWN` gate result with the
 preparation limitation and does not launch the command. A writable copy is
 never reused by a later gate, so an earlier command cannot replace the source,
