@@ -217,12 +217,14 @@ codex exec
 
 The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. One reviewer deadline begins before lock/policy selection and governs all candidate/authority reads, CLI-version observation, preparation, execution, cleanup, identity and final output. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries plus the final output are read or copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use that one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
-Launcher-closure source identity uses retained descriptor-bound reads and
-verification under that same absolute reviewer deadline. The permitted-input
-shape rejects any optional path/digest pair that protected qualification and
-admission cannot reconstruct. Admission validation schemas resolve only beneath
-the distinct protected authority root and remain retained for the locked
-command.
+Launcher-closure source identity and the output schema use retained descriptor-
+bound reads under that same absolute reviewer deadline; final output validation
+uses the retained schema object without reopening its path. Each review mode has
+one exact permitted-input key set: `evidence_root` is mandatory, and rapid-only
+risk/charter keys are forbidden in conformance. Qualification compares the full
+reconstructed document. Admission validation schemas resolve only beneath the
+distinct protected authority root during lock selection, output preflight and
+evaluation and remain retained for the locked command.
 
 The implementation records a content-addressed reviewer-execution statement with
 secrets and environment values excluded. It binds the exact mode-specific
@@ -357,6 +359,9 @@ timeout and output bounds. Those inputs are explicit capability fields and must
 match protected policy and provenance. Cleanup permanently records any mismatch
 between the original immutable container ID/name pair, including later rename or
 same-name substitution; later absence cannot erase that uncertainty.
+Container creation and cleanup read the supervisor-owned ID file only through a
+bounded no-follow descriptor under the transaction deadline, retaining the
+verified bytes across parsing rather than checking and reopening a pathname.
 
 Each candidate directory includes provenance statements, authenticated-decision
 references, a context receipt, mutation records and a deterministic assurance

@@ -366,7 +366,7 @@ jobs:
           for decision_id in "${VERIFIED_DECISIONS[@]}"; do
             DECISION_ARGS+=(--verified-decision-id "$decision_id")
           done
-          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas evaluate \
+          PYTHONPATH=governance/src python3 -m codex_governance --schema-root schemas evaluate \
             --repository candidate \
             --authority-root governance \
             --prompt .codex/review/reviewer.prompt.md \

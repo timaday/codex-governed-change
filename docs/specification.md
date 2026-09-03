@@ -299,8 +299,13 @@ The launcher MUST:
   files into the sanitized harness through descriptor-bound stop-capable copy
   helpers sharing the reviewer deadline; caller-selected harness roots,
   absolute paths, symlinks, path traversal and undeclared evidence are forbidden;
-- accept only the canonical permitted-input shape that qualification and
-  admission can reconstruct exactly; an optional path/digest pair without a
+- accept only the exact canonical key set for the declared mode that
+  qualification and admission reconstruct in full; `evidence_root` is always
+  required, rapid-review risk/charter keys are required only for rapid review
+  and forbidden for conformance, qualification-owned synthetic inputs use the
+  deterministic `qualification/<mode>/<case-id>/` subtree while referenced
+  context/risk/charter paths equal their digest-bound case-evidence references,
+  and an optional path/digest pair without a
   protected evidence-contract field is forbidden;
 - record and material-bind the canonical permitted-input manifest and, for
   rapid review, the exact risk assessment and one approved charter; record
@@ -313,10 +318,12 @@ The launcher MUST:
   termination, primitive supervisor/capture observations, direct write-once
   normalized stdout/stderr references, output, candidate pre/post identity and
   CLI-reported token usage;
-- retain the output-parent directory descriptor before launch, read the reviewer
+- retain the output-parent directory descriptor and descriptor-read the output
+  schema once under the review deadline before launch, read the reviewer
   output leaf exactly once with no-follow, nonblocking, bounded regular-file and
   post-read leaf-identity checks, and use those same raw bytes for parsing,
-  schema validation, hashing, byte observation and write-once publication;
+  validation against the retained schema object, hashing, byte observation and
+  write-once publication without reopening either pathname;
 - classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
 
 A zero-exit reviewer parent is not complete process observation. Stdin delivery
@@ -438,7 +445,8 @@ canonical permitted-input manifest, any rapid-review risk/charter material and
 the output without creating a circular content address. Admission MUST resolve
 the raw streams, reconstruct their JSONL result/usage and primitive observation
 facts, rebuild the completely validated portable sanitized argv, reconcile the
-separate exact executed-argv digest with the primitive launcher observation,
+separate exact executed-argv digest with the primitive launcher observation in
+both admission and qualification,
 rebuild exact stdin bytes from protected inputs, compare the digests, and then
 reconstruct those links;
 a schema-valid reviewer document or ambient workflow success is insufficient.
@@ -449,9 +457,10 @@ the declared candidate repository. Prompt, output-schema and validation-schema
 paths are relative to a separately declared protected authority root. Both roots
 use the same bounded descriptor-relative, no-follow reader. A split-checkout
 workflow MUST pass paths relative to the appropriate root. Admission MUST receive
-the protected authority root explicitly, resolve every validation schema only
-as an unprefixed authority-relative path beneath that root, retain each schema's
-single descriptor-read representation for the complete locked command, and
+the protected authority root explicitly, resolve every validation schema during
+lock selection, output preflight and evaluation only as an unprefixed authority-
+relative path beneath that root, retain each schema's single descriptor-read
+representation for the complete locked command, and
 rebuild reviewer stdin from the same descriptor-read protected prompt bytes; it MUST NOT reopen a candidate-owned
 prompt path. The workflow MUST derive timeout and
 output bounds from the already protected policy, and rely on the CLI's exact
@@ -643,6 +652,10 @@ failed removal, missing identity or an inconclusive absence check makes process
 observation incomplete and therefore `UNKNOWN`. Any observed rename of the
 original ID or same-name substitution permanently taints the transaction; later
 removal or absence cannot restore certainty.
+Creation and cleanup MUST read the supervisor-owned ID file through the same
+deadline-bound, no-follow, nonblocking descriptor mechanism, with bounded size
+and post-read parent/leaf replacement verification; pathname type-check-then-
+read is not identity evidence.
 Every gate receives a newly reconstructed candidate copy. The gate's one
 absolute monotonic deadline starts before that reconstruction and is passed to
 every clone, checkout, submodule, identity and file-copy helper. Regular source

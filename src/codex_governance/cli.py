@@ -133,11 +133,8 @@ def _cli_output_authority(args: argparse.Namespace) -> tuple[Path, str]:
     elif args.command == "import-reviewer-result":
         evidence_root = normalize_repo_path(os.fspath(args.evidence_root))
     elif args.command == "evaluate":
-        manifest = _validated(args.manifest, args.schema_root, "evidence-manifest")
-        policy = load_referenced_json(
-            repository=repository,
-            reference=manifest["effective_policy"],
-            schema_path=args.schema_root / "effective-policy.schema.json",
+        _protected_schema_root, manifest, policy = _admission_manifest_policy(
+            args
         )
         evidence_root = normalize_repo_path(policy["evidence_root"])
     elif args.command == "review":
@@ -328,6 +325,27 @@ def _admission_validated(
     relative = _repository_argument_path(args.repository, path)
     instance = args.repository.absolute().joinpath(*relative.split("/"))
     return _validated(instance, _admission_schema_root(args), name)
+
+
+def _admission_manifest_policy(
+    args: argparse.Namespace,
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """Retain the protected admission manifest, policy, and schema root."""
+    cached = getattr(args, "_admission_manifest_policy_documents", None)
+    if cached is not None:
+        return cached
+    protected_schema_root = _admission_schema_root(args)
+    manifest = _admission_validated(
+        args, args.manifest, "evidence-manifest"
+    )
+    policy = load_referenced_json(
+        repository=args.repository,
+        reference=manifest["effective_policy"],
+        schema_path=protected_schema_root / "effective-policy.schema.json",
+    )
+    cached = (protected_schema_root, manifest, policy)
+    args._admission_manifest_policy_documents = cached
+    return cached
 
 
 def _review_policy(args: argparse.Namespace) -> dict[str, Any]:
@@ -1414,14 +1432,8 @@ def _import_reviewer(args: argparse.Namespace) -> int:
 
 
 def _evaluate(args: argparse.Namespace) -> int:
-    protected_schema_root = _admission_schema_root(args)
-    manifest = _admission_validated(args, args.manifest, "evidence-manifest")
+    protected_schema_root, manifest, policy = _admission_manifest_policy(args)
     declared_candidate = _admission_validated(args, args.candidate, "candidate")
-    policy = load_referenced_json(
-        repository=args.repository,
-        reference=manifest["effective_policy"],
-        schema_path=protected_schema_root / "effective-policy.schema.json",
-    )
     candidate = GitCliRepositoryAdapter(args.repository).identify(
         repository_id=manifest["repository_id"],
         mode=declared_candidate["mode"],
@@ -1768,14 +1780,8 @@ def _pipeline_lock_for(args: argparse.Namespace):
             evidence_root=args.evidence_root,
         )
     if args.command == "evaluate":
-        protected_schema_root = _admission_schema_root(args)
-        manifest = _admission_validated(
-            args, args.manifest, "evidence-manifest"
-        )
-        policy = load_referenced_json(
-            repository=args.repository,
-            reference=manifest["effective_policy"],
-            schema_path=protected_schema_root / "effective-policy.schema.json",
+        _protected_schema_root, _manifest, policy = _admission_manifest_policy(
+            args
         )
         return PipelineLock(
             repository=args.repository,

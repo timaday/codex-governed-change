@@ -569,3 +569,32 @@ mask a missing deadline on the initial closure reads. This successor asserts
 that every initial and verification read receives the same absolute deadline.
 All evidence for `344c2d4` is non-qualifying and the successor requires complete
 rebinding.
+
+Immutable candidate `09eba32` then passed blueprint integrity, 209 acceptance
+tests, 92 unit tests, compilation, rollback rehearsal, public portability and
+the complete 94-operator paired-control corpus: every clean control survived and
+every mutant was killed. Its exact fresh ChatGPT-authenticated `gpt-5.6-sol`
+review was fully observed and candidate-bound but returned `BLOCK` with six
+admissible findings: reviewer permitted-input shapes were not mode-exact;
+evaluate output preflight did not share protected schema authority; the
+reference workflow passed a checkout-prefixed evaluate schema root;
+qualification did not reconcile both exact executed-argv occurrences; final
+reviewer output validation reopened its schema path; and container ID files
+were read through replaceable pathnames without the transaction deadline.
+
+This working-copy successor requires `evidence_root` and one exact input key set
+per review mode, independently reconstructs the full qualification input
+document, shares one protected manifest/policy/schema cache across evaluate lock
+selection, output preflight and execution, and uses the unprefixed split-root
+workflow contract. Qualification reconciles the top-level and primitive
+supervisor exact-argv digests. The reviewer validates final output against the
+schema object retained under its absolute deadline, and container creation and
+cleanup read the ID file through the deadline-bound no-follow descriptor helper.
+Nine protected semantic operators cover these bypasses, bringing the corpus to
+103 operators with content ID
+`sha256:675e71533ad799d5d47449312be222d13e15b15a6c6bfc09d42675f8a15af347`
+and protected byte digest
+`sha256:2e12c428e2b8a227b6c85ddcd55f5e66900ad5f9b958a6b2f748a643282e00ed`.
+All evidence for `09eba32` is non-qualifying; this successor requires complete
+candidate-bound deterministic, rollback, portability, paired-control mutation
+and fresh-review qualification before release work can continue.

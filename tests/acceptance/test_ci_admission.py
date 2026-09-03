@@ -52,7 +52,7 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
             "--schema-root schemas review",
             "governance/schemas import-reviewer-result",
             "governance/schemas assemble-manifest",
-            "governance/schemas evaluate",
+            "--schema-root schemas evaluate",
         ):
             self.assertIn(current, self.workflow)
         self.assertIn("qualification-matched", self.workflow)

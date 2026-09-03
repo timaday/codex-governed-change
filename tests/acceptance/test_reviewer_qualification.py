@@ -537,7 +537,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                                 )
                             )
                 result_bytes = canonical_json_bytes(result)
-                prefix = case["case_id"].lower()
+                prefix = f"qualification/conformance/{case['case_id']}"
                 preliminary_references = {
                     name: store(
                         prefix + "/" + name.replace("_", "-") + ".json",
@@ -804,6 +804,107 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     for name in set(observed_schema_reads)
                 )
             )
+
+            def readdressed_arguments(
+                changed_cases: dict,
+            ) -> dict:
+                addressed_cases = content_address(
+                    changed_cases, "case_evidence_id"
+                )
+                addressed_record = content_address(
+                    record
+                    | {
+                        "case_evidence_sha256": sha256_bytes(
+                            canonical_json_bytes(addressed_cases)
+                        )
+                    },
+                    "qualification_id",
+                )
+                return arguments | {
+                    "record": addressed_record,
+                    "case_evidence": addressed_cases,
+                }
+
+            alternate_inputs_cases = deepcopy(case_evidence)
+            alternate_inputs_observation = alternate_inputs_cases[
+                "observations"
+            ][0]
+            alternate_inputs = json.loads(
+                (
+                    root
+                    / alternate_inputs_observation["permitted_inputs"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            alternate_inputs["task_contract_path"] = (
+                "alternate/task-contract.json"
+            )
+            alternate_inputs_reference = store(
+                "tampered/alternate-permitted-inputs.json",
+                canonical_json_bytes(alternate_inputs),
+            )
+            alternate_inputs_observation["permitted_inputs"] = (
+                alternate_inputs_reference
+            )
+            alternate_execution = json.loads(
+                (
+                    root
+                    / alternate_inputs_observation["reviewer_execution"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            alternate_execution["stdin_sha256"] = sha256_bytes(
+                build_reviewer_stdin(
+                    fixed_prompt=self.PROMPT_BYTES.decode("utf-8"),
+                    permitted_inputs=alternate_inputs,
+                ).encode("utf-8")
+            )
+            next(
+                item
+                for item in alternate_execution["materials"]
+                if item["name"] == "permitted-inputs"
+            )["sha256"] = alternate_inputs_reference["sha256"]
+            alternate_execution = content_address(
+                alternate_execution, "execution_id"
+            )
+            alternate_inputs_observation["reviewer_execution"] = store(
+                "tampered/alternate-execution.json",
+                canonical_json_bytes(alternate_execution),
+            )
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **readdressed_arguments(alternate_inputs_cases)
+                )
+            )
+
+            for changed_digest in ("top-level", "supervisor"):
+                digest_cases = deepcopy(case_evidence)
+                digest_observation = digest_cases["observations"][0]
+                digest_execution = json.loads(
+                    (
+                        root / digest_observation["reviewer_execution"]["path"]
+                    ).read_text(encoding="utf-8")
+                )
+                if changed_digest == "top-level":
+                    digest_execution["executed_argv_sha256"] = (
+                        "sha256:" + "0" * 64
+                    )
+                else:
+                    digest_execution["observation"]["supervisor"][
+                        "executed_argv_sha256"
+                    ] = "sha256:" + "0" * 64
+                digest_execution = content_address(
+                    digest_execution, "execution_id"
+                )
+                digest_observation["reviewer_execution"] = store(
+                    f"tampered/{changed_digest}-execution.json",
+                    canonical_json_bytes(digest_execution),
+                )
+                with self.subTest(changed_digest=changed_digest):
+                    self.assertFalse(
+                        qualification_evidence_valid(
+                            **readdressed_arguments(digest_cases)
+                        )
+                    )
+
             noncanonical_corpus = json.dumps(corpus, indent=2).encode("utf-8")
             self.assertFalse(
                 qualification_evidence_valid(

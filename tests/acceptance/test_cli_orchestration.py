@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -290,6 +291,93 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             args.schema_root = Path("authority/schemas")
             with self.assertRaisesRegex(ValueError, "checkout-prefixed"):
                 _admission_schema_root(args)
+
+    def test_evaluate_uses_only_distinct_protected_schema_authority(self) -> None:
+        from codex_governance import cli
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate_root = root / "candidate"
+            authority_root = root / "authority"
+            candidate_root.mkdir()
+            authority_root.mkdir()
+            shutil.copytree(self.ROOT / "schemas", authority_root / "schemas")
+            (authority_root / ".codex/review").mkdir(parents=True)
+            shutil.copyfile(
+                self.ROOT / ".codex/review/reviewer.prompt.md",
+                authority_root / ".codex/review/reviewer.prompt.md",
+            )
+
+            manifest = json.loads(
+                (self.ROOT / "examples/evidence-manifest.json").read_text()
+            )
+            candidate = json.loads(
+                (self.ROOT / "examples/candidate.json").read_text()
+            )
+            policy = json.loads(
+                (self.ROOT / "examples/effective-policy.json").read_text()
+            )
+            manifest["effective_policy"]["sha256"] = sha256_bytes(
+                canonical_json_bytes(policy)
+            )
+            manifest = content_address(manifest, "manifest_id")
+            manifest_path = candidate_root / "manifest.json"
+            candidate_path = candidate_root / "candidate.json"
+            policy_path = candidate_root / manifest["effective_policy"]["path"]
+            policy_path.parent.mkdir(parents=True)
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+            candidate_path.write_bytes(canonical_json_bytes(candidate))
+            policy_path.write_bytes(canonical_json_bytes(policy))
+
+            malicious = candidate_root / "schemas"
+            malicious.mkdir()
+            (malicious / "evidence-manifest.schema.json").write_text(
+                '{"not":{}}\n', encoding="utf-8"
+            )
+            adapter = Mock()
+            adapter.identify.return_value = candidate
+            emitted: list[dict] = []
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(candidate_root)
+                with (
+                    patch.object(
+                        cli, "GitCliRepositoryAdapter", return_value=adapter
+                    ),
+                    patch.object(
+                        cli,
+                        "evaluate_manifest",
+                        return_value=(
+                            DispositionState.UNKNOWN,
+                            ["fixture unknown"],
+                        ),
+                    ) as evaluate,
+                    patch.object(cli, "_emit", side_effect=emitted.append),
+                ):
+                    result = cli.main(
+                        [
+                            "--schema-root", "schemas", "evaluate",
+                            "--repository", str(candidate_root),
+                            "--authority-root", str(authority_root),
+                            "--manifest", str(manifest_path),
+                            "--candidate", str(candidate_path),
+                            "--prompt", ".codex/review/reviewer.prompt.md",
+                            "--evaluated-at", "2026-08-26T12:00:00Z",
+                            "--output", "artifacts/governance/disposition.json",
+                        ]
+                    )
+            finally:
+                os.chdir(original_cwd)
+            self.assertEqual(2, result)
+            self.assertEqual("UNKNOWN", emitted[-1]["state"])
+            self.assertIsNotNone(evaluate.call_args, emitted)
+            self.assertEqual(
+                authority_root / "schemas",
+                evaluate.call_args.kwargs["schema_root"],
+            )
+            self.assertTrue(
+                (candidate_root / "artifacts/governance/disposition.json").is_file()
+            )
 
     def test_every_output_producing_command_is_in_the_containment_inventory(self) -> None:
         from codex_governance import cli

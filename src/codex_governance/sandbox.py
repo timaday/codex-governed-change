@@ -17,6 +17,7 @@ from typing import Any
 from codex_governance.artifacts import (
     ArtifactSafetyError,
     copy_bounded_repository_entry,
+    read_bounded_path_file,
 )
 from codex_governance.canonical import (
     content_address,
@@ -766,14 +767,9 @@ def create_container(
             timeout=max(0.001, deadline - time.monotonic()),
             check=False,
         )
-        if (
-            created.returncode != 0
-            or not cidfile.is_file()
-            or cidfile.is_symlink()
-            or cidfile.stat().st_size > 129
-        ):
+        if created.returncode != 0:
             return None
-        container_id = cidfile.read_text(encoding="ascii").strip()
+        container_id = _read_container_id_file(cidfile, deadline=deadline)
         stdout_id = created.stdout.decode("ascii").strip()
         if (
             CONTAINER_ID_RE.fullmatch(container_id) is None
@@ -805,7 +801,13 @@ def create_container(
         ):
             return None
         return container_id
-    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+    except (
+        ArtifactSafetyError,
+        OSError,
+        subprocess.TimeoutExpired,
+        UnicodeError,
+        ValueError,
+    ):
         return None
 
 
@@ -861,22 +863,25 @@ def _listed_containers(
     return rows
 
 
-def _cidfile_identity(cidfile: Path) -> tuple[bool, str | None]:
+def _read_container_id_file(cidfile: Path, *, deadline: float) -> str:
+    value = read_bounded_path_file(
+        cidfile, max_bytes=129, deadline=deadline
+    ).decode("ascii").strip()
+    if CONTAINER_ID_RE.fullmatch(value) is None:
+        raise ValueError("container ID file is invalid")
+    return value
+
+
+def _cidfile_identity(
+    cidfile: Path, *, deadline: float
+) -> tuple[bool, str | None]:
     if not cidfile.exists() and not cidfile.is_symlink():
         return True, None
     try:
-        if (
-            not cidfile.is_file()
-            or cidfile.is_symlink()
-            or cidfile.stat().st_size > 129
-        ):
-            return False, None
-        value = cidfile.read_text(encoding="ascii").strip()
-    except (OSError, UnicodeError):
+        value = _read_container_id_file(cidfile, deadline=deadline)
+    except (ArtifactSafetyError, OSError, UnicodeError, ValueError):
         return False, None
-    return (CONTAINER_ID_RE.fullmatch(value) is not None), (
-        value if CONTAINER_ID_RE.fullmatch(value) is not None else None
-    )
+    return True, value
 
 
 def cleanup_container(
@@ -902,7 +907,9 @@ def cleanup_container(
     stable_absence = 0
     try:
         while time.monotonic() < deadline:
-            cidfile_valid, cidfile_id = _cidfile_identity(cidfile)
+            cidfile_valid, cidfile_id = _cidfile_identity(
+                cidfile, deadline=deadline
+            )
             if not cidfile_valid:
                 return False
             if cidfile_id is not None:

@@ -47,7 +47,8 @@ from codex_governance.portability import SHAPED_VALUE_PATTERNS
 from codex_governance.schema import (
     SchemaValidationError,
     parse_json_bytes,
-    validate_loaded_instance,
+    validate_instance,
+    validate_semantics,
 )
 
 
@@ -96,6 +97,7 @@ REQUIRED_REVIEWER_INPUTS = frozenset(
         "context_qualification_id",
         "reviewer_qualification_path", "reviewer_qualification_sha256",
         "reviewer_qualification_id", "reviewer_prompt_sha256", "review_mode",
+        "evidence_root",
     }
 )
 REQUIRED_RAPID_REVIEW_INPUTS = frozenset(
@@ -104,6 +106,16 @@ REQUIRED_RAPID_REVIEW_INPUTS = frozenset(
         "review_charter_path", "review_charter_sha256",
     }
 )
+
+
+def reviewer_input_keys(review_mode: str) -> frozenset[str]:
+    """Return the one accepted permitted-input key set for a review mode."""
+    if review_mode == "conformance":
+        return REQUIRED_REVIEWER_INPUTS
+    if review_mode == "rapid_review":
+        return REQUIRED_REVIEWER_INPUTS | REQUIRED_RAPID_REVIEW_INPUTS
+    raise ValueError("review_mode must be conformance or rapid_review")
+
 
 REVIEWER_TOOL_ENVIRONMENT_KEYS = (
     "PATH", "HOME", "ZDOTDIR", "XDG_CONFIG_HOME", "LANG", "LC_ALL",
@@ -329,14 +341,13 @@ def build_reviewer_stdin(
     """Serialize only the reviewer input allowlist after the fixed prompt."""
     if not isinstance(fixed_prompt, str) or not fixed_prompt.strip():
         raise ValueError("fixed reviewer prompt is required")
-    unexpected = set(permitted_inputs) - PERMITTED_REVIEWER_INPUTS
+    expected_keys = reviewer_input_keys(permitted_inputs.get("review_mode"))
+    unexpected = set(permitted_inputs) - expected_keys
     if unexpected:
         raise ValueError(
             "reviewer input contains forbidden keys: " + ", ".join(sorted(unexpected))
         )
-    missing = REQUIRED_REVIEWER_INPUTS - set(permitted_inputs)
-    if permitted_inputs.get("review_mode") == "rapid_review":
-        missing |= REQUIRED_RAPID_REVIEW_INPUTS - set(permitted_inputs)
+    missing = expected_keys - set(permitted_inputs)
     if missing:
         raise ValueError(
             "reviewer input is missing required keys: " + ", ".join(sorted(missing))
@@ -1663,6 +1674,18 @@ def launch_reviewer(
             "verdict": ReviewerVerdict.UNKNOWN,
             "reason": "reviewer absolute deadline expired before launch",
         }
+    try:
+        result_schema_bytes = read_bounded_path_file(
+            schema_path, max_bytes=2_000_000, deadline=deadline
+        )
+        result_schema = parse_json_bytes(result_schema_bytes)
+        if not isinstance(result_schema, dict):
+            raise ValueError("reviewer result schema must be an object")
+    except (ArtifactSafetyError, OSError, TypeError, ValueError):
+        return {
+            "verdict": ReviewerVerdict.UNKNOWN,
+            "reason": "reviewer result schema was unavailable",
+        }
     cleanup_reserve = min(5.0, timeout_seconds * 0.75)
     execution_deadline = deadline - cleanup_reserve
 
@@ -1897,7 +1920,14 @@ def launch_reviewer(
         output_present = True
         output_regular = True
         parsed = parse_json_bytes(output_bytes)
-        validate_loaded_instance(parsed, schema_path)
+        schema_errors = validate_instance(parsed, result_schema)
+        schema_errors.extend(
+            validate_semantics(
+                parsed, schema_path.name.removesuffix(".schema.json")
+            )
+        )
+        if schema_errors:
+            raise SchemaValidationError(schema_errors)
         if isinstance(parsed, Mapping):
             payload = parsed
             output_valid = True

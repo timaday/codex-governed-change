@@ -315,6 +315,7 @@ class RapidReviewAcceptanceTest(unittest.TestCase):
                 "reviewer_qualification_path": "evidence/qualification.json",
                 "reviewer_qualification_sha256": digest("8"),
                 "reviewer_qualification_id": digest("9"),
+                "evidence_root": "evidence",
                 "reviewer_prompt_sha256": digest("a"),
                 "risk_assessment_path": "evidence/risk-assessment.json",
                 "risk_assessment_sha256": self.ASSESSMENT,

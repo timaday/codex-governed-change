@@ -126,6 +126,15 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "permission-profile-prefix-only",
         "executed-reviewer-argv-unchecked",
         "executed-reviewer-argv-not-recorded",
+        "reviewer-evidence-root-optional",
+        "conformance-rapid-input-accepted",
+        "qualification-permitted-input-partial",
+        "admission-preflight-schema-unprotected",
+        "reference-evaluate-schema-prefixed",
+        "qualification-executed-argv-unreconciled",
+        "reviewer-output-schema-reopened",
+        "container-create-cidfile-pathname-read",
+        "container-cleanup-cidfile-deadline-omitted",
     }
 )
 

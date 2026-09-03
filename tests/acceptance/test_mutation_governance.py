@@ -150,6 +150,15 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "permission-profile-prefix-only",
             "executed-reviewer-argv-unchecked",
             "executed-reviewer-argv-not-recorded",
+            "reviewer-evidence-root-optional",
+            "conformance-rapid-input-accepted",
+            "qualification-permitted-input-partial",
+            "admission-preflight-schema-unprotected",
+            "reference-evaluate-schema-prefixed",
+            "qualification-executed-argv-unreconciled",
+            "reviewer-output-schema-reopened",
+            "container-create-cidfile-pathname-read",
+            "container-cleanup-cidfile-deadline-omitted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

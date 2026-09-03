@@ -140,6 +140,7 @@ class ReviewerAdapterTest(unittest.TestCase):
                 documents["reviewer-qualification.json"]
             ),
             "reviewer_qualification_id": "sha256:" + "3" * 64,
+            "evidence_root": "evidence",
         }
         self.harness = prepare_sanitized_harness(
             candidate_repository=self.repository,
@@ -1325,7 +1326,9 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
 
         launcher_deadline = time.monotonic() + 5
         launcher_observed: list[float | None] = []
+        schema_observed: list[tuple[Path, float | None]] = []
         real_read_once = _ReviewerOutputAuthority.read_once
+        real_path_read = reviewer_module.read_bounded_path_file
 
         def observed_read_once(
             authority: _ReviewerOutputAuthority,
@@ -1336,14 +1339,27 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             launcher_observed.append(deadline)
             return real_read_once(authority, max_bytes, deadline=deadline)
 
+        def observed_schema_read(path, *, max_bytes, deadline=None):
+            schema_observed.append((Path(path), deadline))
+            return real_path_read(
+                path, max_bytes=max_bytes, deadline=deadline
+            )
+
         fake = self.fake_codex(
             "import sys\n"
             "from pathlib import Path\n"
             "args = sys.argv[1:]\n"
             "Path(args[args.index('--output-last-message') + 1]).write_text('{}')\n"
         )
-        with patch.object(
-            _ReviewerOutputAuthority, "read_once", new=observed_read_once
+        with (
+            patch.object(
+                _ReviewerOutputAuthority, "read_once", new=observed_read_once
+            ),
+            patch.object(
+                reviewer_module,
+                "read_bounded_path_file",
+                side_effect=observed_schema_read,
+            ),
         ):
             launch_reviewer(
                 command=self.command(fake),
@@ -1356,6 +1372,9 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
                 absolute_deadline=launcher_deadline,
             )
         self.assertEqual([launcher_deadline], launcher_observed)
+        self.assertEqual(
+            [(self.harness["schema"], launcher_deadline)], schema_observed
+        )
 
     def test_codex_version_observation_honors_expired_deadline(self) -> None:
         with patch("codex_governance.reviewer.subprocess.run") as run:

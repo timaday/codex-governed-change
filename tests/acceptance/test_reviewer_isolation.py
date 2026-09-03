@@ -137,6 +137,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
             "reviewer_qualification_path": "artifacts/qualification.json",
             "reviewer_qualification_sha256": digest("5"),
             "reviewer_qualification_id": digest("6"),
+            "evidence_root": "artifacts",
             "reviewer_prompt_sha256": digest("7"),
             "review_mode": "conformance",
         }
@@ -144,6 +145,32 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         self.assertTrue(payload.startswith("FIXED"))
         self.assertIn("PERMITTED_INPUTS", payload)
         self.assertIn(permitted["candidate_id"], payload)
+
+        missing_root = dict(permitted)
+        missing_root.pop("evidence_root")
+        with self.assertRaisesRegex(ValueError, "missing required keys"):
+            build_reviewer_stdin(
+                fixed_prompt="FIXED", permitted_inputs=missing_root
+            )
+
+        rapid_materials = dict(permitted)
+        rapid_materials.update(
+            risk_assessment_path="artifacts/risk.json",
+            risk_assessment_sha256=digest("8"),
+            review_charter_path="artifacts/charter.json",
+            review_charter_sha256=digest("9"),
+        )
+        with self.assertRaisesRegex(ValueError, "forbidden keys"):
+            build_reviewer_stdin(
+                fixed_prompt="FIXED", permitted_inputs=rapid_materials
+            )
+        rapid_materials["review_mode"] = "rapid_review"
+        self.assertIn(
+            '"review_mode":"rapid_review"',
+            build_reviewer_stdin(
+                fixed_prompt="FIXED", permitted_inputs=rapid_materials
+            ),
+        )
 
     def test_author_transcript_key_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -178,6 +205,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
             "reviewer_qualification_path": "artifacts/qualification.json",
             "reviewer_qualification_sha256": "sha256:" + "8" * 64,
             "reviewer_qualification_id": "sha256:" + "9" * 64,
+            "evidence_root": "artifacts",
             "reviewer_prompt_sha256": "sha256:" + "c" * 64,
             "review_mode": "conformance",
             "provenance_manifest_path": "artifacts/candidate.json",

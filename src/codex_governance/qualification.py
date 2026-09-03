@@ -28,6 +28,7 @@ from codex_governance.reviewer import (
     build_reviewer_stdin,
     parse_codex_jsonl_evidence,
     reviewer_argv_sha256,
+    reviewer_input_keys,
     reviewer_observation_facts,
     reviewer_stream_is_portable,
 )
@@ -1025,49 +1026,58 @@ def qualification_evidence_valid(
             task_contract_sha256=task_sha256,
             candidate_id=candidate_id,
         )
-        expected_permitted_values = {
+        prefix = f"qualification/{mode}/{case['case_id']}"
+        expected_permitted_inputs = {
+            "task_contract_path": prefix + "/task-contract.json",
             "task_contract_sha256": task_sha256,
             "repository_id": evaluation_repository_id,
             "candidate_id": candidate_id,
             "candidate_path": "candidate",
+            "effective_policy_path": prefix + "/effective-policy.json",
             "effective_policy_sha256": policy_sha256,
+            "gate_manifest_path": prefix + "/gate-manifest.json",
             "gate_manifest_sha256": sha256_canonical(expected_gate_manifest),
             "context_receipt_path": observation["context_receipt"]["path"],
-            "context_receipt_sha256": observation["context_receipt"]["sha256"],
+            "context_receipt_sha256": expected_context_receipt_sha256,
             "context_sources_path": observation["context_sources"]["path"],
-            "context_sources_sha256": observation["context_sources"]["sha256"],
+            "context_sources_sha256": sha256_canonical(
+                expected_context["context_sources"]
+            ),
             "context_projection_path": observation["context_projection"]["path"],
-            "context_projection_sha256": observation["context_projection"]["sha256"],
-            "context_qualification_path": observation["context_qualification"]["path"],
-            "context_qualification_sha256": observation["context_qualification"]["sha256"],
+            "context_projection_sha256": sha256_canonical(
+                expected_context["context_projection"]
+            ),
+            "context_qualification_path": observation["context_qualification"][
+                "path"
+            ],
+            "context_qualification_sha256": sha256_canonical(
+                expected_context["context_qualification"]
+            ),
             "context_qualification_id": expected_context[
                 "context_qualification"
             ]["qualification_id"],
+            "reviewer_qualification_path": prefix
+            + "/reviewer-qualification.json",
             "reviewer_qualification_sha256": sha256_canonical(bootstrap),
             "reviewer_qualification_id": bootstrap["qualification_id"],
+            "evidence_root": "qualification",
             "reviewer_prompt_sha256": identity["prompt_sha256"],
             "review_mode": mode,
         }
-        path_only_keys = {
-            "task_contract_path",
-            "effective_policy_path",
-            "gate_manifest_path",
-            "reviewer_qualification_path",
-            "evidence_root",
-        }
         try:
-            if any(
-                normalize_repo_path(permitted_inputs[key])
-                != permitted_inputs[key]
-                for key in path_only_keys
-            ):
+            if set(permitted_inputs) != reviewer_input_keys(mode):
                 return False
             if mode == "rapid_review":
-                expected_permitted_values.update(
+                expected_permitted_inputs.update(
                     risk_assessment_path=observation["risk_assessment"]["path"],
-                    risk_assessment_sha256=observation["risk_assessment"]["sha256"],
+                    risk_assessment_sha256=sha256_canonical(
+                        {
+                            "case_id": case["case_id"],
+                            "kind": "qualification-risk",
+                        }
+                    ),
                     review_charter_path=observation["review_charter"]["path"],
-                    review_charter_sha256=observation["review_charter"]["sha256"],
+                    review_charter_sha256=sha256_canonical(charter),
                 )
             elif "risk_assessment" in observation or "review_charter" in observation:
                 return False
@@ -1083,10 +1093,7 @@ def qualification_evidence_valid(
             )
         except (KeyError, TypeError, UnicodeError, ValueError):
             return False
-        if any(
-            permitted_inputs.get(key) != value
-            for key, value in expected_permitted_values.items()
-        ):
+        if permitted_inputs != expected_permitted_inputs:
             return False
         expected_materials = [
             {"name": "task-contract", "sha256": task_sha256},
@@ -1216,6 +1223,8 @@ def qualification_evidence_valid(
             or execution.get("model") != identity["model"]
             or execution.get("reasoning_effort") != identity["reasoning_effort"]
             or execution.get("argv_sha256") != expected_argv_sha256
+            or execution.get("executed_argv_sha256")
+            != primitive.get("supervisor", {}).get("executed_argv_sha256")
             or execution.get("stdin_sha256") != expected_stdin_sha256
             or execution.get("reviewer_output_sha256")
             != observation["reviewer_output"].get("sha256")

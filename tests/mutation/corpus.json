@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:d8e321f6a655316e5902d61003a92f26bb70e0edf0e76b3f2083e10f23151843",
+  "corpus_id": "sha256:675e71533ad799d5d47449312be222d13e15b15a6c6bfc09d42675f8a15af347",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -848,6 +848,87 @@
       "operator": "record only the child argv digest instead of the exact supervised command",
       "requirement_id": "GOV-046",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_fake_codex_proves_allowlist_environment_and_schema_binding"]
+    },
+    {
+      "mutant_id": "reviewer-evidence-root-optional",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    missing = expected_keys - set(permitted_inputs)",
+      "new": "    missing = (expected_keys - {\"evidence_root\"}) - set(permitted_inputs)",
+      "operator": "make the reviewer evidence root optional",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation.ReviewerIsolationAcceptanceTest.test_stdin_accepts_only_permitted_machine_inputs"]
+    },
+    {
+      "mutant_id": "conformance-rapid-input-accepted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    unexpected = set(permitted_inputs) - expected_keys",
+      "new": "    unexpected = set(permitted_inputs) - PERMITTED_REVIEWER_INPUTS",
+      "operator": "accept rapid-review materials in conformance reviewer input",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation.ReviewerIsolationAcceptanceTest.test_stdin_accepts_only_permitted_machine_inputs"]
+    },
+    {
+      "mutant_id": "qualification-permitted-input-partial",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        if permitted_inputs != expected_permitted_inputs:\n            return False",
+      "new": "        if False:\n            return False",
+      "operator": "accept a permitted-input document that differs from independent reconstruction",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
+    },
+    {
+      "mutant_id": "admission-preflight-schema-unprotected",
+      "path": "src/codex_governance/cli.py",
+      "old": "    elif args.command == \"evaluate\":\n        _protected_schema_root, manifest, policy = _admission_manifest_policy(\n            args\n        )",
+      "new": "    elif args.command == \"evaluate\":\n        manifest = _validated(args.manifest, args.schema_root, \"evidence-manifest\")\n        policy = load_referenced_json(\n            repository=repository,\n            reference=manifest[\"effective_policy\"],\n            schema_path=args.schema_root / \"effective-policy.schema.json\",\n        )",
+      "operator": "preflight evaluate output with caller-selected schemas",
+      "requirement_id": "GOV-043",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_evaluate_uses_only_distinct_protected_schema_authority"]
+    },
+    {
+      "mutant_id": "reference-evaluate-schema-prefixed",
+      "path": "examples/github/governed-change.yml",
+      "old": "          PYTHONPATH=governance/src python3 -m codex_governance --schema-root schemas evaluate \\",
+      "new": "          PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas evaluate \\",
+      "operator": "pass a checkout-prefixed protected schema root to final evaluation",
+      "requirement_id": "GOV-042",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_ci_admission.CiAdmissionAcceptanceTest.test_reference_uses_current_fail_closed_cli_contract"]
+    },
+    {
+      "mutant_id": "qualification-executed-argv-unreconciled",
+      "path": "src/codex_governance/qualification.py",
+      "old": "            or execution.get(\"executed_argv_sha256\")\n            != primitive.get(\"supervisor\", {}).get(\"executed_argv_sha256\")",
+      "new": "            or False",
+      "operator": "accept conflicting exact executed argv evidence during qualification",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
+    },
+    {
+      "mutant_id": "reviewer-output-schema-reopened",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        schema_errors = validate_instance(parsed, result_schema)",
+      "new": "        schema_errors = validate_instance(\n            parsed,\n            parse_json_bytes(\n                read_bounded_path_file(schema_path, max_bytes=2_000_000)\n            ),\n        )",
+      "operator": "reopen the reviewer output schema after the bounded retained read",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_final_output_read_receives_the_absolute_deadline"]
+    },
+    {
+      "mutant_id": "container-create-cidfile-pathname-read",
+      "path": "src/codex_governance/sandbox.py",
+      "old": "        container_id = _read_container_id_file(cidfile, deadline=deadline)",
+      "new": "        container_id = cidfile.read_text(encoding=\"ascii\").strip()",
+      "operator": "read the created container ID through a replaceable pathname",
+      "requirement_id": "GOV-044",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_container_create_and_cleanup_bind_the_exact_immutable_id"]
+    },
+    {
+      "mutant_id": "container-cleanup-cidfile-deadline-omitted",
+      "path": "src/codex_governance/sandbox.py",
+      "old": "            cidfile_valid, cidfile_id = _cidfile_identity(\n                cidfile, deadline=deadline\n            )",
+      "new": "            cidfile_valid, cidfile_id = _cidfile_identity(\n                cidfile, deadline=None\n            )",
+      "operator": "omit the cleanup transaction deadline from container ID reads",
+      "requirement_id": "GOV-044",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_gate_sandbox.GateSandboxAcceptanceTest.test_container_create_and_cleanup_bind_the_exact_immutable_id"]
     }
   ]
 }

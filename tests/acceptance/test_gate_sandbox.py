@@ -257,6 +257,7 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
         self.assertIn("sys.path.insert(0,'/opt/codex-governance')", command[5])
 
     def test_container_create_and_cleanup_bind_the_exact_immutable_id(self) -> None:
+        from codex_governance import sandbox as sandbox_module
         from codex_governance.sandbox import (
             SandboxInvocation,
             cleanup_container,
@@ -294,17 +295,102 @@ class GateSandboxAcceptanceTest(unittest.TestCase):
                     return subprocess.CompletedProcess(arguments, 0, stdout=b"", stderr=b"")
                 raise AssertionError(arguments)
 
-            with patch("codex_governance.sandbox.subprocess.run", side_effect=provider) as run:
+            real_cidfile_read = sandbox_module.read_bounded_path_file
+            observed_deadlines: list[float | None] = []
+
+            def observe_cidfile_read(path, *, max_bytes, deadline=None):
+                observed_deadlines.append(deadline)
+                return real_cidfile_read(
+                    path, max_bytes=max_bytes, deadline=deadline
+                )
+
+            with (
+                patch(
+                    "codex_governance.sandbox.subprocess.run",
+                    side_effect=provider,
+                ) as run,
+                patch.object(
+                    sandbox_module,
+                    "read_bounded_path_file",
+                    side_effect=observe_cidfile_read,
+                ),
+            ):
                 self.assertEqual(
                     container_id,
                     create_container(invocation, timeout_seconds=2),
                 )
+                create_deadlines = list(observed_deadlines)
                 self.assertTrue(cleanup_container(invocation, container_id))
+                cleanup_deadlines = observed_deadlines[len(create_deadlines):]
             self.assertIn(
                 ["docker", "rm", "--force", container_id],
                 [call.args[0] for call in run.call_args_list],
             )
+            self.assertEqual(1, len(create_deadlines))
+            self.assertTrue(cleanup_deadlines)
+            self.assertIsInstance(create_deadlines[0], float)
+            self.assertIsInstance(cleanup_deadlines[0], float)
+            self.assertEqual(
+                [cleanup_deadlines[0]] * len(cleanup_deadlines),
+                cleanup_deadlines,
+            )
             self.assertFalse(cidfile.exists())
+
+    def test_container_id_file_replacement_or_special_leaf_fails_closed(self) -> None:
+        from codex_governance import sandbox as sandbox_module
+        from codex_governance.artifacts import ArtifactSafetyError
+        from codex_governance.sandbox import (
+            SandboxInvocation,
+            cleanup_container,
+            create_container,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            cidfile = root / "fixture.cid"
+            invocation = SandboxInvocation(
+                ("docker", "create"), self.capability(), root, root,
+                "docker", "codex-governance-fixture", cidfile,
+            )
+            container_id = "a" * 64
+
+            def create_provider(arguments, **_kwargs):
+                cidfile.write_text(container_id + "\n", encoding="ascii")
+                return subprocess.CompletedProcess(
+                    arguments, 0, stdout=(container_id + "\n").encode(), stderr=b""
+                )
+
+            with (
+                patch(
+                    "codex_governance.sandbox.subprocess.run",
+                    side_effect=create_provider,
+                ),
+                patch.object(
+                    sandbox_module,
+                    "read_bounded_path_file",
+                    side_effect=ArtifactSafetyError("binding changed"),
+                ) as bounded_read,
+            ):
+                self.assertIsNone(
+                    create_container(invocation, timeout_seconds=1)
+                )
+            self.assertTrue(bounded_read.called)
+            self.assertIsInstance(bounded_read.call_args.kwargs["deadline"], float)
+
+            with (
+                patch("codex_governance.sandbox.subprocess.run") as provider,
+                patch.object(
+                    sandbox_module,
+                    "read_bounded_path_file",
+                    side_effect=ArtifactSafetyError("special leaf"),
+                ) as bounded_read,
+            ):
+                self.assertFalse(
+                    cleanup_container(invocation, container_id, timeout_seconds=1)
+                )
+            provider.assert_not_called()
+            self.assertTrue(bounded_read.called)
+            self.assertIsInstance(bounded_read.call_args.kwargs["deadline"], float)
 
     def test_delayed_or_renamed_container_create_never_becomes_complete(self) -> None:
         from codex_governance.sandbox import (
