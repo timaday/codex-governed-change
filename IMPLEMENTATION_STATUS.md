@@ -665,3 +665,19 @@ and protected byte digest
 All evidence for `0df7df3` is non-qualifying; the immutable successor requires
 complete deterministic, rollback, portability, paired-control mutation and
 fresh-review rebinding.
+
+Immutable candidate `b75c3f9` passed blueprint integrity, 212 acceptance tests,
+93 unit tests, compilation, rollback rehearsal and public portability, but its
+complete local mutation run correctly returned `UNKNOWN` before any operator.
+The corpus baseline inherited the documented 300-second acceptance timeout while
+the same exact green suite required more than 360 seconds on this runner. An
+ad-hoc machine-specific timeout would not repair the protected policy binding.
+This working-copy successor therefore raises both the protected acceptance gate
+and documented local runner default to the same bounded 600 seconds and
+re-addresses the existing timeout-regression mutant. The 107-entry corpus now
+has content ID
+`sha256:e23044f9b17dd89c7597a7b201a8deaec94a967f3cadde319ad854db282a2f24`
+and protected byte digest
+`sha256:28fd15c3f823ddc3e2d5a8a084ff4d30a2ba14485507d4e907270175fb45c9fa`.
+All evidence for `b75c3f9` is non-qualifying; deterministic gates, paired
+controls, fresh review and candidate identity must be regenerated.

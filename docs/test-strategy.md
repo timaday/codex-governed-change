@@ -430,7 +430,9 @@ causally detects a valid non-equivalent semantic change through one or more
 assertion-failure records and no other unittest outcome; multiple failing
 subtests from one selected test are valid. `SURVIVED`, `INVALID`,
 `TIMEOUT`, `EQUIVALENT_CLAIMED` and `UNKNOWN` remain distinct and block or remain
-unknown. Compiler failure, harness failure or non-execution is not a kill.
+unknown. Compiler failure, harness failure or non-execution is not a kill. Verify
+that the local baseline default equals the protected 600-second acceptance-gate
+bound and that reducing either side is detected by the timeout-regression mutant.
 
 Generated mutation is a separate bounded adapter selected by changed/risk-bearing
 surfaces. Record operator/tool/version, patch digest, location/requirement,

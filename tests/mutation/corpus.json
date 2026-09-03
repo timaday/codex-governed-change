@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:7fa92b1cf5dcf164e13434168af7734f2f8b12905f22de08242f0c222382d8a7",
+  "corpus_id": "sha256:e23044f9b17dd89c7597a7b201a8deaec94a967f3cadde319ad854db282a2f24",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -762,9 +762,9 @@
     {
       "mutant_id": "local-mutation-timeout-regression",
       "path": "scripts/run_mutation_corpus.py",
-      "old": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 300",
-      "new": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 120",
-      "operator": "restore a local mutation timeout shorter than the protected acceptance bound",
+      "old": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 600",
+      "new": "DEFAULT_MUTATION_TIMEOUT_SECONDS = 300",
+      "operator": "halve the local mutation timeout below the protected acceptance bound",
       "requirement_id": "GOV-058",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_mutation_governance.MutationGovernanceAcceptanceTest.test_documented_local_runner_default_covers_acceptance_policy_bound"]
     },

@@ -30,7 +30,7 @@
       "DEEP": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
-  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:c63534ec76d0f37f3a29ba7dc4c6b9981148d9d4c14a569c6d63b93ce9f584ce", "generated_budget": 0},
+  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:28fd15c3f823ddc3e2d5a8a084ff4d30a2ba14485507d4e907270175fb45c9fa", "generated_budget": 0},
   "reviewer": {
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh",
@@ -57,7 +57,7 @@
       "gate_id": "acceptance",
       "profiles": ["code", "mixed", "governance"],
       "command": ["env", "PYTHONPATH=src", "python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "max_output_bytes": 2000000,
       "shell": false,
       "risk_label": ""

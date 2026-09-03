@@ -1,3 +1,4 @@
+import json
 import unittest
 import shutil
 import subprocess
@@ -566,7 +567,14 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             build_parser,
         )
 
-        self.assertEqual(300, DEFAULT_MUTATION_TIMEOUT_SECONDS)
+        self.assertEqual(600, DEFAULT_MUTATION_TIMEOUT_SECONDS)
+        policy = json.loads(Path("examples/effective-policy.json").read_bytes())
+        acceptance = next(
+            gate for gate in policy["gates"] if gate["gate_id"] == "acceptance"
+        )
+        self.assertEqual(
+            acceptance["timeout_seconds"], DEFAULT_MUTATION_TIMEOUT_SECONDS
+        )
         self.assertEqual(
             DEFAULT_MUTATION_TIMEOUT_SECONDS,
             build_parser().parse_args([]).timeout,

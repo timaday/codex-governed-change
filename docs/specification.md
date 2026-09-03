@@ -731,7 +731,10 @@ governance invariants. The previous-LKG policy binds the complete corpus byte
 digest, and the producer reads those exact bytes from the protected governance
 checkout, copies them into write-once evidence, and rejects a candidate-local or
 digest-mismatched substitute. It runs in disposable candidates after a green
-baseline and before final review. For each operator, the producer first executes
+baseline and before final review. The policy binds the acceptance gate and the
+documented local baseline runner to the same 600-second MVP timeout; an operator
+or developer-machine-specific override is not part of the qualifying contract.
+For each operator, the producer first executes
 the exact selected structured-probe command and sanitized environment against a
 separately verified unmodified control copy and requires `SURVIVED`; candidate
 tests receive no mutation target or control/mutant metadata. The retained control
