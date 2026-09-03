@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:675e71533ad799d5d47449312be222d13e15b15a6c6bfc09d42675f8a15af347",
+  "corpus_id": "sha256:d313dc236a62da0151cd767c32640f1de927e880481887f1ae64099f338ee4af",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -780,8 +780,8 @@
     {
       "mutant_id": "unreconstructable-reviewer-input-accepted",
       "path": "src/codex_governance/reviewer.py",
-      "old": "        \"reviewer_qualification_id\",\n        \"evidence_root\",",
-      "new": "        \"reviewer_qualification_id\",\n        \"provenance_manifest_path\",\n        \"provenance_manifest_sha256\",\n        \"evidence_root\",",
+      "old": "    unexpected = set(permitted_inputs) - expected_keys",
+      "new": "    unexpected = set(permitted_inputs) - (\n        expected_keys\n        | {\"provenance_manifest_path\", \"provenance_manifest_sha256\"}\n    )",
       "operator": "accept reviewer input fields that admission cannot reconstruct",
       "requirement_id": "GOV-052",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_isolation.ReviewerIsolationAcceptanceTest.test_unreconstructable_provenance_input_is_rejected"]

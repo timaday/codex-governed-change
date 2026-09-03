@@ -598,3 +598,17 @@ and protected byte digest
 All evidence for `09eba32` is non-qualifying; this successor requires complete
 candidate-bound deterministic, rollback, portability, paired-control mutation
 and fresh-review qualification before release work can continue.
+
+Immutable candidate `b3015e6` passed blueprint integrity, 211 acceptance tests,
+92 unit tests, compilation, rollback rehearsal and public portability. Its
+complete 103-operator paired-control run returned `BLOCK`: all 103 controls
+survived and 102 mutants were killed, but
+`unreconstructable-reviewer-input-accepted` survived. Exact mode-specific input
+sets made that older transformation equivalent because adding keys only to the
+legacy broad allowlist no longer changed admission. The successor replaces it
+with an optional-provenance-pair bypass at the active exact-set comparison. All
+evidence for `b3015e6` is non-qualifying and complete candidate rebinding is
+required. The revised 103-operator corpus has content ID
+`sha256:d313dc236a62da0151cd767c32640f1de927e880481887f1ae64099f338ee4af`
+and protected byte digest
+`sha256:8e6adae43cc628d6674e35387cbfb1bf761fc4e369627a6f5f7e1d740efd9977`.
