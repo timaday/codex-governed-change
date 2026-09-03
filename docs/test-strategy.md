@@ -188,7 +188,10 @@ evidence reads, CLI-version observation, pre/post identity Git observations,
 descriptor-bound snapshot/evidence copies, snapshot Git helpers, permission
 finalization and final output materialization. Each operation must consume the
 same absolute deadline and every potentially blocking read/copy must terminate
-through a stop-capable child. Container
+through a stop-capable child. Permission-finalization cases inject a scheduling
+gap between entry and launch, require path resolution inside that child, and
+prove an expired deadline cannot launch it. Shared gate/reviewer portability
+cases include multi-leading-separator POSIX paths and UNC share roots. Container
 cleanup tests materialize a reserved name after the former three-empty-poll
 threshold and require it to be discovered and removed before quarantine ends.
 Gate deadline tests stall initial clone, checkout and submodule helpers, prove

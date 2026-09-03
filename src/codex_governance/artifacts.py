@@ -80,7 +80,9 @@ while True:
 """
 
 _READ_ONLY_TREE_PROGRAM = """import os, stat, sys
-root = sys.argv[1]
+root = os.path.realpath(sys.argv[1])
+if not os.path.isdir(root):
+    raise SystemExit(2)
 for current, directories, files in os.walk(root, topdown=False, followlinks=False):
     for name in files:
         path = os.path.join(current, name)
@@ -301,8 +303,18 @@ def write_bounded_bytes(
 
 def make_tree_read_only_bounded(root: Path, *, deadline: float | None) -> None:
     """Finalize one trusted fresh tree's permissions in a killable child."""
-    remaining = _remaining(deadline)
+    entry_remaining = _remaining(deadline)
+    if not isinstance(root, Path) or not root.is_absolute():
+        raise ArtifactSafetyError("read-only tree root must be absolute")
+    root_text = os.fspath(root)
+    if os.path.normpath(root_text) != root_text:
+        raise ArtifactSafetyError("read-only tree root must be normalized")
     try:
+        remaining = _remaining(deadline)
+        if entry_remaining is not None and (
+            remaining is None or remaining > entry_remaining
+        ):
+            raise ArtifactSafetyError("monotonic permission deadline regressed")
         completed = subprocess.run(
             [
                 sys.executable,
@@ -310,7 +322,7 @@ def make_tree_read_only_bounded(root: Path, *, deadline: float | None) -> None:
                 "-S",
                 "-c",
                 _READ_ONLY_TREE_PROGRAM,
-                os.fspath(root.resolve(strict=True)),
+                root_text,
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

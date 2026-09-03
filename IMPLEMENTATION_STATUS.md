@@ -638,3 +638,30 @@ and protected byte digest
 All evidence for `676833d` is non-qualifying; complete deterministic, rollback,
 portability, paired-control mutation and fresh-review rebinding is required for
 the immutable successor.
+
+Immutable candidate `0df7df3` passed blueprint integrity, 212 acceptance tests,
+92 unit tests, compilation, rollback rehearsal, public portability and the
+complete 104-operator paired-control corpus: every clean control survived and
+every mutant was killed. Its exact fresh ChatGPT-authenticated `gpt-5.6-sol`
+review again emitted a schema-valid `BLOCK` result but was conservatively
+admitted as `UNKNOWN` after ambiguous shaped stream bytes made observation
+incomplete. Both retained diagnostic findings were independently confirmed.
+The shared portability recognizer excluded multi-leading-separator POSIX paths
+and UNC share roots, while permission finalization calculated its child timeout
+before strict parent-side path resolution and could reuse that stale duration
+after a scheduler gap.
+
+This working-copy successor recognizes every such POSIX and UNC boundary form
+through the shared gate/reviewer normalization path. Permission finalization
+performs real-path resolution inside its bounded child, receives the unchanged
+absolute deadline, validates it at entry and again immediately before launch,
+and derives the subprocess timeout only from the latter observation. Gate,
+reviewer and direct scheduler-gap tests cover both closures. Three dedicated
+semantic operators restore the two path-recognition gaps and the stale
+permission budget, bringing the corpus to 107 entries with content ID
+`sha256:7fa92b1cf5dcf164e13434168af7734f2f8b12905f22de08242f0c222382d8a7`
+and protected byte digest
+`sha256:c63534ec76d0f37f3a29ba7dc4c6b9981148d9d4c14a569c6d63b93ce9f584ce`.
+All evidence for `0df7df3` is non-qualifying; the immutable successor requires
+complete deterministic, rollback, portability, paired-control mutation and
+fresh-review rebinding.

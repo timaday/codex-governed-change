@@ -136,6 +136,9 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "container-create-cidfile-pathname-read",
         "container-cleanup-cidfile-deadline-omitted",
         "container-helper-deadline-rebased",
+        "multi-leading-posix-unredacted",
+        "unc-share-root-unredacted",
+        "permission-finalization-deadline-rebased",
     }
 )
 

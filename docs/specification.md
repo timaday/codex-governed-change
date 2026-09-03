@@ -286,7 +286,7 @@ The launcher MUST:
   MVP reviewer identity;
 - require `--output-schema`, `--json` event output and a dedicated final-output path;
 - establish one absolute monotonic deadline before review lock/policy selection
-  and pass its remaining budget through every candidate/authority input read,
+  and pass that deadline unchanged through every candidate/authority input read,
   schema/prompt/evidence materialization, descriptor-bound launcher-closure
   identity read and verification, CLI-version observation, snapshot,
   process, cleanup, final identity and stop-capable descriptor-bound output read;
@@ -330,7 +330,10 @@ A zero-exit reviewer parent is not complete process observation. Stdin delivery
 MUST run in a bounded writer and share one absolute launcher deadline with
 snapshot/evidence copying, permission finalization, process waiting, stream
 closure, capture joins and forced cleanup. Every potentially blocking copy is
-isolated in a terminable helper operating on no-follow validated descriptors. Process
+isolated in a terminable helper operating on no-follow validated descriptors.
+Permission finalization passes its absolute root into the bounded child, performs
+real-path resolution there, rechecks the unchanged deadline immediately before
+launch and derives the child timeout from that final observation. Process
 execution reserves part of that same bound for cleanup; no phase receives a
 fresh timeout after the deadline. A reviewer that retains but does not read
 stdin forces bounded termination and `UNKNOWN`. Both bounded
@@ -368,8 +371,10 @@ Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
 proxy and other allowlisted parent-environment values with a fixed portable
 token. Gate and reviewer normalization use the same shaped-value recognizer.
-It consumes every delimited absolute POSIX path plus complete Windows user-root
-and UNC paths, as well as bare IPv4/IPv6, local and named network endpoints
+It consumes every delimited absolute POSIX path with one or more leading
+separators, complete Windows user-root paths, and UNC server/share roots with
+or without a trailing separator or descendant, as well as bare IPv4/IPv6,
+local and named network endpoints
 including scheme-qualified endpoints. Parsing and execution-statement digests use those normalized captured
 bytes. The complete command text and aggregated output of every successfully
 parsed Codex command-execution event are non-authoritative transient working

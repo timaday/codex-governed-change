@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import time
 import unittest
@@ -9,6 +10,7 @@ from codex_governance.artifacts import (
     ArtifactSafetyError,
     FilesystemArtifactStore,
     read_bounded_repository_file,
+    make_tree_read_only_bounded,
 )
 
 
@@ -262,6 +264,36 @@ class ArtifactStoreTest(unittest.TestCase):
                     self.repository, "evidence/fifo"
                 )
             self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_permission_finalization_rechecks_deadline_before_launch(self) -> None:
+        from codex_governance import artifacts
+
+        with (
+            patch.object(
+                artifacts.time, "monotonic", side_effect=[99.0, 101.0]
+            ),
+            patch.object(artifacts.subprocess, "run") as process,
+        ):
+            with self.assertRaisesRegex(ArtifactSafetyError, "deadline expired"):
+                make_tree_read_only_bounded(
+                    self.repository.resolve(), deadline=100.0
+                )
+        process.assert_not_called()
+
+        with (
+            patch.object(artifacts.time, "monotonic", return_value=99.0),
+            patch.object(
+                artifacts.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ) as process,
+        ):
+            make_tree_read_only_bounded(
+                self.repository.resolve(), deadline=100.0
+            )
+        command = process.call_args.args[0]
+        self.assertEqual(os.fspath(self.repository.resolve()), command[-1])
+        self.assertIn("os.path.realpath", command[-2])
 
 
 if __name__ == "__main__":

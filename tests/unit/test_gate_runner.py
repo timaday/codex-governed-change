@@ -313,9 +313,11 @@ class GateRunnerTest(unittest.TestCase):
     def test_complete_host_paths_and_named_endpoints_are_ambiguous(self) -> None:
         values = (
             "/var/lib/runner/cache/result.json",
+            "/" * 2 + "srv/share/cache/result.json",
             "/workspace/build/cache/result.json",
             "/Volumes/runner/cache/result.json",
             "C:" + "\\" + "Users\\runner\\workspace\\result.json",
+            "\\" * 2 + "build-host\\workspace",
             "\\" * 2 + "build-host\\workspace\\cache\\result.json",
             "https://runner.internal.invalid/api/status",
             "2001:db8:1234::42",

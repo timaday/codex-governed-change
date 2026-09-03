@@ -992,6 +992,8 @@ print(os.environ['CODEX_HOME'] + ' ' + str(output), file=sys.stderr)
     def test_ambiguous_reviewer_stream_values_are_redacted_and_unknown(self) -> None:
         token = "gh" + "p_" + "Z" * 32
         host_path = "/" + "var" + "/lib/private-runner/state"
+        multi_separator_path = "/" * 2 + "srv/share/private-state"
+        unc_share_root = "\\" * 2 + "build-host\\workspace"
         endpoint = "192" + ".168.50.7:8443"
         named_endpoint = "https://runner.internal.invalid/review/status"
         fake = self.fake_codex(
@@ -1015,13 +1017,13 @@ output.write_text(json.dumps(payload), encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'redaction'}))
 print(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(payload)}}))
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1, 'reasoning_output_tokens': 0}}))
-print(%r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
+print(%r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
 """
             % (
                 self.CANDIDATE, self.TASK, self.POLICY, self.GATES,
                 self.inputs["context_receipt_sha256"], self.PROMPT,
                 self.inputs["reviewer_qualification_id"], token, host_path,
-                endpoint, named_endpoint,
+                multi_separator_path, unc_share_root, endpoint, named_endpoint,
             )
         )
         result = launch_reviewer(
@@ -1040,7 +1042,14 @@ print(%r + ' ' + %r + ' ' + %r + ' ' + %r, file=sys.stderr)
             "reviewer capture threads did not complete", result["limitations"]
         )
         self.assertTrue(result["observation"]["stderr"]["ambiguous_redaction"])
-        for original in (token, host_path, endpoint, named_endpoint):
+        for original in (
+            token,
+            host_path,
+            multi_separator_path,
+            unc_share_root,
+            endpoint,
+            named_endpoint,
+        ):
             self.assertNotIn(original.encode(), result["stderr_bytes"])
             self.assertFalse(reviewer_stream_is_portable(original.encode()))
         self.assertIn(b"<REVIEWER_REDACTED>", result["stderr_bytes"])

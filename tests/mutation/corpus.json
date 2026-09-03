@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:371315008833d73d149efb744c7e0d44161a604d066e0aaf4c03277221d6ac67",
+  "corpus_id": "sha256:7fa92b1cf5dcf164e13434168af7734f2f8b12905f22de08242f0c222382d8a7",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -501,8 +501,8 @@
     {
       "mutant_id": "shared-host-root-truncated",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])/+(?:home|Users)/[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "recognize only user-profile prefixes instead of complete host-root families",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
@@ -735,8 +735,8 @@
     {
       "mutant_id": "colon-delimited-posix-unredacted",
       "path": "src/codex_governance/portability.py",
-      "old": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
-      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~:/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
       "operator": "retain an absolute POSIX host path after an ordinary colon delimiter",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_colon_delimited_absolute_path_is_removed"]
@@ -938,6 +938,33 @@
       "operator": "rebase container creation from a later helper-entry clock observation",
       "requirement_id": "GOV-044",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_container_cleanup_runs_after_timeout_and_unproven_cleanup_blocks"]
+    },
+    {
+      "mutant_id": "multi-leading-posix-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"(?<![A-Za-z0-9._~/-])/+[^\\s\\\"'<>|,;)}\\]]+\"",
+      "new": "            rb\"(?<![A-Za-z0-9._~/-])/(?!/)[^\\s\\\"'<>|,;)}\\]]+\"",
+      "operator": "exclude multi-leading-separator absolute POSIX paths from shared recognition",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+    },
+    {
+      "mutant_id": "unc-share-root-unredacted",
+      "path": "src/codex_governance/portability.py",
+      "old": "            rb\"\\\\\\\\[A-Za-z0-9._-]+\\\\[A-Za-z0-9$._-]+(?:\\\\\"\n            + _OPTIONAL_VALUE_TAIL\n            + rb\")?\"",
+      "new": "            rb\"\\\\\\\\[A-Za-z0-9._-]+\\\\[A-Za-z0-9$._-]+\\\\\"\n            + _VALUE_TAIL",
+      "operator": "require a descendant below a UNC share before recognizing the host path",
+      "requirement_id": "GOV-021",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_complete_host_paths_and_named_endpoints_are_ambiguous"]
+    },
+    {
+      "mutant_id": "permission-finalization-deadline-rebased",
+      "path": "src/codex_governance/artifacts.py",
+      "old": "    try:\n        remaining = _remaining(deadline)\n        if entry_remaining is not None and (\n            remaining is None or remaining > entry_remaining\n        ):\n            raise ArtifactSafetyError(\"monotonic permission deadline regressed\")\n        completed = subprocess.run(",
+      "new": "    try:\n        remaining = entry_remaining\n        if entry_remaining is not None and (\n            remaining is None or remaining > entry_remaining\n        ):\n            raise ArtifactSafetyError(\"monotonic permission deadline regressed\")\n        completed = subprocess.run(",
+      "operator": "reuse the stale permission-finalization entry budget after argument preparation",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_artifact_store.ArtifactStoreTest.test_permission_finalization_rechecks_deadline_before_launch"]
     }
   ]
 }
