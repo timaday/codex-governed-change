@@ -52,6 +52,26 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             )
 
         original = reviewer.read_bounded_repository_file
+        observed_deadlines: list[float | None] = []
+
+        def observe_deadline(repository, relative, **kwargs):
+            observed_deadlines.append(kwargs.get("deadline"))
+            return original(repository, relative, **kwargs)
+
+        shared_deadline = time.monotonic() + 10
+        with patch.object(
+            reviewer,
+            "read_bounded_repository_file",
+            side_effect=observe_deadline,
+        ):
+            reviewer.reviewer_launcher_sha256(
+                package, deadline=shared_deadline
+            )
+        self.assertEqual(
+            [shared_deadline] * (2 * len(reviewer.REVIEWER_LAUNCHER_FILES)),
+            observed_deadlines,
+        )
+
         calls = 0
 
         def replace_after_observation(repository, relative, **kwargs):

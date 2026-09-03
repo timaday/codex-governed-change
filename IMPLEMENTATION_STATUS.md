@@ -559,3 +559,13 @@ paired-control corpus to 94 operators with content ID
 `sha256:d8e321f6a655316e5902d61003a92f26bb70e0edf0e76b3f2083e10f23151843`
 and protected byte digest
 `sha256:14f3fcf4759ed03583bfb19da1b4be09147eee9dd3bdcf2a3692cf3477307aac`.
+
+Immutable candidate `344c2d4` passed its deterministic, portability and
+rollback checks, but its first complete 94-operator paired-control run returned
+`BLOCK`: 93 mutants were killed and
+`launcher-closure-deadline-omitted` survived. The production deadline was
+present; the acceptance oracle allowed the deadline-bound verification pass to
+mask a missing deadline on the initial closure reads. This successor asserts
+that every initial and verification read receives the same absolute deadline.
+All evidence for `344c2d4` is non-qualifying and the successor requires complete
+rebinding.
