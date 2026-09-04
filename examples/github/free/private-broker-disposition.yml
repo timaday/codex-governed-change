@@ -1,0 +1,39 @@
+# PRIVATE-BROKER CALLER TEMPLATE. Install only in a separate private repository.
+# Replace the example repository and the repeated 40-hex authority commit with
+# the exact protected public authority commit. Never use a branch, tag, variable,
+# or expression in `uses`.
+name: Governed disposition broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_decision_ids:
+        description: JSON array of exact protected decision IDs
+        required: true
+        default: "[]"
+        type: string
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-broker
+  cancel-in-progress: false
+
+jobs:
+  governed_disposition:
+    uses: example/governed-target/.github/workflows/disposition.yml@1111111111111111111111111111111111111111
+    with:
+      authority_repository: example/governed-target
+      authority_ref: refs/heads/governance-authority
+      authority_sha: 1111111111111111111111111111111111111111
+      target_id: release-candidate
+      trigger_event: ${{ github.event_name }}
+      authenticated_actor: ${{ github.actor }}
+      approved_decision_ids: ${{ github.event.inputs.approved_decision_ids || '[]' }}
+      disposition_app_id: ${{ vars.DISPOSITION_APP_ID }}
+    secrets:
+      disposition_app_private_key: ${{ secrets.DISPOSITION_APP_PRIVATE_KEY }}

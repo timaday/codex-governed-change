@@ -282,11 +282,11 @@ def validate_skill() -> None:
 def validate_traceability() -> None:
     requirements_text = read_text(ROOT / "docs/requirements.md")
     requirements = sorted(set(re.findall(r"\bGOV-(?:[0-9]{3}|TOKEN-[0-9]{3})\b", requirements_text)))
-    expected_numbered = [f"GOV-{number:03d}" for number in range(1, 63)]
+    expected_numbered = [f"GOV-{number:03d}" for number in range(1, 64)]
     expected_named = [f"GOV-TOKEN-{number:03d}" for number in range(1, 5)]
     expected = sorted(expected_numbered + expected_named)
     if requirements != expected:
-        fail("requirements must contain contiguous GOV-001..GOV-062 and GOV-TOKEN-001..004")
+        fail("requirements must contain contiguous GOV-001..GOV-063 and GOV-TOKEN-001..004")
 
     traceability = read_text(ROOT / "docs/traceability.md")
     for requirement in expected:

@@ -1,0 +1,22 @@
+# PRIVATE-BROKER CALLER TEMPLATE. The called protected workflow schedules the
+# `governed-reviewer-jit` label only in the caller's private repository.
+# Provision a clean single-job runner and destroy it after completion.
+name: Qualify governed reviewer broker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governed-reviewer-qualification-broker
+  cancel-in-progress: false
+
+jobs:
+  qualify_reviewer:
+    uses: example/governed-target/.github/workflows/qualify-reviewer.yml@1111111111111111111111111111111111111111
+    with:
+      authority_repository: example/governed-target
+      authority_ref: refs/heads/governance-authority
+      authority_sha: 1111111111111111111111111111111111111111

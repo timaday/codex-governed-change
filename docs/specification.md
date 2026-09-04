@@ -513,19 +513,58 @@ Non-managed project hooks require trust and can be disabled. CI remains the hard
 
 CI MUST run on the immutable pull-request candidate and use read-only repository permissions for model review. Deterministic setup and tests MUST run before any job receives a model credential.
 
-The effective gate policy MUST come from a protected source. The reference
-workflow in this repository is an installation template for a separately
-protected authority repository or organization ruleset; copying it into the
-evaluated repository cannot establish authority. Recommended controls:
+The effective gate policy MUST come from a protected source outside the
+candidate-controlled ref. A candidate-local copy cannot establish authority.
+Two deployment profiles are supported:
+
+- topology A selects a SHA-pinned reusable workflow from a separately protected
+  repository through an organization or repository ruleset; and
+- topology B for a personal GitHub Free account stores the authority bundle and
+  reusable workflow on a dedicated protected public ref, while a separate
+  private repository acts only as a manual/scheduled execution broker. Its
+  caller pins the reusable workflow by full authority commit SHA. The broker is
+  not a policy, schema, decision, candidate-selection, admission, or publication
+  authority source.
+
+Topology B MUST protect the public authority ref independently from the target
+default branch. Runtime MUST verify that the live authority ref equals the
+pinned authority commit before using it and immediately before publication. The
+private broker MUST accept only `workflow_dispatch`, `schedule`, and the
+internal completed-run finalization event; it MUST NOT accept target pull
+request, push, issue, comment, repository-dispatch, or public-webhook events.
+Its repository Actions secret MAY contain the target-only GitHub App private
+key, but no candidate, deterministic gate, admission, or reviewer-tool process
+may receive that key or an installation token.
+
+ChatGPT-managed Codex authentication MUST remain on trusted private execution
+infrastructure. Under topology B, the reviewer runner is a clean single-job JIT
+runner registered only to the private broker and destroyed after the job. It is
+never registered to the public target, and no authentication file is committed,
+uploaded as public evidence, or exposed to model-generated tools. The protected
+workflow MUST require ChatGPT-authenticated `gpt-5.6-sol`; the OpenAI API-key
+GitHub Action is not an equivalent identity.
+
+Recommended controls:
 
 - required status checks or repository rulesets;
 - code-owner review for governance assets;
-- a SHA-pinned reusable workflow in a separately protected repository, or an equivalent organization-managed required workflow;
+- a SHA-pinned reusable workflow from a separately protected repository or
+  protected public authority ref, or an equivalent organization-managed
+  required workflow;
 - `contents: read`, no persisted checkout credentials, and no write token in the reviewer job;
 - separate jobs for untrusted tests/model review and any later PR comment or publication action;
 - explicit human approval for governance changes and waivers.
 
 Removing or renaming the required workflow MUST leave the required check absent and therefore blocking; it must not create a silent pass.
+
+For a sole-user public authority ref, zero required approvals is permitted only
+when the ruleset still requires pull requests, resolved review threads,
+stale-review dismissal, deletion and non-fast-forward protection, and no bypass.
+The deployment MUST NOT claim independent human review. When another eligible
+reviewer exists, the one-approval profile is mandatory. Initial ref creation and
+ruleset activation are one-time, exact-commit, human-approved bootstrap actions
+whose post-installation state MUST be verified and whose exception cannot be
+reused.
 
 ## 12. Waivers
 

@@ -14,6 +14,29 @@ flowchart TD
 
 The domain has no dependency on Git, Codex, the filesystem, subprocesses, CI, wall-clock time, or JSON parsing.
 
+## Hosted authority topology
+
+```mermaid
+flowchart LR
+    C["Public target candidate"] --> G["Credential-free gates"]
+    A["Protected public authority ref"] --> G
+    B["Private manual/scheduled broker"] -->|"pins full authority SHA"| A
+    B --> J["Private-broker JIT reviewer"]
+    A --> J
+    G --> J
+    J --> D["Protected admission"]
+    A --> D
+    D --> P["Target-only GitHub App disposition"]
+    P --> H["Human release decision"]
+```
+
+In the personal-account GitHub Free profile, the public authority ref is the
+policy and workflow source. The private broker supplies trigger and credential
+activation only; it cannot select candidate, policy, schema, admission logic or
+check context. Candidate code executes without credentials. ChatGPT-authenticated
+Codex runs only on a clean single-job runner registered to the private broker,
+and the App private key is introduced only to fail-closed publication jobs.
+
 ## Components
 
 ### Domain

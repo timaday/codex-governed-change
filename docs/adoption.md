@@ -11,7 +11,8 @@ approval in the adopting repository.
 - Python 3.11 or newer.
 - A current ChatGPT-authenticated Codex CLI with `gpt-5.6-sol` access.
 - A repository with deterministic build/test commands.
-- CI and branch/ruleset administration for hard enforcement.
+- CI and branch/ruleset administration for hard enforcement. A personal
+  GitHub Free account is sufficient when topology B is used.
 
 The deterministic suite must work without a live model. Live fresh-context review
 uses normal ChatGPT/Codex authentication outside the sanitized harness. The MVP
@@ -68,6 +69,24 @@ An organization with managed Codex configuration may deploy a managed hook separ
 
 ## 6. Configure GitHub protection
 
+Choose exactly one authority topology:
+
+- Topology A is for organizations or accounts with a separately protected
+  authority repository or managed required workflow.
+- Topology B is the personal-account GitHub Free profile. Create a dedicated
+  public authority ref in the public target, protect it with its own ruleset,
+  and use a separate private repository only as a manual/scheduled execution
+  broker. The broker caller pins the public reusable workflow by a full commit
+  SHA. Do not register its authenticated reviewer runner to the public target.
+
+Topology B requires no organization and makes no private-repository protection
+claim. Store the target-only GitHub App private key as a private-broker Actions
+secret. Keep ChatGPT-managed Codex authentication only on the clean single-job
+JIT runner registered to that broker. The broker must have no pull-request,
+push, issue, comment, repository-dispatch or public-webhook trigger. The App is
+installed only on the public target and publishes only the fixed `disposition`
+check.
+
 Recommended controls:
 
 - require pull requests;
@@ -80,7 +99,8 @@ Recommended controls:
 - keep any PR-comment/write step separate from the credentialed model job;
 - pin third-party actions to audited full commit SHAs in hardened deployments.
 
-The example workflow is illustrative. A repository administrator must map it to the organization's runner, secret, workflow and ruleset policy.
+The example workflow is illustrative. A repository administrator must map it to
+the selected topology's runner, secret, workflow and ruleset policy.
 
 The reference deliberately calls a target-branch-owned `.governance/ci/`
 deployment adapter. That adapter is repository-specific and must materialize

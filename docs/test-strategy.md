@@ -86,6 +86,11 @@ No model confidence statement is an oracle.
 
 - Working-tree pipeline with deliberate drift.
 - Immutable commit pipeline.
+- Personal-account GitHub Free topology fixtures proving that the public
+  authority ref and target branch have distinct no-bypass rulesets, private
+  broker callers pin full authority SHAs, forbidden public/candidate triggers
+  are absent, the authenticated JIT runner is broker-scoped, and only the final
+  publisher receives the target-only App secret.
 - Two-gate adversarial pipeline where the first gate mutates its writable copy
   and the second gate must receive original candidate bytes.
 - Gate artifact reconstruction.

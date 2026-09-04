@@ -1,0 +1,40 @@
+# PRIVATE-BROKER CALLER TEMPLATE. This internal completion trigger can publish
+# success only after the named source workflow completed successfully and the
+# protected reusable finalizer reconstructs its immutable artifact.
+name: Finalize governed disposition broker
+
+on:
+  workflow_run:
+    workflows: ["Governed disposition broker"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-finalizer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.status == 'completed' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule')
+    uses: example/governed-target/.github/workflows/finalize-disposition.yml@1111111111111111111111111111111111111111
+    with:
+      authority_repository: example/governed-target
+      authority_ref: refs/heads/governance-authority
+      authority_sha: 1111111111111111111111111111111111111111
+      target_id: release-candidate
+      source_run_id: ${{ github.event.workflow_run.id }}
+      source_run_attempt: ${{ github.event.workflow_run.run_attempt }}
+      source_run_conclusion: ${{ github.event.workflow_run.conclusion }}
+      source_run_status: ${{ github.event.workflow_run.status }}
+      source_run_event: ${{ github.event.workflow_run.event }}
+      source_run_head_branch: ${{ github.event.workflow_run.head_branch }}
+      disposition_app_id: ${{ vars.DISPOSITION_APP_ID }}
+    secrets:
+      disposition_app_private_key: ${{ secrets.DISPOSITION_APP_PRIVATE_KEY }}

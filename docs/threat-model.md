@@ -78,6 +78,10 @@ Every arrow crossing a component boundary uses a schema-valid, hashed artifact. 
 | TH-32 | Candidate risk input reduces protected or task-required review | Protected/task floor comparison before rapid-review aggregation | Protected classification rules may omit a novel hazard |
 | TH-33 | Mutation harness calls invalid/unexecuted mutants killed | Causal outcome model and complete mutant record | Human equivalence triage error |
 | TH-34 | Public repository captures developer-machine data | Portability scans, relative representations, no environment serialization | Novel machine-derived strings evade patterns |
+| TH-35 | GitHub Free leaves a private personal authority repository unprotected | Put the authority bundle and reusable workflows on a separately ruleset-protected public ref; treat the private repository only as a broker | Repository administrator or account compromise |
+| TH-36 | A public event schedules a credential-bearing self-hosted runner | Register the clean single-job JIT runner only to the private broker; allow only manual/scheduled broker triggers and internal completed-run finalization | Broker administrator or runner-registration compromise |
+| TH-37 | An unprotected private broker substitutes policy or publishes arbitrary success | Pin the public authority reusable workflow by full SHA; derive target/check/publication solely from the protected authority bundle; scope the App to the target | The human administrator controls both caller and App credentials |
+| TH-38 | ChatGPT auth is copied into public Actions or evidence | Keep managed auth only on trusted private execution infrastructure; reject API-key substitution and public-repository auth storage | Runner-host compromise or operator mishandling |
 
 ## Abuse cases
 
@@ -95,6 +99,12 @@ The acceptance suite must attempt:
 - creating an artifact symlink to a file outside the evidence root;
 - crafting a filename that becomes a shell option or command fragment;
 - running a public-PR workflow with a secret exposed to checked-out code.
+- adding a public, pull-request, push, comment, issue or repository-dispatch
+  trigger to the private broker;
+- changing a broker reusable-workflow ref from a full authority SHA to a branch,
+  tag, variable or candidate-controlled expression;
+- registering the ChatGPT-authenticated reviewer runner to the public target;
+- treating the private broker branch as protected authority on GitHub Free;
 - completing every heuristic checkbox with no experiment, coverage, omission, or residual-risk evidence;
 - labeling authorization, migration, concurrency, destructive, data-integrity, public-API, or governance work as low risk;
 - replaying a rapid-review report after changing one candidate byte;

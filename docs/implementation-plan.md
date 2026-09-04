@@ -281,12 +281,17 @@ Exit: clean fixture pipelines and first/continued/error hook tests pass.
 
 ## T23 — Always-running protected CI admission
 
-Requirements: GOV-011, GOV-013, GOV-041 through GOV-043, GOV-050, GOV-062
+Requirements: GOV-011, GOV-013, GOV-041 through GOV-043, GOV-050, GOV-062,
+GOV-063
 
 - Make the final job use `if: always()` and inspect each direct dependency result
   plus every required artifact before running the admission kernel.
 - Keep actions SHA-pinned, credentials out of untrusted jobs and the expected
   required-check source/no-bypass/current-candidate deployment explicit.
+- Support the GitHub Free topology with a protected public authority ref and a
+  separate private manual/scheduled broker pinned to that exact authority SHA.
+- Keep the authenticated reviewer JIT runner private-broker scoped and prevent
+  every public or candidate event from scheduling it.
 - Add static and executable simulations for skipped, cancelled, absent, neutral,
   failed and malformed prerequisites.
 
@@ -299,6 +304,9 @@ Requirements: all
 
 - Run all deterministic, integration, sandbox, security, curated mutation, RST,
   schema-lifecycle, assurance and context-optimization gates without skips.
+- Reconstruct the live public-authority ruleset, private-broker caller pins,
+  trigger allowlist and target App check source without claiming paid private
+  protection.
 - Qualify token variants and the final reviewer identity on the labelled corpus.
 - Only then run one fresh live ChatGPT-authenticated Codex `gpt-5.6-sol`
   exact-candidate review and reconstruct the

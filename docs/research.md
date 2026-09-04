@@ -8,6 +8,22 @@
 - `codex exec` supports ephemeral sessions, ignored user config, a read-only sandbox, JSON Schema output and a separate final-output file. [Official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode), [CLI command reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-codex-exec)
 - A synchronous Stop hook can request another model continuation. Non-managed project hooks require trust and can be disabled, so the design keeps CI as the hard boundary. [Official hooks documentation](https://learn.chatgpt.com/docs/hooks)
 - The Codex GitHub Action supports read-only review and schema-constrained outputs, but credential isolation and trusted triggers remain deployment responsibilities. [Official GitHub Action documentation](https://learn.chatgpt.com/docs/github-action)
+- The official GitHub Action is API-key based. Official Codex authentication
+  guidance separately documents ChatGPT-managed `auth.json` for trusted private
+  CI, requires persistent or securely round-tripped refreshed credentials, and
+  explicitly says not to use that advanced pattern for public or open-source
+  repositories. This is why topology B separates its public authority ref from
+  its private execution broker and private-broker-scoped JIT runner. [Official
+  authentication documentation](https://learn.chatgpt.com/docs/auth), [advanced
+  private CI authentication](https://learn.chatgpt.com/docs/auth/ci-cd-auth)
+- GitHub documents branch protection and rulesets for private repositories as
+  paid-plan features, while public repositories can use them on GitHub Free.
+  GitHub also restricts environment secrets in private repositories by plan.
+  The Free topology therefore protects public refs and uses ordinary private
+  repository Actions secrets only in the non-authoritative broker. [Protected
+  branches](https://docs.github.com/en/repositories/configuring-branches-and-merges/managing-protected-branches/about-protected-branches),
+  [ruleset availability](https://docs.github.com/en/repositories/configuring-branches-and-merges/managing-rulesets/available-rules-for-rulesets),
+  [environments and secrets](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 - Codex `.rules`/execpolicy controls command execution decisions; it is not a replacement for behavioral quality governance. [Official rules documentation](https://developers.openai.com/codex/rules)
 
 ## Empirical rationale
