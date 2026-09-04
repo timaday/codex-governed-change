@@ -27,11 +27,22 @@ class FreeTopologyAuthorityTest(unittest.TestCase):
                 ruleset["conditions"]["ref_name"]["include"],
             )
             self.assertEqual(
-                {"deletion", "non_fast_forward", "pull_request"},
+                {
+                    "deletion",
+                    "non_fast_forward",
+                    "required_linear_history",
+                    "pull_request",
+                },
                 {rule["type"] for rule in ruleset["rules"]},
             )
-        sole_pr = sole["rules"][2]["parameters"]
-        reviewed_pr = reviewed["rules"][2]["parameters"]
+        sole_pr = next(
+            rule["parameters"] for rule in sole["rules"]
+            if rule["type"] == "pull_request"
+        )
+        reviewed_pr = next(
+            rule["parameters"] for rule in reviewed["rules"]
+            if rule["type"] == "pull_request"
+        )
         self.assertEqual(0, sole_pr["required_approving_review_count"])
         self.assertFalse(sole_pr["require_last_push_approval"])
         self.assertEqual(1, reviewed_pr["required_approving_review_count"])

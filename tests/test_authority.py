@@ -502,14 +502,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("b9c203810e57dc52257046b6618447fa43cbe8eb", target["head_sha"])
+        self.assertEqual("fbe4594a46c2f7c86787dde9950661f3a9df85c7", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "b9c203810e57dc52257046b6618447fa43cbe8eb",
+            "fbe4594a46c2f7c86787dde9950661f3a9df85c7",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -1676,6 +1676,77 @@ class AdapterTests(unittest.TestCase):
                     repository,
                     release_directory=".governance/releases/v0.1.0",
                 )
+
+    def test_two_parent_decision_and_receipt_merges_fail_closed(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_deterministic_inputs_merge_rejection",
+            CI / "prepare-deterministic-inputs.py",
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        for transition in ("decision", "receipt"):
+            with self.subTest(transition=transition), tempfile.TemporaryDirectory() as directory:
+                repository = Path(directory)
+
+                def git(*arguments: str) -> str:
+                    completed = subprocess.run(
+                        ["git", "-C", str(repository), *arguments],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        text=True,
+                    )
+                    return completed.stdout.strip()
+
+                git("init", "--quiet", "--initial-branch=main")
+                git("config", "user.name", "Authority Test")
+                git("config", "user.email", "authority@example.invalid")
+                (repository / "MANIFEST.json").write_text("basis\n", encoding="utf-8")
+                git("add", "MANIFEST.json")
+                git("commit", "--quiet", "-m", "basis")
+                basis = git("rev-parse", "HEAD")
+
+                decision = repository / ".governance/releases/v0.1.0/decisions/task.json"
+                decision.parent.mkdir(parents=True)
+                decision.write_text("{}\n", encoding="utf-8")
+                (repository / "MANIFEST.json").write_text(
+                    "decision\n", encoding="utf-8"
+                )
+                git("add", ".governance", "MANIFEST.json")
+                git("commit", "--quiet", "-m", "decision")
+                decision_head = git("rev-parse", "HEAD")
+
+                if transition == "receipt":
+                    receipt = (
+                        repository
+                        / ".governance/releases/v0.1.0/authorization-receipt.json"
+                    )
+                    receipt.write_text("{}\n", encoding="utf-8")
+                    (repository / "MANIFEST.json").write_text(
+                        "receipt\n", encoding="utf-8"
+                    )
+                    git("add", ".governance", "MANIFEST.json")
+                    git("commit", "--quiet", "-m", "receipt")
+
+                branch_point = basis if transition == "decision" else decision_head
+                git("checkout", "--quiet", "-b", "merge-side", branch_point)
+                side = decision.parent / f"{transition}-merge-side.json"
+                side.parent.mkdir(parents=True, exist_ok=True)
+                side.write_text("{}\n", encoding="utf-8")
+                git("add", ".governance")
+                git("commit", "--quiet", "-m", "merge side")
+                git("checkout", "--quiet", "main")
+                git("merge", "--quiet", "--no-ff", "merge-side", "-m", "merge side")
+                self.assertEqual(
+                    3,
+                    len(git("rev-list", "--parents", "-n", "1", "HEAD").split()),
+                )
+                with self.assertRaisesRegex(ValueError, "exactly one basis parent"):
+                    module.verify_authority_decision_commit(
+                        repository,
+                        release_directory=".governance/releases/v0.1.0",
+                    )
 
     def test_qualification_live_ref_requires_private_repository(self) -> None:
         spec = importlib.util.spec_from_file_location(
