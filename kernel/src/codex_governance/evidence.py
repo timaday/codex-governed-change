@@ -554,7 +554,7 @@ def evaluate_manifest(
                 and current_candidate.get("base_commit")
                 == "5393338571f8ed5de5192613dcdd6131044932dc"
                 and current_candidate.get("head_commit")
-                == "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa"
+                == "b9c203810e57dc52257046b6618447fa43cbe8eb"
                 and policy.get("lkg_governance_commit")
                 == current_candidate.get("base_commit")
                 and proposed_policy.get("repository_id") == repository_id

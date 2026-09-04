@@ -217,6 +217,9 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
   combined capture is required because the CLI may emit status on stderr. That
   authentication mode is part of protected qualification and execution identity;
   API-key mode, missing output, and additional output are rejected.
+- The reusable finalizer alone owns its `workflow_run` concurrency group. Its
+  private broker wrapper deliberately declares no competing group, so a caller
+  cannot contend with the called workflow for the same execution slot.
 - Every authority JSON, decision, receipt, policy, evidence file, rollback raw
   stream, and publication input is consumed from one cached, descriptor-bound,
   no-follow byte observation under a monotonic deadline. Parsing, hashing,

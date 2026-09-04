@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "source_repository": "timaday/codex-governed-change",
-  "source_commit": "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa",
+  "source_commit": "b9c203810e57dc52257046b6618447fa43cbe8eb",
   "files": [
     {
       "path": ".codex/review/reviewer.prompt.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "src/codex_governance/reviewer.py",
-      "sha256": "sha256:8e6d4e549039080a01a3a7a3f06447c744e7e1f58b22733b548c2cfe1f6d8c82"
+      "sha256": "sha256:ef706e076001fafac200be3c64809ca4752dcb20df812709e5a230a423be03a5"
     },
     {
       "path": "src/codex_governance/reviewer_namespace.py",

@@ -502,14 +502,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa", target["head_sha"])
+        self.assertEqual("b9c203810e57dc52257046b6618447fa43cbe8eb", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa",
+            "b9c203810e57dc52257046b6618447fa43cbe8eb",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -651,34 +651,67 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertIn('--actor "$GITHUB_ACTOR"', workflow)
         self.assertIn("qualification-results", workflow)
 
-    def test_reviewer_authentication_rejects_api_key_mode_under_sanitized_env(self) -> None:
-        completed = subprocess.CompletedProcess(
-            ["codex", "login", "status"],
-            0,
-            stdout=b"Logged in using an API key\n",
-            stderr=b"",
+    def test_reviewer_authentication_accepts_exact_combined_status(self) -> None:
+        for output in (b"Logged in using ChatGPT\n", b"Logged in using ChatGPT\r\n"):
+            with self.subTest(output=output):
+                completed = subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    0,
+                    stdout=output,
+                    stderr=None,
+                )
+                with mock.patch.object(
+                    reviewer_module.subprocess,
+                    "run",
+                    return_value=completed,
+                ) as observed:
+                    self.assertEqual(
+                        "chatgpt",
+                        reviewer_module.observe_codex_authentication("codex"),
+                    )
+                self.assertEqual(
+                    subprocess.STDOUT,
+                    observed.call_args.kwargs["stderr"],
+                )
+
+    def test_reviewer_authentication_rejects_nonexact_combined_status(self) -> None:
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "CODEX_HOME": "/portable/auth-root",
+            "OPENAI_API_KEY": "must-not-cross",
+        }
+        invalid = (
+            (0, b""),
+            (0, b"Logged in using an API key\n"),
+            (0, b"Logged in using ChatGPT\nextra\n"),
+            (0, b"Logged in using ChatGPT\nLogged in using ChatGPT\n"),
+            (1, b"Logged in using ChatGPT\n"),
         )
-        with (
-            mock.patch.dict(
-                os.environ,
-                {
-                    "PATH": os.environ.get("PATH", ""),
-                    "CODEX_HOME": "/portable/auth-root",
-                    "OPENAI_API_KEY": "must-not-cross",
-                },
-                clear=True,
-            ),
-            mock.patch.object(
-                reviewer_module.subprocess,
-                "run",
-                return_value=completed,
-            ) as observed,
-            self.assertRaisesRegex(RuntimeError, "not authenticated through ChatGPT"),
-        ):
-            reviewer_module.observe_codex_authentication("codex")
-        environment = observed.call_args.kwargs["env"]
-        self.assertNotIn("OPENAI_API_KEY", environment)
-        self.assertEqual("/portable/auth-root", environment["CODEX_HOME"])
+        for returncode, output in invalid:
+            with self.subTest(returncode=returncode, output=output):
+                completed = subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    returncode,
+                    stdout=output,
+                    stderr=None,
+                )
+                with mock.patch.object(
+                    reviewer_module.subprocess,
+                    "run",
+                    return_value=completed,
+                ) as observed, self.assertRaisesRegex(
+                    RuntimeError, "not authenticated through ChatGPT"
+                ):
+                    reviewer_module.observe_codex_authentication(
+                        "codex", environment=environment
+                    )
+                self.assertEqual(
+                    subprocess.STDOUT,
+                    observed.call_args.kwargs["stderr"],
+                )
+        sanitized = observed.call_args.kwargs["env"]
+        self.assertNotIn("OPENAI_API_KEY", sanitized)
+        self.assertEqual("/portable/auth-root", sanitized["CODEX_HOME"])
 
     def test_context_adapters_bind_only_the_authority_prompt(self) -> None:
         for name in ("prepare-context-sources.py", "prepare-review-inputs.py"):

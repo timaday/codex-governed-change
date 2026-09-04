@@ -157,11 +157,15 @@ class FreeTopologyAuthorityTest(unittest.TestCase):
                 template,
             )
         disposition = self.text(".governance/broker-templates/disposition.yml")
+        finalizer = self.text(".governance/broker-templates/finalize-disposition.yml")
+        reusable_finalizer = self.text(".github/workflows/finalize-disposition.yml")
         self.assertIn(
             "github.event_name != 'schedule' || "
             "vars.GOVERNED_SCHEDULE_ENABLED == 'true'",
             disposition,
         )
+        self.assertNotIn("concurrency:", finalizer)
+        self.assertEqual(1, reusable_finalizer.count("concurrency:"))
 
     def test_bootstrap_sequence_blocks_every_stale_broker_pin(self) -> None:
         sequence = self.document(".governance/bootstrap-sequence.json")
