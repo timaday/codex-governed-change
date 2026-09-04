@@ -533,8 +533,10 @@ Two deployment profiles are supported:
 Topology B MUST protect the public authority ref independently from the target
 default branch. Runtime MUST verify that the live authority ref equals the
 pinned authority commit before using it and immediately before publication. The
-private broker MUST accept only `workflow_dispatch`, `schedule`, and the
-internal completed-run finalization event; it MUST NOT accept target pull
+private broker MUST accept only `workflow_dispatch`, a separately enabled
+post-receipt `schedule`, and the internal completed-run finalization event. The
+schedule MUST remain disabled during qualification, authority advancement,
+repinning, and recovery; it MUST NOT accept target pull
 request, push, issue, comment, repository-dispatch, or public-webhook events.
 Its repository Actions secret MAY contain the target-only GitHub App private
 key, but no candidate, deterministic gate, admission, or reviewer-tool process
@@ -544,6 +546,9 @@ post-completion success, the finalizer MUST query GitHub for the exact completed
 broker run and require its repository, commit, wrapper path, run/attempt,
 trigger, status and conclusion plus its sole resolved reusable-workflow
 reference and SHA to match the protected authority workflow.
+Any public pull-request reference workflow MUST gate the authenticated reviewer
+job on private repository visibility before runner assignment; public use must
+route authenticated review through topology B instead.
 
 ChatGPT-managed Codex authentication MUST remain on trusted private execution
 infrastructure. Under topology B, the reviewer runner is a clean single-job JIT

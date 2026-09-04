@@ -58,6 +58,11 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
         finalizer = self.load_workflow("private-broker-finalize.yml")
         self.assertIn("workflow_dispatch:", disposition)
         self.assertIn("schedule:", disposition)
+        self.assertIn(
+            "github.event_name != 'schedule' || "
+            "vars.GOVERNED_SCHEDULE_ENABLED == 'true'",
+            disposition,
+        )
         self.assertIn("workflow_dispatch:", qualification)
         self.assertIn("workflow_run:", finalizer)
         combined = "\n".join((disposition, qualification, finalizer))
@@ -70,6 +75,16 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
             "push:",
         ):
             self.assertNotIn(forbidden, combined)
+
+    def test_public_pull_requests_never_schedule_authenticated_reviewer(self) -> None:
+        workflow = (ROOT / "examples/github/governed-change.yml").read_text(
+            encoding="utf-8"
+        )
+        reviewer_job = workflow.split("  fresh_context_review:", 1)[1].split(
+            "\n  admission:", 1
+        )[0]
+        self.assertIn("if: github.event.repository.private == true", reviewer_job)
+        self.assertIn("runs-on: [self-hosted, governed-reviewer]", reviewer_job)
 
     def test_every_broker_call_pins_a_public_authority_workflow_by_full_sha(self) -> None:
         for name in (

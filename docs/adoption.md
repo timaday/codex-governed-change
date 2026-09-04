@@ -81,7 +81,9 @@ Choose exactly one authority topology:
   not caller inputs, and accepts calls only from the configured private broker.
   Keep only broker callers in the private repository's active workflow
   directory. Do not register its authenticated reviewer runner to the public
-  target.
+  target. Keep recurring producer execution disabled until the protected
+  receipt commit is live and every broker caller is repinned; disable it again
+  before every authority transition or recovery operation.
 
 Topology B requires no organization and makes no private-repository protection
 claim. Store the target-only GitHub App private key as a private-broker Actions
@@ -91,6 +93,9 @@ push, issue, comment, repository-dispatch or public-webhook trigger. The App is
 installed only on the public target and publishes only the fixed `disposition`
 check. Its finalizer must verify the completed broker run and exact resolved
 authority-workflow reference through GitHub before publishing success.
+The generic pull-request workflow is private-repository-only for authenticated
+review; on a public repository its reviewer job stays unscheduled and topology B
+provides the private execution boundary.
 
 Recommended controls:
 

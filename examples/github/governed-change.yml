@@ -168,6 +168,7 @@ jobs:
 
   fresh_context_review:
     needs: deterministic_evidence
+    if: github.event.repository.private == true
     # This image/runner must provide the qualification-matched Codex executable.
     # No same-session, subagent, or unqualified action fallback is permitted.
     runs-on: [self-hosted, governed-reviewer]
