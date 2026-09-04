@@ -80,8 +80,9 @@ Every arrow crossing a component boundary uses a schema-valid, hashed artifact. 
 | TH-34 | Public repository captures developer-machine data | Portability scans, relative representations, no environment serialization | Novel machine-derived strings evade patterns |
 | TH-35 | GitHub Free leaves a private personal authority repository unprotected | Put the authority bundle and reusable workflows on a separately ruleset-protected public ref; treat the private repository only as a broker | Repository administrator or account compromise |
 | TH-36 | A public event schedules a credential-bearing self-hosted runner | Register the clean single-job JIT runner only to the private broker; allow only manual/scheduled broker triggers and internal completed-run finalization | Broker administrator or runner-registration compromise |
-| TH-37 | An unprotected private broker substitutes policy or publishes arbitrary success | Pin the public authority reusable workflow by full SHA; derive target/check/publication solely from the protected authority bundle; scope the App to the target | The human administrator controls both caller and App credentials |
+| TH-37 | An unprotected private broker substitutes policy or publishes arbitrary success | Pin the public reusable workflow by full SHA; derive authority from GitHub's resolved called-workflow SHA; reject caller-selected authority/source identities; verify the completed broker run and sole referenced-workflow path/SHA before success; scope the App to the target | The human administrator controls both caller and App credentials |
 | TH-38 | ChatGPT auth is copied into public Actions or evidence | Keep managed auth only on trusted private execution infrastructure; reject API-key substitution and public-repository auth storage | Runner-host compromise or operator mishandling |
+| TH-39 | A mirrored authority workflow remains active in the mutable private broker | Permit only `broker-*` callers under the broker's `.github/workflows/`; store any non-authoritative mirror outside the active workflow directory | Repository administrator can alter broker callers and credentials |
 
 ## Abuse cases
 
@@ -103,6 +104,12 @@ The acceptance suite must attempt:
   trigger to the private broker;
 - changing a broker reusable-workflow ref from a full authority SHA to a branch,
   tag, variable or candidate-controlled expression;
+- supplying an alternate authority repository/ref/SHA, target, actor, trigger or
+  source-run identity to a reusable workflow;
+- retaining a mirrored reusable authority workflow under the private broker's
+  active workflow directory;
+- returning a successful broker run that references the wrong protected
+  reusable-workflow path or SHA;
 - registering the ChatGPT-authenticated reviewer runner to the public target;
 - treating the private broker branch as protected authority on GitHub Free;
 - completing every heuristic checkbox with no experiment, coverage, omission, or residual-risk evidence;

@@ -522,9 +522,13 @@ Two deployment profiles are supported:
 - topology B for a personal GitHub Free account stores the authority bundle and
   reusable workflow on a dedicated protected public ref, while a separate
   private repository acts only as a manual/scheduled execution broker. Its
-  caller pins the reusable workflow by full authority commit SHA. The broker is
-  not a policy, schema, decision, candidate-selection, admission, or publication
-  authority source.
+  caller pins the reusable workflow by full authority commit SHA. The called
+  workflow MUST derive its authority commit from GitHub's resolved called-job
+  workflow SHA, MUST hard-code its public authority repository/ref and allowed
+  private broker identity, and MUST NOT accept caller-selected authority,
+  target, trigger, actor, or source-run identity. The broker is not a policy,
+  schema, decision, candidate-selection, admission, or publication authority
+  source.
 
 Topology B MUST protect the public authority ref independently from the target
 default branch. Runtime MUST verify that the live authority ref equals the
@@ -534,7 +538,12 @@ internal completed-run finalization event; it MUST NOT accept target pull
 request, push, issue, comment, repository-dispatch, or public-webhook events.
 Its repository Actions secret MAY contain the target-only GitHub App private
 key, but no candidate, deterministic gate, admission, or reviewer-tool process
-may receive that key or an installation token.
+may receive that key or an installation token. Only broker caller workflows may
+remain under the private repository's active `.github/workflows/` path. Before
+post-completion success, the finalizer MUST query GitHub for the exact completed
+broker run and require its repository, commit, wrapper path, run/attempt,
+trigger, status and conclusion plus its sole resolved reusable-workflow
+reference and SHA to match the protected authority workflow.
 
 ChatGPT-managed Codex authentication MUST remain on trusted private execution
 infrastructure. Under topology B, the reviewer runner is a clean single-job JIT

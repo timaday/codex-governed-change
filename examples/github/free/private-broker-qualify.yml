@@ -15,8 +15,8 @@ concurrency:
 
 jobs:
   qualify_reviewer:
+    if: >-
+      github.repository == 'example/governed-broker' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == true
     uses: example/governed-target/.github/workflows/qualify-reviewer.yml@1111111111111111111111111111111111111111
-    with:
-      authority_repository: example/governed-target
-      authority_ref: refs/heads/governance-authority
-      authority_sha: 1111111111111111111111111111111111111111

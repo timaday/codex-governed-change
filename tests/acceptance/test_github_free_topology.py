@@ -86,8 +86,20 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
             self.assertEqual(1, len(references), name)
             self.assertRegex(references[0], r"^[0-9a-f]{40}$")
             self.assertNotIn("${{", references[0])
-            self.assertIn("authority_ref: refs/heads/governance-authority", workflow)
-            self.assertRegex(workflow, r"authority_sha: [0-9a-f]{40}")
+            self.assertNotIn("authority_repository:", workflow)
+            self.assertNotIn("authority_ref:", workflow)
+            self.assertNotIn("authority_sha:", workflow)
+            self.assertNotIn("target_id:", workflow)
+            self.assertIn("github.repository == 'example/governed-broker'", workflow)
+
+    def test_broker_cannot_supply_trigger_actor_or_source_run_identity(self) -> None:
+        disposition = self.load_workflow("private-broker-disposition.yml")
+        qualification = self.load_workflow("private-broker-qualify.yml")
+        finalizer = self.load_workflow("private-broker-finalize.yml")
+        self.assertNotIn("trigger_event:", disposition)
+        self.assertNotIn("authenticated_actor:", disposition)
+        self.assertNotIn("source_run_", finalizer)
+        self.assertNotIn("with:", qualification)
 
     def test_app_secret_is_passed_only_to_disposition_publishers(self) -> None:
         disposition = self.load_workflow("private-broker-disposition.yml")

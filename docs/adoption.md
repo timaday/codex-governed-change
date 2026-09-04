@@ -77,7 +77,11 @@ Choose exactly one authority topology:
   public authority ref in the public target, protect it with its own ruleset,
   and use a separate private repository only as a manual/scheduled execution
   broker. The broker caller pins the public reusable workflow by a full commit
-  SHA. Do not register its authenticated reviewer runner to the public target.
+  SHA; the called workflow derives authority from that resolved workflow SHA,
+  not caller inputs, and accepts calls only from the configured private broker.
+  Keep only broker callers in the private repository's active workflow
+  directory. Do not register its authenticated reviewer runner to the public
+  target.
 
 Topology B requires no organization and makes no private-repository protection
 claim. Store the target-only GitHub App private key as a private-broker Actions
@@ -85,7 +89,8 @@ secret. Keep ChatGPT-managed Codex authentication only on the clean single-job
 JIT runner registered to that broker. The broker must have no pull-request,
 push, issue, comment, repository-dispatch or public-webhook trigger. The App is
 installed only on the public target and publishes only the fixed `disposition`
-check.
+check. Its finalizer must verify the completed broker run and exact resolved
+authority-workflow reference through GitHub before publishing success.
 
 Recommended controls:
 

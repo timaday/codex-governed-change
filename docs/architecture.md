@@ -31,11 +31,15 @@ flowchart LR
 ```
 
 In the personal-account GitHub Free profile, the public authority ref is the
-policy and workflow source. The private broker supplies trigger and credential
-activation only; it cannot select candidate, policy, schema, admission logic or
-check context. Candidate code executes without credentials. ChatGPT-authenticated
-Codex runs only on a clean single-job runner registered to the private broker,
-and the App private key is introduced only to fail-closed publication jobs.
+policy and workflow source. The called job derives the immutable authority SHA
+from GitHub's resolved reusable-workflow identity and accepts no caller-selected
+authority or source-run identity. The private broker supplies trigger and
+credential activation only; it cannot select candidate, policy, schema,
+admission logic or check context. Before final success, GitHub's completed-run
+record must bind the exact broker commit and wrapper to that authority workflow
+SHA. Candidate code executes without credentials. ChatGPT-authenticated Codex
+runs only on a clean single-job runner registered to the private broker, and
+the App private key is introduced only to fail-closed publication jobs.
 
 ## Components
 

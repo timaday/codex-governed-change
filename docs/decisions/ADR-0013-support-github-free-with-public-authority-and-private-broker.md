@@ -30,16 +30,20 @@ Topology B uses three distinct roles across two repositories:
    the authority ref. The authority ref contains the governance bundle,
    reusable workflow implementation, policy, schemas, decisions, target
    registry, and release records. Runtime always selects it by a full commit
-   SHA and verifies that the configured live authority ref still equals that
-   SHA.
+   SHA. Each called job derives that SHA from GitHub's resolved reusable
+   workflow identity and verifies that the configured live authority ref still
+   equals it. Reusable workflows hard-code the public repository/ref and the
+   sole allowed private broker; they do not accept those identities, a target,
+   trigger, actor, or source run from the caller.
 2. A separate private personal-account repository is an execution broker, not
    an authority source. Its active trigger surface contains only
    manual/scheduled caller workflows, internal completed-run finalization,
    repository-scoped Actions configuration, and credentials. A non-authoritative
-   mirror of the public bundle MAY remain for reconstruction, but no caller may
-   select it as authority. Each caller pins a reusable workflow from the public
-   authority ref by full commit SHA. It has no pull-request, push, issue,
-   comment, repository-dispatch, or public-webhook trigger.
+   mirror of the public bundle MAY remain for reconstruction only outside
+   `.github/workflows/`; no caller may select it as authority. Each caller pins
+   a reusable workflow from the public authority ref by full commit SHA. It has
+   no pull-request, push, issue, comment, repository-dispatch, or public-webhook
+   trigger.
 3. A private GitHub App installed only on the public target publishes the fixed
    `disposition` check. Its private key is a private-broker Actions secret. The
    candidate, deterministic gates, admission kernel, and reviewer tools never
@@ -56,9 +60,13 @@ Its callers are transport and credential activation only. The protected target
 registry, candidate identity, decisions, reviewer identity, admission logic,
 and publication payload all come from the exact public authority commit. A
 broker caller cannot select an arbitrary candidate, authority ref, workflow, or
-check name. A changed caller requires the same human owner who already controls
-the App installation and target rulesets; administrative account compromise
-remains an explicit residual risk rather than a false branch-protection claim.
+check name. Post-completion success queries GitHub for the exact broker
+repository, commit, wrapper, run/attempt, trigger, status and conclusion and
+requires its sole resolved reusable-workflow reference to equal the protected
+authority path and SHA. A changed caller requires the same human owner who
+already controls the App installation and target rulesets; administrative
+account compromise remains an explicit residual risk rather than a false
+branch-protection claim.
 
 For a sole-user repository, the authority-ref ruleset requires pull requests,
 thread resolution, stale-review dismissal, and no bypass, but zero approving

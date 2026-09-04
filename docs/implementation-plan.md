@@ -290,6 +290,11 @@ GOV-063
   required-check source/no-bypass/current-candidate deployment explicit.
 - Support the GitHub Free topology with a protected public authority ref and a
   separate private manual/scheduled broker pinned to that exact authority SHA.
+- Derive called-job authority from GitHub's resolved workflow SHA, reject every
+  caller-selected authority/source identity, and verify the completed broker
+  run's exact referenced workflow before post-completion success.
+- Keep mirrored authority workflows outside the private broker's active
+  workflow directory.
 - Keep the authenticated reviewer JIT runner private-broker scoped and prevent
   every public or candidate event from scheduling it.
 - Add static and executable simulations for skipped, cancelled, absent, neutral,
@@ -307,6 +312,8 @@ Requirements: all
 - Reconstruct the live public-authority ruleset, private-broker caller pins,
   trigger allowlist and target App check source without claiming paid private
   protection.
+- Reconstruct the called-job workflow SHA and completed-run referenced-workflow
+  binding, and prove no reusable mirror remains active in the broker.
 - Qualify token variants and the final reviewer identity on the labelled corpus.
 - Only then run one fresh live ChatGPT-authenticated Codex `gpt-5.6-sol`
   exact-candidate review and reconstruct the
