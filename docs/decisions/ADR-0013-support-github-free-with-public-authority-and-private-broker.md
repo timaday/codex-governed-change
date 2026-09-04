@@ -74,10 +74,13 @@ repository-scoped group: ownership in one layer avoids a caller/callee
 self-contention deadlock while the reusable finalizer retains serialization.
 
 For a sole-user repository, the authority-ref ruleset requires pull requests,
-thread resolution, stale-review dismissal, and no bypass, but zero approving
-reviews. This prevents direct accidental updates without inventing a second
-human. If another eligible reviewer exists, the reviewed profile requiring one
-approval is mandatory.
+thread resolution, stale-review dismissal, required linear history, and no
+bypass, but zero approving reviews. Decision and authorization-receipt
+transitions must remain single-parent children of their protected basis, so
+authority pull requests are squash- or rebase-merged and two-parent merge
+commits are forbidden. This prevents direct accidental updates without
+inventing a second human. If another eligible reviewer exists, the reviewed
+profile requiring one approval is mandatory.
 
 The initial authority-ref creation and ruleset installation are a one-time
 bootstrap. Their exact commits and live settings require human review and

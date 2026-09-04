@@ -539,7 +539,12 @@ Two deployment profiles are supported:
 Topology B MUST protect the public authority ref independently from the target
 default branch. Runtime MUST verify that the live authority ref equals the
 pinned authority commit before using it and immediately before publication. The
-private broker MUST accept only `workflow_dispatch`, a separately enabled
+authority ruleset MUST require linear history. Protected decision and
+authorization-receipt transitions are single-parent commits over their exact
+basis; a two-parent merge commit is invalid even when its tree matches the
+reviewed change. Authority pull requests MUST therefore be squash-merged or
+rebase-merged, never merge-committed. The private broker MUST accept only
+`workflow_dispatch`, a separately enabled
 post-receipt `schedule`, and the internal completed-run finalization event. The
 schedule MUST remain disabled during qualification, authority advancement,
 repinning, and recovery; it MUST NOT accept target pull
@@ -583,7 +588,8 @@ Removing or renaming the required workflow MUST leave the required check absent 
 
 For a sole-user public authority ref, zero required approvals is permitted only
 when the ruleset still requires pull requests, resolved review threads,
-stale-review dismissal, deletion and non-fast-forward protection, and no bypass.
+stale-review dismissal, required linear history, deletion and non-fast-forward
+protection, and no bypass.
 The deployment MUST NOT claim independent human review. When another eligible
 reviewer exists, the one-approval profile is mandatory. Initial ref creation and
 ruleset activation are one-time, exact-commit, human-approved bootstrap actions

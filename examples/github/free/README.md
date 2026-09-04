@@ -4,7 +4,9 @@ These files are portable templates, not an active authority deployment.
 
 1. Create `governance-authority` in the public target from a reviewed authority
    bundle, then apply exactly one authority-ref ruleset. Use the sole-user file
-   only when no second eligible reviewer exists.
+   only when no second eligible reviewer exists. Keep its required-linear-history
+   rule active and advance authority pull requests only by squash or rebase
+   merge; ordinary two-parent merge commits invalidate transition ancestry.
 2. Create the separate private broker. Copy the three caller workflows there,
    replace the example target/broker names and pin each `uses` reference to the
    same reviewed authority SHA. The called authority workflows must hard-code

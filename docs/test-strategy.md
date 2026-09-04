@@ -87,7 +87,9 @@ No model confidence statement is an oracle.
 - Working-tree pipeline with deliberate drift.
 - Immutable commit pipeline.
 - Personal-account GitHub Free topology fixtures proving that the public
-  authority ref and target branch have distinct no-bypass rulesets, private
+  authority ref and target branch have distinct no-bypass rulesets, the
+  authority ruleset requires linear history and real two-parent decision and
+  receipt transitions are rejected, private
   broker callers pin full authority SHAs, called jobs derive authority from
   GitHub's resolved workflow SHA without caller-selected identity inputs,
   completed success verifies the exact broker run and referenced workflow,
@@ -153,6 +155,8 @@ No model confidence statement is an oracle.
   reject missing, duplicate, API-key, malformed, or additional combined output.
 - GitHub Free finalizer tests require concurrency ownership in only one layer so
   a reusable-workflow caller cannot block the called finalizer on its own key.
+- Authority transition tests construct ordinary two-parent merge commits and
+  require both decision and authorization-receipt validation to fail closed.
 
 The deterministic suite MUST NOT require a live model, network, API key, or GitHub account.
 

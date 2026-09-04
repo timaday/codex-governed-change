@@ -26,7 +26,15 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
                 ruleset["conditions"]["ref_name"]["include"],
             )
             rule_types = {rule["type"] for rule in ruleset["rules"]}
-            self.assertTrue({"deletion", "non_fast_forward", "pull_request"} <= rule_types)
+            self.assertEqual(
+                {
+                    "deletion",
+                    "non_fast_forward",
+                    "required_linear_history",
+                    "pull_request",
+                },
+                rule_types,
+            )
         sole_pr = next(rule for rule in sole["rules"] if rule["type"] == "pull_request")
         reviewed_pr = next(
             rule for rule in reviewed["rules"] if rule["type"] == "pull_request"
