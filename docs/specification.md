@@ -324,7 +324,10 @@ The launcher MUST:
   post-read leaf-identity checks, and use those same raw bytes for parsing,
   validation against the retained schema object, hashing, byte observation and
   write-once publication without reopening either pathname;
-- classify non-zero exit, timeout, malformed output, missing output or identity mismatch as `UNKNOWN`.
+- classify non-zero exit, timeout, malformed output, missing output or identity
+  mismatch as `UNKNOWN`; if the reserved execution budget is exhausted before
+  the reviewer process starts, record that observation explicitly as a timeout
+  rather than a generic launch failure.
 
 A zero-exit reviewer parent is not complete process observation. Stdin delivery
 MUST run in a bounded writer and share one absolute launcher deadline with

@@ -1850,6 +1850,13 @@ def launch_reviewer(
             process_cleanup_complete = _stop_reviewer_supervisor(
                 process, deadline=deadline
             )
+    except TimeoutError:
+        timed_out = True
+        observation_complete = False
+        if process is not None:
+            process_cleanup_complete = _stop_reviewer_supervisor(
+                process, deadline=deadline
+            )
     except OSError:
         observation_complete = False
         process_cleanup_complete = False

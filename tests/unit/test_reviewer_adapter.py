@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1253,6 +1254,34 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         )
         self.assertEqual(ReviewerVerdict.UNKNOWN, timeout["verdict"])
         self.assertTrue(timeout["timed_out"])
+
+    def test_exhausted_execution_budget_before_launch_is_explicit_timeout(self) -> None:
+        idle = self.fake_codex("raise SystemExit(0)\n")
+        original_environment_builder = build_reviewer_environment
+
+        def delayed_environment_builder(
+            environment: Mapping[str, str],
+        ) -> dict[str, str]:
+            time.sleep(0.06)
+            return original_environment_builder(environment)
+
+        with patch(
+            "codex_governance.reviewer.build_reviewer_environment",
+            side_effect=delayed_environment_builder,
+        ):
+            result = launch_reviewer(
+                command=self.command(idle),
+                stdin_text=self.stdin(),
+                schema_path=self.harness["schema"],
+                output_path=self.harness["output"],
+                expected_candidate_id=self.CANDIDATE,
+                candidate_supplier=lambda _deadline: self.CANDIDATE,
+                timeout_seconds=0.2,
+            )
+
+        self.assertEqual(ReviewerVerdict.UNKNOWN, result["verdict"])
+        self.assertTrue(result["timed_out"])
+        self.assertFalse(result["execution_valid"])
 
     def test_pre_and_post_candidate_observation_share_the_absolute_deadline(self) -> None:
         idle = self.fake_codex("raise SystemExit(0)\n")
