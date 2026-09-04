@@ -614,19 +614,18 @@ def observe_codex_authentication(
             [executable, "login", "status"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             env=sanitized,
             timeout=min(10.0, remaining) if remaining is not None else 10.0,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError("Codex ChatGPT authentication is unavailable") from exc
-    if (
-        completed.returncode != 0
-        or completed.stdout.decode("utf-8", "replace").strip()
-        != "Logged in using ChatGPT"
-        or completed.stderr.strip()
-    ):
+    try:
+        combined_lines = completed.stdout.decode("utf-8").splitlines()
+    except (AttributeError, UnicodeDecodeError):
+        combined_lines = []
+    if completed.returncode != 0 or combined_lines != ["Logged in using ChatGPT"]:
         raise RuntimeError("Codex reviewer is not authenticated through ChatGPT")
     if deadline is not None and time.monotonic() >= deadline:
         raise RuntimeError("Codex authentication deadline expired")

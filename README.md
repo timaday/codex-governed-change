@@ -48,8 +48,10 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
 2. Protect that exact ref with exactly one authority profile. A sole user owner
    with no second eligible reviewer uses
    `rulesets/authority-ref.ruleset.json`: every change still requires a pull
-   request, thread resolution, stale-review dismissal, and no bypass, but it
-   does not make a false second-human claim or deadlock the repository. An
+   request, thread resolution, stale-review dismissal, required linear history,
+   and no bypass, but it does not make a false second-human claim or deadlock
+   the repository. Authority pull requests must use squash or rebase merge;
+   ordinary two-parent merge commits are invalid transition ancestry. An
    account with another eligible reviewer uses
    `rulesets/authority-ref-reviewed.ruleset.json`, which also requires one
    eligible approval from someone other than the last pusher. It deliberately
@@ -95,6 +97,8 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
    reasoning, launcher, and CLI identities. Then add human decisions in one
    child commit containing only decision files plus `MANIFEST.json`; bootstrap
    scope binds the basis parent, avoiding any self-referential commit claim.
+   Advance each protected transition by squash or rebase merge so it has
+   exactly one parent; never use an ordinary merge commit.
    Regenerate the protected candidate binding. Until then the producer
    intentionally returns a non-successful check.
 10. Add a protected `.governance/releases/v0.1.0/bootstrap-decision.json` that
@@ -211,10 +215,15 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
   exits, the authority terminates the isolated process group, closes and rejoins
   the streams, records incomplete observation, and forces `UNKNOWN` even when a
   schema-valid result file and zero parent exit code exist.
-- Production and qualification observe `codex login status` under the same
-  sanitized reviewer environment and require the exact ChatGPT-authenticated
-  mode immediately before every invocation. That authentication mode is part of
-  protected qualification and execution identity; API-key mode is rejected.
+- Production and qualification observe the combined stdout/stderr from
+  `codex login status` under the same sanitized reviewer environment and require
+  the exact ChatGPT-authenticated mode immediately before every invocation. The
+  combined capture is required because the CLI may emit status on stderr. That
+  authentication mode is part of protected qualification and execution identity;
+  API-key mode, missing output, and additional output are rejected.
+- The reusable finalizer alone owns its `workflow_run` concurrency group. Its
+  private broker wrapper deliberately declares no competing group, so a caller
+  cannot contend with the called workflow for the same execution slot.
 - Every authority JSON, decision, receipt, policy, evidence file, rollback raw
   stream, and publication input is consumed from one cached, descriptor-bound,
   no-follow byte observation under a monotonic deadline. Parsing, hashing,
