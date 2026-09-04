@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "source_repository": "timaday/codex-governed-change",
-  "source_commit": "b322d63d4327f0cccd10c24b48a5ee563da921d9",
+  "source_commit": "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa",
   "included_roots": [
     ".codex/review/reviewer.prompt.md",
     "LICENSE",
@@ -10,13 +10,13 @@
   ],
   "source_manifest": {
     "path": "SOURCE_MANIFEST.json",
-    "sha256": "sha256:b3bb81b6feb2b76aec9c496668dc9c105830021603e9cf8ff6491b036b9a09af"
+    "sha256": "sha256:d3d4a6e4a3d24c59d0848cd64b05efaf810a49311ce1fc0d52b987c86c76be92"
   },
   "authority_owned_overrides": [
     {
       "path": "src/codex_governance/evidence.py",
       "source_sha256": "sha256:031fe093d555142b06afdca84b991f3c2a12d9d15298ffb630f665cd61dfe914",
-      "authority_sha256": "sha256:bc57f5e37d2246b1bccc3ff04334e52a02bfe8d192fb000808b578d63f06c67c"
+      "authority_sha256": "sha256:fa1e5b896980f94adabb7ebce0da267c194e1f5ae54005b368fbcfa3b2c6cf90"
     }
   ],
   "authority_boundary": "SOURCE_MANIFEST.json reconstructs the exact source-commit bytes. Every differing current kernel file must be declared with both its source and authority digest. Target code is data, not the reviewer or admission launcher."

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "source_repository": "timaday/codex-governed-change",
-  "source_commit": "b322d63d4327f0cccd10c24b48a5ee563da921d9",
+  "source_commit": "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa",
   "files": [
     {
       "path": ".codex/review/reviewer.prompt.md",

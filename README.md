@@ -211,10 +211,12 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
   exits, the authority terminates the isolated process group, closes and rejoins
   the streams, records incomplete observation, and forces `UNKNOWN` even when a
   schema-valid result file and zero parent exit code exist.
-- Production and qualification observe `codex login status` under the same
-  sanitized reviewer environment and require the exact ChatGPT-authenticated
-  mode immediately before every invocation. That authentication mode is part of
-  protected qualification and execution identity; API-key mode is rejected.
+- Production and qualification observe the combined stdout/stderr from
+  `codex login status` under the same sanitized reviewer environment and require
+  the exact ChatGPT-authenticated mode immediately before every invocation. The
+  combined capture is required because the CLI may emit status on stderr. That
+  authentication mode is part of protected qualification and execution identity;
+  API-key mode, missing output, and additional output are rejected.
 - Every authority JSON, decision, receipt, policy, evidence file, rollback raw
   stream, and publication input is consumed from one cached, descriptor-bound,
   no-follow byte observation under a monotonic deadline. Parsing, hashing,

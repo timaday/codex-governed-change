@@ -32,7 +32,7 @@ env:
   AUTHENTICATED_ACTOR: ${{ github.actor }}
   APPROVED_DECISION_IDS: ${{ inputs.approved_decision_ids }}
   INITIAL_TARGET_REPOSITORY: timaday/codex-governed-change
-  INITIAL_TARGET_HEAD: b322d63d4327f0cccd10c24b48a5ee563da921d9
+  INITIAL_TARGET_HEAD: fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa
   PYTHONUTF8: "1"
   PYTHONDONTWRITEBYTECODE: "1"
 

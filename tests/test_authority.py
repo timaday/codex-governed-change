@@ -502,14 +502,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("b322d63d4327f0cccd10c24b48a5ee563da921d9", target["head_sha"])
+        self.assertEqual("fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "b322d63d4327f0cccd10c24b48a5ee563da921d9",
+            "fc3626c210f5fcaa4ca3b9bb08d17636068c2dfa",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -625,8 +625,10 @@ class AuthorityContractTests(unittest.TestCase):
             "runs-on: [self-hosted, linux, x64, governed-reviewer-jit]",
             workflow,
         )
-        self.assertIn("codex login status", workflow)
-        self.assertIn("Logged in using ChatGPT", workflow)
+        self.assertIn(
+            'test "$(codex login status 2>&1)" = "Logged in using ChatGPT"',
+            workflow,
+        )
         self.assertNotIn("OPENAI_API_KEY", workflow)
         self.assertNotIn("CODEX_API_KEY", workflow)
         self.assertIn("gpt-5.6-sol", workflow)
