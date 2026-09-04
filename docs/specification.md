@@ -283,7 +283,10 @@ The launcher MUST:
   parent credential location;
 - select the configured ChatGPT-authenticated Codex GPT-5.6 Sol model
   (`gpt-5.6-sol`) and reasoning effort; API-key authentication is outside the
-  MVP reviewer identity;
+  MVP reviewer identity; observe `codex login status` with standard error
+  redirected into standard output, then require exactly one combined-stream
+  line containing the ChatGPT status, so a genuine stderr-only result succeeds
+  while missing, duplicate, API-key, malformed, or additional output blocks;
 - require `--output-schema`, `--json` event output and a dedicated final-output path;
 - establish one absolute monotonic deadline before review lock/policy selection
   and pass that deadline unchanged through every candidate/authority input read,
@@ -549,6 +552,10 @@ post-completion success, the finalizer MUST query GitHub for the exact completed
 broker run and require its repository, commit, wrapper path, run/attempt,
 trigger, status and conclusion plus its sole resolved reusable-workflow
 reference and SHA to match the protected authority workflow.
+The non-authoritative completed-run wrapper MUST NOT hold the same concurrency
+group as the reusable finalizer job it invokes. Concurrency ownership MUST live
+in only one layer, or the layers MUST use distinct groups, so the called job can
+start while preserving fail-closed serialization.
 Any public pull-request reference workflow MUST gate the authenticated reviewer
 job on private repository visibility before runner assignment; public use must
 route authenticated review through topology B instead.

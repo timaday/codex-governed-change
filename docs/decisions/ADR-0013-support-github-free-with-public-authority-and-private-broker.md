@@ -68,6 +68,11 @@ already controls the App installation and target rulesets; administrative
 account compromise remains an explicit residual risk rather than a false
 branch-protection claim.
 
+The completed-run wrapper does not declare the concurrency group owned by the
+reusable finalizer. A caller and the called workflow must never wait on the same
+repository-scoped group: ownership in one layer avoids a caller/callee
+self-contention deadlock while the reusable finalizer retains serialization.
+
 For a sole-user repository, the authority-ref ruleset requires pull requests,
 thread resolution, stale-review dismissal, and no bypass, but zero approving
 reviews. This prevents direct accidental updates without inventing a second

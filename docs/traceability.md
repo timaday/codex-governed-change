@@ -8,7 +8,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-002 | T01, T07 | `test_workflow_profiles.py` |
 | GOV-003 | T03, T24 | `test_candidate_identity.py`, deadline-bound untracked regular/symlink retained-descriptor and leaf-race tests, reviewer/gate composite source-plus-snapshot and mutation copy-local drift, recursive-submodule and concrete-mutant-tree tests, `test_reviewer_isolation.py` |
 | GOV-004 | T02, T04, T05 | `test_gate_evidence.py` |
-| GOV-005 | T06, T24 | `test_reviewer_isolation.py`, exact combined stdout/stderr hosted authentication-check regression |
+| GOV-005 | T06, T24 | `test_reviewer_isolation.py`, unit stderr-only success plus missing/duplicate/additional combined-stream rejection, exact hosted authentication-check regression |
 | GOV-006 | T06, T09 | `test_reviewer_isolation.py`, permission-profile canary, CI static checks |
 | GOV-007 | T02, T06 | `test_reviewer_isolation.py`, exact-five claim schema/admission fixtures, incomplete-closure and unresolved-claim reconstruction tests |
 | GOV-008 | T01, T05, T07 | `test_disposition_policy.py`, `test_gate_evidence.py` |
@@ -66,7 +66,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-060 | T15 | `test_schema_lifecycle.py`, complete executable advertised-transition matrix including effective-policy v3, evidence-manifest v4, rapid-review-session v2, reviewer-qualification v3, reviewer-qualification-cases v5 and reviewer-execution v5, protected missing-field inputs, legacy/current schema rejection and re-addressing, capability/provenance chronology and schema/example checks |
 | GOV-061 | T15, T16, T17 | Complete framed producer-package drift and exact-manifest materialization tests in `test_attestation.py`, `test_gate_sandbox.py` |
 | GOV-062 | T13, T16, T17, T23 | `test_public_portability.py`, ignored-submodule sandbox exclusion, clean-environment gate |
-| GOV-063 | T23, T24 | `test_github_free_topology.py`, authority-bundle called-job SHA/caller guard/completed-run referenced-workflow tests, broker active-workflow isolation, ruleset reconstruction, hosted ruleset verification and exact-candidate release pack |
+| GOV-063 | T23, T24 | `test_github_free_topology.py`, authority-bundle called-job SHA/caller guard/completed-run referenced-workflow tests, caller/callee finalizer concurrency non-contention, broker active-workflow isolation, ruleset reconstruction, hosted ruleset verification and exact-candidate release pack |
 | GOV-TOKEN-001 | T21, T24 | `test_context_compiler.py`, `test_cli_orchestration.py`, protected-source and forged-signal tests |
 | GOV-TOKEN-002 | T21, T24 | `test_context_qualification.py`, `test_reviewer_qualification.py`, profile/version qualification identity tests |
 | GOV-TOKEN-003 | T15, T20, T21 | `test_context_compiler.py` protected-index/exact-byte retrieval tests, `test_reviewer_isolation.py`, source/projection/retrieval reconstruction and tampering tests in `test_evidence_reconstruction.py`, qualification-case dummy-digest/context-artifact tests, schema/example checks |

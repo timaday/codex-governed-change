@@ -12,10 +12,6 @@ permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: governed-disposition-finalizer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
-  cancel-in-progress: false
-
 jobs:
   finalize:
     if: >-

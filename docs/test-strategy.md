@@ -149,6 +149,10 @@ No model confidence statement is an oracle.
 - Every seeded evidence defect blocks.
 - A live ChatGPT-authenticated Codex `gpt-5.6-sol` run is a separate, opt-in
   qualification lane after deterministic tests.
+- Authentication tests include the real CLI's stderr-only success behavior and
+  reject missing, duplicate, API-key, malformed, or additional combined output.
+- GitHub Free finalizer tests require concurrency ownership in only one layer so
+  a reusable-workflow caller cannot block the called finalizer on its own key.
 
 The deterministic suite MUST NOT require a live model, network, API key, or GitHub account.
 

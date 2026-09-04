@@ -1476,24 +1476,43 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         with self.assertRaisesRegex(RuntimeError, "version is unavailable"):
             observe_codex_cli_version(str(invalid))
 
-    def test_reviewer_authentication_requires_chatgpt_under_sanitized_env(self) -> None:
-        completed = subprocess.CompletedProcess(
-            ["codex", "login", "status"],
-            0,
-            stdout=b"Logged in using an API key\n",
-            stderr=b"",
+    def test_reviewer_authentication_accepts_exact_combined_stderr_status(self) -> None:
+        stderr_status = self.fake_codex(
+            "import sys\nprint('Logged in using ChatGPT', file=sys.stderr)\n"
         )
+        self.assertEqual("chatgpt", observe_codex_authentication(str(stderr_status)))
+
+        stdout_status = self.fake_codex("print('Logged in using ChatGPT')\n")
+        self.assertEqual("chatgpt", observe_codex_authentication(str(stdout_status)))
+
+    def test_reviewer_authentication_rejects_nonexact_combined_status(self) -> None:
         environment = {
             "PATH": os.environ.get("PATH", ""),
             "CODEX_HOME": "/portable/auth-root",
             "OPENAI_API_KEY": "must-not-cross",
         }
-        with patch.object(
-            subprocess, "run", return_value=completed
-        ) as observed, self.assertRaisesRegex(
-            RuntimeError, "not authenticated through ChatGPT"
-        ):
-            observe_codex_authentication("codex", environment=environment)
+        invalid = (
+            (0, b""),
+            (0, b"Logged in using an API key\n"),
+            (0, b"Logged in using ChatGPT\nextra\n"),
+            (0, b"Logged in using ChatGPT\nLogged in using ChatGPT\n"),
+            (1, b"Logged in using ChatGPT\n"),
+        )
+        for returncode, output in invalid:
+            with self.subTest(returncode=returncode, output=output):
+                completed = subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    returncode,
+                    stdout=output,
+                    stderr=None,
+                )
+                with patch.object(
+                    subprocess, "run", return_value=completed
+                ) as observed, self.assertRaisesRegex(
+                    RuntimeError, "not authenticated through ChatGPT"
+                ):
+                    observe_codex_authentication("codex", environment=environment)
+                self.assertEqual(subprocess.STDOUT, observed.call_args.kwargs["stderr"])
         sanitized = observed.call_args.kwargs["env"]
         self.assertEqual("/portable/auth-root", sanitized["CODEX_HOME"])
         self.assertNotIn("OPENAI_API_KEY", sanitized)
