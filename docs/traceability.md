@@ -8,7 +8,7 @@ Every MVP requirement maps to an implementation task and at least one determinis
 | GOV-002 | T01, T07 | `test_workflow_profiles.py` |
 | GOV-003 | T03, T24 | `test_candidate_identity.py`, deadline-bound untracked regular/symlink retained-descriptor and leaf-race tests, reviewer/gate composite source-plus-snapshot and mutation copy-local drift, recursive-submodule and concrete-mutant-tree tests, `test_reviewer_isolation.py` |
 | GOV-004 | T02, T04, T05 | `test_gate_evidence.py` |
-| GOV-005 | T06 | `test_reviewer_isolation.py` |
+| GOV-005 | T06, T24 | `test_reviewer_isolation.py`, exact combined stdout/stderr hosted authentication-check regression |
 | GOV-006 | T06, T09 | `test_reviewer_isolation.py`, permission-profile canary, CI static checks |
 | GOV-007 | T02, T06 | `test_reviewer_isolation.py`, exact-five claim schema/admission fixtures, incomplete-closure and unresolved-claim reconstruction tests |
 | GOV-008 | T01, T05, T07 | `test_disposition_policy.py`, `test_gate_evidence.py` |

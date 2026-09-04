@@ -107,7 +107,10 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         workflow = Path("examples/github/governed-change.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("codex login status", workflow)
+        self.assertIn(
+            'test "$(codex login status 2>&1)" = "Logged in using ChatGPT"',
+            workflow,
+        )
         self.assertIn("Logged in using ChatGPT", workflow)
 
     def test_command_never_resumes_or_allows_write(self) -> None:

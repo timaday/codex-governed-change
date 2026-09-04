@@ -210,7 +210,7 @@ jobs:
       # environment, candidate artifacts or reviewer harness.
       - name: Run qualification-matched fresh read-only review
         run: |
-          test "$(codex login status)" = "Logged in using ChatGPT"
+          test "$(codex login status 2>&1)" = "Logged in using ChatGPT"
           test -f candidate/artifacts/governance/reviewer-permitted-inputs.json
           read -r REVIEW_TIMEOUT_SECONDS REVIEW_MAX_OUTPUT_BYTES < <(
             python3 -c 'import json; policy=json.load(open("candidate/artifacts/governance/effective-policy.json", encoding="utf-8")); print(policy["reviewer"]["timeout_seconds"], policy["reviewer"]["max_output_bytes"])'
