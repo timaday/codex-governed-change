@@ -1,0 +1,35 @@
+# Render __AUTHORITY_SHA__ as the exact protected public authority commit.
+name: Governed disposition broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_decision_ids:
+        description: JSON array of exact protected decision IDs
+        required: true
+        default: "[]"
+        type: string
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-broker
+  cancel-in-progress: false
+
+jobs:
+  governed_disposition:
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == true &&
+      (github.event_name != 'schedule' || vars.GOVERNED_SCHEDULE_ENABLED == 'true')
+    uses: timaday/codex-governed-change/.github/workflows/disposition.yml@__AUTHORITY_SHA__
+    with:
+      approved_decision_ids: ${{ github.event.inputs.approved_decision_ids || '[]' }}
+      disposition_app_id: ${{ vars.DISPOSITION_APP_ID }}
+    secrets:
+      disposition_app_private_key: ${{ secrets.DISPOSITION_APP_PRIVATE_KEY }}

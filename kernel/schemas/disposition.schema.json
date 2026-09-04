@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/disposition.schema.json",
+  "title": "Governed change disposition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "task_contract_sha256", "effective_policy_sha256", "candidate_id", "manifest_sha256", "state", "reasons", "human_action_required", "approved", "evaluated_at", "producer_version"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "effective_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "manifest_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "state": { "enum": ["READY_FOR_HUMAN", "BLOCK", "UNKNOWN"] },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "evidence_refs"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+          "message": { "type": "string", "minLength": 1 },
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "human_action_required": { "const": true },
+    "approved": { "const": false },
+    "evaluated_at": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" },
+    "producer_version": { "type": "string", "minLength": 1 }
+  }
+}

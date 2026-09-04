@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/mutant-record.schema.json",
+  "title": "Governed semantic mutant record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mutant_record_id", "repository_id", "task_contract_sha256", "effective_policy_sha256", "candidate_id", "corpus_id", "mutant_id", "patch_sha256", "mutated_source_identity", "execution_identity", "sandbox_capability", "provenance_statement", "execution_result", "operator", "tool", "tool_version", "location", "requirement_id", "selected_command", "selected_tests", "outcome", "causal_evidence", "triage", "started_at", "ended_at", "limitations"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "mutant_record_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "effective_policy_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "corpus_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "mutant_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "patch_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "mutated_source_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "execution_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sandbox_capability": { "$ref": "#/$defs/artifactReference" },
+    "provenance_statement": { "$ref": "#/$defs/artifactReference" },
+    "execution_result": { "$ref": "#/$defs/artifactReference" },
+    "operator": { "type": "string", "minLength": 1 },
+    "tool": { "type": "string", "minLength": 1 },
+    "tool_version": { "type": "string", "minLength": 1 },
+    "location": { "$ref": "#/$defs/location" },
+    "requirement_id": { "type": "string", "pattern": "^GOV-([0-9]{3}|TOKEN-[0-9]{3})$" },
+    "selected_command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "selected_tests": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "outcome": { "enum": ["KILLED", "SURVIVED", "INVALID", "TIMEOUT", "EQUIVALENT_CLAIMED", "UNKNOWN"] },
+    "causal_evidence": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "rationale", "human_reviewed"],
+      "properties": {
+        "identity": { "type": "string" },
+        "rationale": { "type": "string" },
+        "human_reviewed": { "type": "boolean" }
+      }
+    },
+    "started_at": { "$ref": "#/$defs/timestamp" },
+    "ended_at": { "$ref": "#/$defs/timestamp" },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "line"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator_id", "sha256"],
+      "properties": {
+        "locator_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+  }
+}

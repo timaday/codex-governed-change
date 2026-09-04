@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/sandbox-capability.schema.json",
+  "title": "Disposable gate sandbox capability report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability_id", "provider", "provider_version", "image", "command", "implementation_sha256", "source_identity", "execution_identity", "disposable", "secrets_present", "network_mode", "candidate_copy_writable", "protected_paths_writable", "evidence_paths_writable", "supervisor_paths_writable", "process_limit", "memory_bytes", "cpu_seconds", "timeout_seconds", "output_bytes", "verified_at", "limitations"],
+  "properties": {
+    "schema_version": { "const": "2.0.0" },
+    "capability_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "provider": { "enum": ["docker", "podman"] },
+    "provider_version": { "type": "string", "minLength": 1 },
+    "image": { "type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-f]{64}$" },
+    "command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "implementation_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "source_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "execution_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "disposable": { "type": "boolean" },
+    "secrets_present": { "type": "boolean" },
+    "network_mode": { "enum": ["none", "declared"] },
+    "candidate_copy_writable": { "type": "boolean" },
+    "protected_paths_writable": { "type": "boolean" },
+    "evidence_paths_writable": { "type": "boolean" },
+    "supervisor_paths_writable": { "type": "boolean" },
+    "process_limit": { "type": "integer", "minimum": 1 },
+    "memory_bytes": { "type": "integer", "minimum": 1 },
+    "cpu_seconds": { "type": "integer", "minimum": 1 },
+    "timeout_seconds": { "type": "integer", "minimum": 1 },
+    "output_bytes": { "type": "integer", "minimum": 1 },
+    "verified_at": { "$ref": "#/$defs/timestamp" },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+  }
+}

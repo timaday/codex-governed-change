@@ -1,0 +1,85 @@
+name: Reusable protected Codex reviewer qualification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governed-reviewer-qualification
+  cancel-in-progress: false
+
+env:
+  AUTHORITY_REPOSITORY: timaday/codex-governed-change
+  AUTHORITY_REF: refs/heads/governance-authority
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  qualify:
+    name: Eight-case exact-identity qualification
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == true
+    runs-on: [self-hosted, linux, x64, governed-reviewer-jit]
+    timeout-minutes: 300
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 .governance/ci/verify-bundle.py
+
+      - name: Verify live public authority ref
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-live-authority-ref.py
+          --repository "$AUTHORITY_REPOSITORY"
+          --ref "$AUTHORITY_REF"
+          --expected-sha "${{ job.workflow_sha }}"
+
+      - name: Require exact ChatGPT-authenticated Codex identity
+        run: |
+          test "$(codex --version)" = "codex-cli 0.149.1"
+          codex login status | grep -Fqx "Logged in using ChatGPT"
+
+      - name: Run exact conformance and rapid-review corpus
+        env:
+          PYTHONPATH: kernel/src:.governance/ci
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: >-
+          python3 .governance/ci/run-qualification.py
+          --corpus .governance/releases/v0.1.0/qualification/corpus.json
+          --human-label-decision .governance/releases/v0.1.0/qualification/human-label-decision.json
+          --prompt kernel/.codex/review/reviewer.prompt.md
+          --schema-root kernel/schemas
+          --expected-codex-version "codex-cli 0.149.1"
+          --model gpt-5.6-sol
+          --reasoning-effort xhigh
+          --actor "$GITHUB_ACTOR"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-ref "$AUTHORITY_REF"
+          --workflow-run-id "$GITHUB_RUN_ID"
+          --workflow-attempt "$GITHUB_RUN_ATTEMPT"
+          --timeout-seconds 900
+          --max-output-bytes 4000000
+          --output "$RUNNER_TEMP/qualification-results"
+
+      - name: Reverify authority after qualification
+        run: python3 .governance/ci/verify-bundle.py
+
+      - name: Upload content-addressed qualification results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qualification-results
+          path: ${{ runner.temp }}/qualification-results
+          if-no-files-found: error
+          retention-days: 7

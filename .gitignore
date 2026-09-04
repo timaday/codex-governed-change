@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.coverage
+artifacts/
+publication/
+*.pem
+*.key
+***_PRIVATE_KEY***

@@ -1,0 +1,163 @@
+name: Reusable completed governed disposition finalizer
+
+on:
+  workflow_call:
+    inputs:
+      disposition_app_id:
+        required: true
+        type: string
+    secrets:
+      disposition_app_private_key:
+        description: Target-only GitHub App private key from the private broker
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-finalizer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+env:
+  AUTHORITY_REPOSITORY: timaday/codex-governed-change
+  AUTHORITY_REF: refs/heads/governance-authority
+  TARGET_ID: release-v0.1.0
+  SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+  SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+  SOURCE_BROKER_SHA: ${{ github.event.workflow_run.head_sha }}
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  finalize:
+    name: Publish post-completion App success
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.event.repository.private == true &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.status == 'completed' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the protected public authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 .governance/ci/verify-bundle.py
+
+      - name: Recheck live public authority ref
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-live-authority-ref.py
+          --repository "$AUTHORITY_REPOSITORY"
+          --ref "$AUTHORITY_REF"
+          --expected-sha "${{ job.workflow_sha }}"
+
+      - name: Resolve protected target
+        run: >-
+          python3 .governance/ci/resolve-target.py
+          --targets .governance/targets.json
+          --target-id "$TARGET_ID"
+          --output target.json
+
+      - name: Resolve exact source-run publication artifact
+        id: artifact
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: Number(process.env.SOURCE_RUN_ID),
+                per_page: 100
+              }
+            );
+            const matches = artifacts.filter(
+              artifact => artifact.name === 'disposition-publication' && artifact.expired === false
+            );
+            if (matches.length !== 1) {
+              throw new Error('completed source run has no unique publication artifact');
+            }
+            const artifact = matches[0];
+            if (!Number.isSafeInteger(artifact.id) || artifact.id < 1 ||
+                typeof artifact.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(artifact.digest)) {
+              throw new Error('publication artifact metadata is invalid');
+            }
+            core.setOutput('artifact_id', String(artifact.id));
+            core.setOutput('artifact_digest', artifact.digest);
+
+      - name: Download immutable completed-run publication
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          artifact-ids: ${{ steps.artifact.outputs.artifact_id }}
+          path: publication
+          merge-multiple: true
+
+      - name: Verify publication artifact identity
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-artifact-metadata.py
+          --repository "$GITHUB_REPOSITORY"
+          --artifact-id "${{ steps.artifact.outputs.artifact_id }}"
+          --artifact-digest "${{ steps.artifact.outputs.artifact_digest }}"
+          --artifact-name disposition-publication
+          --workflow-run-id "$SOURCE_RUN_ID"
+
+      - name: Validate post-completion success before credential creation
+        run: >-
+          python3 .governance/ci/publish-check.py
+          --publication publication/check.json
+          --target target.json
+          --workflow-run "${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-sha "${{ job.workflow_sha }}"
+          --source-repository "$GITHUB_REPOSITORY"
+          --source-head-sha "$SOURCE_BROKER_SHA"
+          --admission-result success
+          --app-id "${{ inputs.disposition_app_id }}"
+          --finalize-completed-success
+          --validate-only
+
+      - name: Mint target-scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ inputs.disposition_app_id }}
+          private-key: ${{ secrets.disposition_app_private_key }}
+          owner: timaday
+          repositories: codex-governed-change
+          permission-checks: write
+          permission-contents: read
+          permission-metadata: read
+          permission-statuses: write
+
+      - name: Finalize source-generation sentinel after workflow completion
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/publish-check.py
+          --publication publication/check.json
+          --target target.json
+          --workflow-run "${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-sha "${{ job.workflow_sha }}"
+          --source-repository "$GITHUB_REPOSITORY"
+          --source-head-sha "$SOURCE_BROKER_SHA"
+          --admission-result success
+          --app-id "${{ inputs.disposition_app_id }}"
+          --finalize-completed-success

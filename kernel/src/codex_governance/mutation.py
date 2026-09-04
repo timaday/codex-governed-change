@@ -1,0 +1,672 @@
+"""Pure governance mutation selection and outcome policy."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import secrets
+import stat
+import subprocess
+import time
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+from codex_governance.artifacts import (
+    read_bounded_repository_entry,
+    write_bounded_bytes,
+)
+from codex_governance.canonical import (
+    canonical_json_bytes,
+    content_address,
+    normalize_repo_path,
+    require_git_object,
+    require_sha256,
+    sha256_bytes,
+    sha256_canonical,
+    verify_content_address,
+)
+from codex_governance.domain.model import DispositionState
+
+
+REQUIRED_CURATED_MUTANTS = frozenset(
+    {
+        "missing-reviewer-pass",
+        "timeout-soft-success",
+        "omit-untracked",
+        "omit-post-identity",
+        "reviewer-pass-authorizes",
+        "expired-waiver",
+        "artifact-symlink",
+        "reviewer-shell",
+        "stop-loop",
+        "candidate-gates",
+        "redaction-hides-failure",
+        "skipped-final",
+        "cross-repository-replay",
+        "forged-task-authorization",
+        "writable-protected-paths",
+        "manifest-overwrite",
+        "cli-output-overwrite",
+        "raw-stream-success",
+        "unverified-reviewer-reference",
+        "risk-downgrade",
+        "protected-risk-floor-downgrade",
+        "old-policy-self-replacement",
+        "missing-provenance",
+        "reviewer-command-payload-unprojected",
+        "rollback-output-unbound",
+        "legacy-context-schema",
+        "gate-copy-source-identity",
+        "mutation-copy-source-identity",
+        "candidate-owned-corpus",
+        "candidate-owned-rollback",
+        "incomplete-migration-registry",
+        "ignored-submodule-copy",
+        "unframed-rollback-package",
+        "rollback-sibling-sitecustomize",
+        "noncausal-mutation-kill",
+        "submodule-head-only",
+        "host-value-redaction-nonblocking",
+        "qualification-output-unchecked",
+        "artifact-leaf-rebind",
+        "fcntl-signal-escape",
+        "qualification-blanket-block",
+        "mutant-subject-confusion",
+        "provenance-prompt-unchecked",
+        "provenance-materials-unchecked",
+        "rapid-defect-id-unchecked",
+        "rapid-finding-line-unchecked",
+        "reviewer-output-canonicalized",
+        "reviewer-output-leaf-rebind",
+        "fcntl-benign-status-denied",
+        "short-host-value-unredacted",
+        "gate-endpoint-unredacted",
+        "review-snapshot-source-only",
+        "assurance-fixed-set-removed",
+        "status-ready-passthrough",
+        "reviewer-finding-location-unchecked",
+        "shared-host-root-truncated",
+        "named-endpoint-unredacted",
+        "ioctl-signal-escape",
+        "authoritative-json-pathname-read",
+        "authoritative-json-reopened",
+        "untracked-pathname-read",
+        "candidate-clone-unbounded",
+        "preparation-error-launches",
+        "candidate-entry-pathname-copy",
+        "reviewer-entry-pathname-copy",
+        "reviewer-permission-deadline-omitted",
+        "mutant-copy-identity-omitted",
+        "mutation-git-deadline-omitted",
+        "reviewer-argv-unchecked",
+        "reviewer-stdin-unchecked",
+        "reviewer-permitted-input-unchecked",
+        "rapid-risk-material-unchecked",
+        "rapid-charter-material-unchecked",
+        "authoritative-reference-reopened",
+        "bare-ipv6-unredacted",
+        "admission-candidate-prompt-read",
+        "mutation-control-credit-without-survival",
+        "mutation-control-admission-omitted",
+        "review-deadline-start-delayed",
+        "untracked-read-deadline-omitted",
+        "reviewer-final-output-deadline-omitted",
+        "authorization-tail-truncated",
+        "colon-delimited-posix-unredacted",
+        "unqualified-finding-confirmed",
+        "reviewer-version-deadline-omitted",
+        "local-mutation-timeout-regression",
+        "unreconstructable-reviewer-input-accepted",
+        "admission-schema-root-unprotected",
+        "qualification-schema-cache-bypassed",
+        "launcher-closure-deadline-omitted",
+        "launcher-closure-recheck-omitted",
+        "permission-profile-prefix-only",
+        "executed-reviewer-argv-unchecked",
+        "executed-reviewer-argv-not-recorded",
+        "reviewer-evidence-root-optional",
+        "conformance-rapid-input-accepted",
+        "qualification-permitted-input-partial",
+        "admission-preflight-schema-unprotected",
+        "reference-evaluate-schema-prefixed",
+        "qualification-executed-argv-unreconciled",
+        "reviewer-output-schema-reopened",
+        "container-create-cidfile-pathname-read",
+        "container-cleanup-cidfile-deadline-omitted",
+        "container-helper-deadline-rebased",
+        "multi-leading-posix-unredacted",
+        "unc-share-root-unredacted",
+        "permission-finalization-deadline-rebased",
+        "colon-multi-posix-unredacted",
+        "malformed-scheme-endpoint-family-omitted",
+    }
+)
+
+MUTATION_KILLED_EXIT = 100
+MUTATION_UNKNOWN_EXIT = 119
+MUTATION_INVALID_EXIT = 120
+MUTATION_PROBE_PREFIX = b"CODEX_MUTATION_PROBE="
+MUTATION_PROBE_SENTINEL = "<PROTECTED_MUTATION_PROBE>"
+MUTATION_PATH_SENTINEL = "<MUTATED_PATH>"
+UNITTEST_SELECTION_RE = re.compile(r"^tests(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+MUTATION_PROBE_FIELDS = frozenset(
+    {
+        "schema_version", "outcome", "tests_run", "failures", "errors",
+        "skipped", "expected_failures", "unexpected_successes",
+    }
+)
+
+MUTATION_PROBE_SOURCE = """import json, os, py_compile, sys, unittest
+PREFIX = 'CODEX_MUTATION_PROBE='
+FIELDS = ('tests_run', 'failures', 'errors', 'skipped', 'expected_failures', 'unexpected_successes')
+def emit(outcome, counts=None):
+    values = {name: 0 for name in FIELDS}
+    if counts is not None:
+        values.update(counts)
+    payload = {'schema_version': '1.0.0', 'outcome': outcome, **values}
+    print(PREFIX + json.dumps(payload, sort_keys=True, separators=(',', ':')), flush=True)
+path, names = sys.argv[1], sys.argv[2:]
+if path.endswith('.py'):
+    try:
+        py_compile.compile(path, doraise=True)
+    except py_compile.PyCompileError:
+        emit('INVALID')
+        raise SystemExit(120)
+try:
+    sys.path[:0] = [os.path.join(os.getcwd(), 'src'), os.getcwd()]
+    suite = unittest.defaultTestLoader.loadTestsFromNames(names)
+    result = unittest.TextTestRunner(stream=sys.stderr, verbosity=2).run(suite)
+    counts = {
+        'tests_run': result.testsRun,
+        'failures': len(result.failures),
+        'errors': len(result.errors),
+        'skipped': len(result.skipped),
+        'expected_failures': len(result.expectedFailures),
+        'unexpected_successes': len(result.unexpectedSuccesses),
+    }
+except BaseException:
+    emit('UNKNOWN')
+    raise SystemExit(119)
+if counts['tests_run'] > 0 and counts['failures'] > 0 and all(
+    counts[name] == 0
+    for name in ('errors', 'skipped', 'expected_failures', 'unexpected_successes')
+):
+    emit('KILLED', counts)
+    raise SystemExit(100)
+if counts['tests_run'] > 0 and all(counts[name] == 0 for name in FIELDS[1:]):
+    emit('SURVIVED', counts)
+    raise SystemExit(0)
+emit('UNKNOWN', counts)
+raise SystemExit(119)
+"""
+
+
+def selected_mutation_tests(selected_command: Sequence[str]) -> list[str]:
+    if (
+        len(selected_command) < 7
+        or list(selected_command[:6])
+        != [
+            "python3", "-I", "-S", "-c",
+            MUTATION_PROBE_SENTINEL, MUTATION_PATH_SENTINEL,
+        ]
+    ):
+        raise ValueError(
+            "selected mutation command must be the protected unittest probe template"
+        )
+    names = list(selected_command[6:])
+    if not names or any(
+        not isinstance(name, str) or UNITTEST_SELECTION_RE.fullmatch(name) is None
+        for name in names
+    ):
+        raise ValueError("selected mutation unittest names are malformed")
+    return names
+
+
+def build_mutation_probe_command(
+    path: str, selected_command: Sequence[str]
+) -> list[str]:
+    relative = normalize_repo_path(path)
+    names = selected_mutation_tests(selected_command)
+    return [
+        "python3", "-I", "-S", "-c", MUTATION_PROBE_SOURCE, relative, *names,
+    ]
+
+
+def mutation_probe_outcome(stdout: bytes, exit_code: int | None) -> str:
+    """Reconstruct one exact terminal probe observation from bounded raw stdout."""
+    if not isinstance(stdout, bytes) or not stdout.endswith(b"\n"):
+        return "UNKNOWN"
+    if stdout.count(MUTATION_PROBE_PREFIX) != 1:
+        return "UNKNOWN"
+    lines = stdout.splitlines()
+    if not lines or not lines[-1].startswith(MUTATION_PROBE_PREFIX):
+        return "UNKNOWN"
+    raw = lines[-1][len(MUTATION_PROBE_PREFIX):]
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "UNKNOWN"
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != MUTATION_PROBE_FIELDS
+        or payload.get("schema_version") != "1.0.0"
+        or raw != canonical_json_bytes(payload)
+    ):
+        return "UNKNOWN"
+    counts = [
+        payload.get(name)
+        for name in (
+            "tests_run", "failures", "errors", "skipped",
+            "expected_failures", "unexpected_successes",
+        )
+    ]
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in counts
+    ):
+        return "UNKNOWN"
+    tests_run, failures, errors, skipped, expected_failures, unexpected = counts
+    outcome = payload.get("outcome")
+    if (
+        outcome == "KILLED"
+        and exit_code == MUTATION_KILLED_EXIT
+        and tests_run > 0
+        and failures > 0
+        and errors == skipped == expected_failures == unexpected == 0
+    ):
+        return "KILLED"
+    if (
+        outcome == "SURVIVED"
+        and exit_code == 0
+        and tests_run > 0
+        and failures == errors == skipped == expected_failures == unexpected == 0
+    ):
+        return "SURVIVED"
+    if outcome == "INVALID" and exit_code == MUTATION_INVALID_EXIT and not any(counts):
+        return "INVALID"
+    return "UNKNOWN"
+
+
+def classify_mutation_execution(
+    *, status: str, termination_kind: str, exit_code: int | None, stdout: bytes
+) -> str:
+    """Map only matching gate state and protected probe proof to an outcome."""
+    if termination_kind == "timeout":
+        return "TIMEOUT"
+    observed = mutation_probe_outcome(stdout, exit_code)
+    if status == "PASS" and observed == "SURVIVED":
+        return "SURVIVED"
+    if status == "FAIL" and observed in {"KILLED", "INVALID"}:
+        return observed
+    return "UNKNOWN"
+
+
+def causal_mutation_pair_outcome(
+    control_outcome: str, mutant_outcome: str
+) -> str:
+    """Credit a mutant outcome only after its identical control survived."""
+    if control_outcome != "SURVIVED":
+        return "UNKNOWN"
+    return mutant_outcome if mutant_outcome in {"KILLED", "SURVIVED"} else "UNKNOWN"
+
+
+def evaluate_mutation_record(record: Mapping[str, Any]) -> DispositionState:
+    outcome = record.get("outcome")
+    if outcome == "SURVIVED":
+        return DispositionState.BLOCK
+    if outcome == "KILLED":
+        evidence = record.get("causal_evidence")
+        tests = record.get("selected_tests")
+        references = (
+            record.get("sandbox_capability"),
+            record.get("provenance_statement"),
+            record.get("execution_result"),
+        )
+        if (
+            verify_content_address(record, "mutant_record_id")
+            and isinstance(evidence, Sequence)
+            and evidence
+            and isinstance(tests, Sequence)
+            and tests
+            and all(isinstance(item, Mapping) for item in references)
+        ):
+            return DispositionState.READY_FOR_HUMAN
+    return DispositionState.UNKNOWN
+
+
+def _remaining(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("mutation observation deadline expired")
+    return remaining
+
+
+def _git(
+    repository: Path, *arguments: str, deadline: float | None = None
+) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(repository), *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_remaining(deadline),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("Git-visible mutation source observation failed") from exc
+    if completed.returncode != 0:
+        raise ValueError("Git-visible mutation source observation failed")
+    _remaining(deadline)
+    return completed.stdout
+
+
+def git_visible_tree_sha256(
+    repository: Path,
+    *,
+    evidence_root: str,
+    replacements: Mapping[str, bytes] | None = None,
+    deadline: float | None = None,
+) -> str:
+    """Hash every Git-visible source byte in one concrete candidate tree."""
+    root = repository.resolve(strict=True)
+    evidence = normalize_repo_path(evidence_root)
+    replacement_bytes = {
+        normalize_repo_path(path): bytes(data)
+        for path, data in (replacements or {}).items()
+    }
+    return _git_visible_tree_sha256(
+        root,
+        evidence_root=evidence,
+        replacements=replacement_bytes,
+        ancestors=frozenset(),
+        deadline=deadline,
+    )
+
+
+def _git_visible_tree_sha256(
+    root: Path,
+    *,
+    evidence_root: str | None,
+    replacements: Mapping[str, bytes],
+    ancestors: frozenset[Path],
+    deadline: float | None,
+) -> str:
+    """Recursively frame one repository and all initialized submodule trees."""
+    root = root.resolve(strict=True)
+    if root in ancestors:
+        raise ValueError("recursive submodule cycle is not admissible")
+    nested_ancestors = ancestors | {root}
+    modes: dict[str, str] = {}
+    _remaining(deadline)
+    for raw in _git(
+        root, "ls-files", "--stage", "-z", deadline=deadline
+    ).split(b"\x00"):
+        if not raw:
+            continue
+        metadata, raw_path = raw.split(b"\t", 1)
+        mode = metadata.split(b" ", 1)[0].decode("ascii")
+        modes[normalize_repo_path(raw_path.decode("utf-8"))] = mode
+    entries: list[dict[str, Any]] = []
+    names = _git(
+        root,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        deadline=deadline,
+    )
+    deleted = {
+        normalize_repo_path(raw.decode("utf-8"))
+        for raw in _git(
+            root, "ls-files", "-z", "--deleted", deadline=deadline
+        ).split(b"\x00")
+        if raw
+    }
+    seen: set[str] = set()
+    for raw in names.split(b"\x00"):
+        if not raw:
+            continue
+        path = normalize_repo_path(raw.decode("utf-8"))
+        if path in seen or (
+            evidence_root is not None
+            and (path == evidence_root or path.startswith(evidence_root + "/"))
+        ):
+            continue
+        seen.add(path)
+        absolute = root.joinpath(*path.split("/"))
+        mode = modes.get(path)
+        if mode == "160000":
+            nested_root = absolute.resolve(strict=True)
+            try:
+                nested_root.relative_to(root)
+            except ValueError as exc:
+                raise ValueError("Git-visible submodule escapes its repository") from exc
+            commit = require_git_object(
+                _git(
+                    nested_root, "rev-parse", "HEAD", deadline=deadline
+                ).decode("ascii").strip(),
+                name="submodule commit",
+            )
+            entries.append(
+                {
+                    "path": path,
+                    "mode": mode,
+                    "submodule_commit": commit,
+                    "submodule_tree_sha256": _git_visible_tree_sha256(
+                        nested_root,
+                        evidence_root=None,
+                        replacements={},
+                        ancestors=nested_ancestors,
+                        deadline=deadline,
+                    ),
+                }
+            )
+            continue
+        if path in replacements:
+            data = replacements[path]
+            if mode is None:
+                _, _, info = read_bounded_repository_entry(
+                    root, path, deadline=deadline
+                )
+                mode = "100755" if info.st_mode & 0o111 else "100644"
+        elif path in deleted:
+            entries.append({"path": path, "mode": mode or "missing", "missing": True})
+            continue
+        else:
+            kind, data, info = read_bounded_repository_entry(
+                root, path, deadline=deadline
+            )
+            if kind == "symlink":
+                mode = "120000"
+            elif kind == "regular":
+                mode = "100755" if info.st_mode & 0o111 else "100644"
+            else:
+                raise ValueError("Git-visible mutation source contains an unsafe type")
+        entries.append(
+            {"path": path, "mode": mode, "bytes": len(data), "sha256": sha256_bytes(data)}
+        )
+    if set(replacements) - seen:
+        raise ValueError("mutation replacement path is not Git-visible")
+    _remaining(deadline)
+    return sha256_canonical({"schema_version": "1.0.0", "entries": entries})
+
+
+def expected_mutated_tree_sha256(
+    *,
+    repository: Path,
+    evidence_root: str,
+    mutant: Mapping[str, Any],
+    deadline: float | None = None,
+) -> str:
+    """Compute the concrete tree identity after one protected virtual patch."""
+    root = repository.resolve(strict=True)
+    relative = normalize_repo_path(mutant.get("path"))
+    kind, data, _ = read_bounded_repository_entry(
+        root, relative, deadline=deadline
+    )
+    if kind != "regular":
+        raise ValueError("mutant target must be a regular candidate file")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("mutant target must be UTF-8 text") from exc
+    old = mutant.get("old")
+    new = mutant.get("new")
+    if not isinstance(old, str) or not isinstance(new, str) or text.count(old) != 1:
+        raise ValueError("curated mutant precondition did not match exactly once")
+    replaced = text.replace(old, new, 1).encode("utf-8")
+    return git_visible_tree_sha256(
+        root,
+        evidence_root=evidence_root,
+        replacements={relative: replaced},
+        deadline=deadline,
+    )
+
+
+def mutated_source_identity(
+    *,
+    candidate_id: str,
+    corpus_id: str,
+    mutant_id: str,
+    patch_sha256: str,
+    tree_sha256: str,
+) -> str:
+    """Identify one protected mutation of an exact original candidate."""
+    if not isinstance(mutant_id, str) or not mutant_id:
+        raise ValueError("mutant identity is required")
+    return sha256_canonical(
+        {
+            "candidate_id": require_sha256(candidate_id, name="candidate_id"),
+            "corpus_id": require_sha256(corpus_id, name="corpus_id"),
+            "mutant_id": mutant_id,
+            "patch_sha256": require_sha256(patch_sha256, name="patch_sha256"),
+            "tree_sha256": require_sha256(tree_sha256, name="tree_sha256"),
+        }
+    )
+
+
+def select_generated_mutants(
+    *, candidates: Sequence[Mapping[str, Any]], budget: int
+) -> list[dict[str, Any]]:
+    if budget < 0:
+        raise ValueError("mutation budget cannot be negative")
+    relevant = [
+        dict(item)
+        for item in candidates
+        if item.get("changed_line") is True or item.get("risk") in {"high", "critical"}
+    ]
+    return sorted(relevant, key=lambda item: str(item.get("id", "")))[:budget]
+
+
+def parse_curated_corpus(data: bytes) -> dict[str, Any]:
+    """Parse exact protected corpus bytes without a second pathname read."""
+    import json
+
+    try:
+        document = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("curated mutation corpus is unavailable or malformed") from exc
+    if not isinstance(document, dict) or document.get("schema_version") != "1.0.0":
+        raise ValueError("unsupported curated mutation corpus")
+    if not verify_content_address(document, "corpus_id"):
+        raise ValueError("curated mutation corpus identity does not reconstruct")
+    baseline = document.get("baseline_command")
+    mutants = document.get("mutants")
+    if (
+        not isinstance(baseline, list)
+        or not baseline
+        or not all(isinstance(item, str) and item for item in baseline)
+        or not isinstance(mutants, list)
+    ):
+        raise ValueError("curated mutation corpus commands are malformed")
+    ids: set[str] = set()
+    required_fields = {
+        "mutant_id", "path", "old", "new", "operator",
+        "requirement_id", "selected_command",
+    }
+    for mutant in mutants:
+        if not isinstance(mutant, dict) or set(mutant) != required_fields:
+            raise ValueError("curated mutant has unexpected fields")
+        mutant_id = mutant["mutant_id"]
+        if not isinstance(mutant_id, str) or mutant_id in ids:
+            raise ValueError("curated mutant ID is invalid or duplicated")
+        ids.add(mutant_id)
+        normalize_repo_path(mutant["path"])
+        if not all(
+            isinstance(mutant.get(field), str) and mutant[field]
+            for field in ("old", "new", "operator", "requirement_id")
+        ):
+            raise ValueError("curated mutant transformation is incomplete")
+        command = mutant["selected_command"]
+        if not isinstance(command, list) or not command or not all(
+            isinstance(item, str) and item for item in command
+        ):
+            raise ValueError("curated mutant command is malformed")
+        selected_mutation_tests(command)
+    if ids != REQUIRED_CURATED_MUTANTS:
+        raise ValueError("curated mutation corpus does not exactly match protected IDs")
+    return document
+
+
+def load_curated_corpus(path: Path) -> dict[str, Any]:
+    """Load the protected finite corpus without accepting unknown operations."""
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ValueError("curated mutation corpus is unavailable or malformed") from exc
+    return parse_curated_corpus(data)
+
+
+def apply_curated_mutant(
+    candidate_copy: Path,
+    mutant: Mapping[str, Any],
+    *,
+    deadline: float | None = None,
+) -> str:
+    """Apply one exact protected text mutation to a disposable candidate copy."""
+    root = candidate_copy.resolve(strict=True)
+    relative = normalize_repo_path(mutant.get("path"))
+    kind, data, info = read_bounded_repository_entry(
+        root, relative, deadline=deadline
+    )
+    if kind != "regular":
+        raise ValueError("mutant target must be a regular candidate file")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("mutant target must be UTF-8 text") from exc
+    old = mutant.get("old")
+    new = mutant.get("new")
+    if not isinstance(old, str) or not isinstance(new, str) or text.count(old) != 1:
+        raise ValueError("curated mutant precondition did not match exactly once")
+    target = root.joinpath(*relative.split("/"))
+    temporary = target.with_name(
+        target.name + ".codex-mutant-" + secrets.token_hex(8)
+    )
+    try:
+        write_bounded_bytes(
+            temporary,
+            text.replace(old, new, 1).encode("utf-8"),
+            deadline=deadline,
+            mode=0o755 if info.st_mode & 0o111 else 0o644,
+        )
+        _remaining(deadline)
+        os.replace(temporary, target)
+        _remaining(deadline)
+    finally:
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+    return sha256_canonical(
+        {"path": relative, "old": old, "new": new, "operator": mutant.get("operator")}
+    )
+
+
+def mutation_record_id(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind a fully packaged mutant observation to all fields except its own ID."""
+    return content_address(dict(record), "mutant_record_id")

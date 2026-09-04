@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/effective-policy.schema.json",
+  "title": "Protected governed-change effective policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "policy_id", "lkg_governance_commit", "evidence_root", "governance_paths", "decision_source", "protected_minimums", "sandbox", "context", "mutation", "reviewer", "gates", "producer_version"],
+  "properties": {
+    "schema_version": { "const": "3.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "policy_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,127}$" },
+    "lkg_governance_commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+    "evidence_root": { "type": "string", "minLength": 1 },
+    "governance_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "decision_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protected_path"],
+      "properties": {
+        "kind": { "enum": ["protected_files", "adapter"] },
+        "protected_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "protected_minimums": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path_prefix", "risk_profile", "gate_ids"],
+        "properties": {
+          "path_prefix": { "type": "string", "minLength": 1 },
+          "risk_profile": { "enum": ["low", "standard", "elevated"] },
+          "gate_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "image", "network_mode", "secrets_present", "process_limit", "memory_bytes"],
+      "properties": {
+        "provider": { "enum": ["docker", "podman"] },
+        "image": { "type": "string", "pattern": "^[a-z0-9._/-]+@sha256:[0-9a-f]{64}$" },
+        "network_mode": { "const": "none" },
+        "secrets_present": { "const": false },
+        "process_limit": { "type": "integer", "minimum": 1 },
+        "memory_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_profile", "compact_tokens", "standard_tokens", "deep_tokens", "projection_version", "qualification_ids"],
+      "properties": {
+        "default_profile": { "enum": ["COMPACT", "STANDARD", "DEEP"] },
+        "compact_tokens": { "type": "integer", "minimum": 1 },
+        "standard_tokens": { "type": "integer", "minimum": 1 },
+        "deep_tokens": { "type": "integer", "minimum": 1 },
+        "projection_version": { "type": "string", "minLength": 1 },
+        "qualification_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["COMPACT", "STANDARD", "DEEP"],
+          "properties": {
+            "COMPACT": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "STANDARD": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "DEEP": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["curated_required", "corpus_path", "corpus_sha256", "generated_budget"],
+      "properties": {
+        "curated_required": { "const": true },
+        "corpus_path": { "type": "string", "minLength": 1 },
+        "corpus_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "generated_budget": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "reasoning_effort", "timeout_seconds", "max_output_bytes", "qualification_corpus_sha256", "qualification_label_decision_id", "qualification_ids"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning_effort": { "enum": ["high", "xhigh"] },
+        "timeout_seconds": { "type": "integer", "minimum": 1 },
+        "max_output_bytes": { "type": "integer", "minimum": 1 },
+        "qualification_corpus_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "qualification_label_decision_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "qualification_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["conformance", "rapid_review"],
+          "properties": {
+            "conformance": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "rapid_review": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate_id", "profiles", "command", "timeout_seconds", "max_output_bytes", "shell", "risk_label"],
+        "properties": {
+          "gate_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+          "profiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["code", "specification", "mixed", "governance"] } },
+          "command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "timeout_seconds": { "type": "integer", "minimum": 1 },
+          "max_output_bytes": { "type": "integer", "minimum": 1 },
+          "shell": { "type": "boolean" },
+          "risk_label": { "type": "string" }
+        }
+      }
+    },
+    "producer_version": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/risk-assessment.schema.json",
+  "title": "Candidate-bound rapid-review risk assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "task_contract_sha256", "assessment_id", "candidate_id", "change_kind", "risk_profile", "hazard_classes", "assessed_surfaces", "stakeholders", "value_at_risk", "risk_hypotheses", "mandatory_charter_count", "rapid_review_required", "skip_rationale", "created_at", "producer_version", "provenance"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "repository_id": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$" },
+    "task_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "assessment_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "change_kind": { "enum": ["specification", "code", "mixed", "governance"] },
+    "risk_profile": { "enum": ["low", "standard", "elevated"] },
+    "hazard_classes": { "type": "array", "uniqueItems": true, "items": { "enum": ["security", "authorization", "destructive_operations", "migration", "concurrency", "data_integrity", "public_api", "governance_boundary"] } },
+    "assessed_surfaces": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "stakeholders": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "value_at_risk": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "risk_hypotheses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "mandatory_charter_count": { "type": "integer", "minimum": 0 },
+    "rapid_review_required": { "type": "boolean" },
+    "skip_rationale": { "type": "string" },
+    "created_at": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" },
+    "producer_version": { "type": "string", "minLength": 1 },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["produced_by", "method", "source_refs"],
+      "properties": {
+        "produced_by": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "source_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

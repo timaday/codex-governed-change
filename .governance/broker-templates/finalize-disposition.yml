@@ -1,0 +1,30 @@
+# Render __AUTHORITY_SHA__ as the exact protected public authority commit.
+name: Finalize completed governed disposition broker
+
+on:
+  workflow_run:
+    workflows: ["Governed disposition broker"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-finalizer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.event.repository.private == true &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.status == 'completed' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule')
+    uses: timaday/codex-governed-change/.github/workflows/finalize-disposition.yml@__AUTHORITY_SHA__
+    with:
+      disposition_app_id: ${{ vars.DISPOSITION_APP_ID }}
+    secrets:
+      disposition_app_private_key: ${{ secrets.DISPOSITION_APP_PRIVATE_KEY }}

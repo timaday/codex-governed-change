@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "invariant": "a broker workflow may run only when every broker caller pin equals the live public authority ref head; scheduled production remains disabled until the protected receipt commit is pinned",
+  "permitted_broker_runs_semantics": "all broker workflows that may be dispatched or automatically triggered in the state, including workflow_run finalizers",
+  "states": [
+    {
+      "state": "initial-bootstrap-pinned",
+      "authority_ref_state": "initial-bootstrap",
+      "all_broker_caller_pins": "initial-bootstrap",
+      "scheduled_producer_enabled": false,
+      "permitted_broker_runs": ["qualify-reviewer"]
+    },
+    {
+      "state": "qualification-and-decisions-committed",
+      "authority_ref_state": "decision-commit",
+      "all_broker_caller_pins": "initial-bootstrap",
+      "scheduled_producer_enabled": false,
+      "permitted_broker_runs": []
+    },
+    {
+      "state": "decision-commit-pinned",
+      "authority_ref_state": "decision-commit",
+      "all_broker_caller_pins": "decision-commit",
+      "scheduled_producer_enabled": false,
+      "permitted_broker_runs": ["disposition", "finalize-disposition"]
+    },
+    {
+      "state": "receipt-committed",
+      "authority_ref_state": "receipt-commit",
+      "all_broker_caller_pins": "decision-commit",
+      "scheduled_producer_enabled": false,
+      "permitted_broker_runs": []
+    },
+    {
+      "state": "receipt-commit-pinned",
+      "authority_ref_state": "receipt-commit",
+      "all_broker_caller_pins": "receipt-commit",
+      "scheduled_producer_enabled": true,
+      "permitted_broker_runs": ["disposition", "finalize-disposition"]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "role": "non_authoritative_execution_broker",
+  "repository": "timaday/codex-governed-change-authority",
+  "required_visibility": "private",
+  "required_default_branch": "main",
+  "authority_repository": "timaday/codex-governed-change",
+  "authority_ref": "refs/heads/governance-authority",
+  "allowed_external_triggers": ["workflow_dispatch", "schedule"],
+  "allowed_internal_triggers": ["workflow_run:completed"],
+  "forbidden_triggers": [
+    "pull_request",
+    "pull_request_target",
+    "push",
+    "repository_dispatch",
+    "issue_comment",
+    "issues"
+  ],
+  "repository_secrets": ["DISPOSITION_APP_PRIVATE_KEY"],
+  "repository_variables": [
+    "DISPOSITION_APP_ID",
+    "GOVERNED_SCHEDULE_ENABLED"
+  ],
+  "reviewer_runner": {
+    "labels": ["self-hosted", "linux", "x64", "governed-reviewer-jit"],
+    "scope": "private_broker_repository_only",
+    "lifecycle": "single_job_destroy_after_completion",
+    "authentication": "chatgpt",
+    "model": "gpt-5.6-sol",
+    "openai_api_key_permitted": false
+  },
+  "credential_constraints": {
+    "github_app_installation": "target_repository_only",
+    "candidate_receives_credentials": false,
+    "gate_receives_credentials": false,
+    "admission_receives_credentials": false,
+    "reviewer_tools_receive_credentials": false,
+    "publisher_only": true
+  },
+  "portability_note": "No organization, paid private-repository protection, environment secret, machine path, hostname, endpoint or runner instance is assumed."
+}

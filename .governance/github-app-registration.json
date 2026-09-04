@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "owner": "timaday",
+  "name": "codex-governed-change-disposition",
+  "description": "Publishes fail-closed governed disposition checks; no merge, release, waiver, credential, or settings authority.",
+  "homepage_url": "https://github.com/timaday/codex-governed-change",
+  "public": false,
+  "request_oauth_on_install": false,
+  "webhook_active": false,
+  "webhook_url": null,
+  "events": [],
+  "repository_permissions": {
+    "checks": "write",
+    "contents": "read",
+    "metadata": "read",
+    "statuses": "write"
+  },
+  "installation_scope": {
+    "selection": "selected",
+    "repositories": [
+      "timaday/codex-governed-change"
+    ]
+  },
+  "registration_url": "https://github.com/settings/apps/new?name=codex-governed-change-disposition&description=Publishes%20fail-closed%20governed%20disposition%20checks%3B%20no%20merge%2C%20release%2C%20waiver%2C%20credential%2C%20or%20settings%20authority.&url=https%3A%2F%2Fgithub.com%2Ftimaday%2Fcodex-governed-change&public=false&request_oauth_on_install=false&webhook_active=false&checks=write&contents=read&statuses=write"
+}

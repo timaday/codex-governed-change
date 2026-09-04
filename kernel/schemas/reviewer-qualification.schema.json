@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/schemas/reviewer-qualification.schema.json",
+  "title": "Fresh-context reviewer qualification result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "qualification_id", "prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "reasoning_effort", "corpus_sha256", "label_decision_id", "case_evidence_sha256", "human_labelled", "cases", "critical_cases", "critical_detected", "critical_defect_recall", "false_passes", "false_blocks", "unknowns", "latency_ms", "cost", "qualified", "created_at", "limitations"],
+  "properties": {
+    "schema_version": { "const": "3.0.0" },
+    "qualification_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "prompt_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "schema_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "launcher_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "codex_cli_version": { "type": "string", "pattern": "^codex-cli [0-9][0-9A-Za-z._+-]{0,63}$" },
+    "authentication": { "const": "chatgpt" },
+    "model": { "type": "string", "minLength": 1 },
+    "reasoning_effort": { "enum": ["high", "xhigh"] },
+    "corpus_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "label_decision_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "case_evidence_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "human_labelled": { "type": "boolean" },
+    "cases": { "type": "integer", "minimum": 1 },
+    "critical_cases": { "type": "integer", "minimum": 1 },
+    "critical_detected": { "type": "integer", "minimum": 0 },
+    "critical_defect_recall": { "type": "string", "minLength": 1 },
+    "false_passes": { "type": "integer", "minimum": 0 },
+    "false_blocks": { "type": "integer", "minimum": 0 },
+    "unknowns": { "type": "integer", "minimum": 0 },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "cost": { "type": "string" },
+    "qualified": { "type": "boolean" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$" }
+  }
+}

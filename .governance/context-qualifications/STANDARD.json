@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "projection_version": "1.0.0",
+  "profile": "STANDARD",
+  "baseline": {
+    "critical_recall": 1.0,
+    "false_passes": 0,
+    "traceability": 1.0,
+    "disposition_correct": true,
+    "tokens": 24000
+  },
+  "candidate": {
+    "critical_recall": 1.0,
+    "false_passes": 0,
+    "traceability": 1.0,
+    "disposition_correct": true,
+    "tokens": 24000
+  },
+  "qualified": true,
+  "created_at": "2026-09-03T00:00:00Z",
+  "limitations": [
+    "Protected v0.1.0 structural no-regression baseline; token savings are not claimed."
+  ],
+  "qualification_id": "sha256:54b01e4633fb1b99d06d204fc586c20aee68ad329295a480c5522ad8b54d3550"
+}

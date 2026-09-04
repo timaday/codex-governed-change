@@ -1,0 +1,979 @@
+name: Reusable governed disposition authority
+
+on:
+  workflow_call:
+    inputs:
+      approved_decision_ids:
+        description: JSON array of exact protected decision IDs approved by this authenticated dispatch
+        required: true
+        type: string
+      disposition_app_id:
+        description: Target-only GitHub App ID
+        required: true
+        type: string
+    secrets:
+      disposition_app_private_key:
+        description: Target-only GitHub App private key from the private broker
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: governed-disposition-release-v0.1.0
+  cancel-in-progress: false
+
+env:
+  AUTHORITY_REPOSITORY: timaday/codex-governed-change
+  AUTHORITY_REF: refs/heads/governance-authority
+  TARGET_ID: release-v0.1.0
+  TRIGGER_EVENT: ${{ github.event_name }}
+  AUTHENTICATED_ACTOR: ${{ github.actor }}
+  APPROVED_DECISION_IDS: ${{ inputs.approved_decision_ids }}
+  INITIAL_TARGET_REPOSITORY: timaday/codex-governed-change
+  INITIAL_TARGET_HEAD: b322d63d4327f0cccd10c24b48a5ee563da921d9
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  initialize_disposition:
+    name: Initialize fail-closed disposition
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      check_run_id: ${{ steps.initialize.outputs.result }}
+    permissions:
+      contents: read
+    steps:
+      - name: Mint target-only App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ inputs.disposition_app_id }}
+          private-key: ${{ secrets.disposition_app_private_key }}
+          owner: timaday
+          repositories: codex-governed-change
+          permission-checks: write
+          permission-statuses: write
+          permission-contents: read
+
+      - name: Create immutable-target failure sentinel before checkout
+        id: initialize
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          result-encoding: string
+          script: |
+            const targetId = process.env.TRIGGER_EVENT === 'schedule'
+              ? 'release-v0.1.0'
+              : process.env.TARGET_ID;
+            if (!['workflow_dispatch', 'schedule'].includes(process.env.TRIGGER_EVENT)) {
+              throw new Error('private broker trigger is not authorized');
+            }
+            if (targetId !== 'release-v0.1.0') {
+              throw new Error('only the immutable v0.1.0 target may be initialized');
+            }
+            const [owner, repo] = process.env.INITIAL_TARGET_REPOSITORY.split('/');
+            const response = await github.rest.checks.create({
+              owner,
+              repo,
+              name: 'disposition',
+              head_sha: process.env.INITIAL_TARGET_HEAD,
+              status: 'completed',
+              conclusion: 'failure',
+              external_id: `governed-change:${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}:initialized`,
+              details_url: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              output: {
+                title: 'Governed reevaluation initialized fail-closed',
+                summary: 'This failure remains authoritative unless protected admission updates this exact check run.'
+              }
+            });
+            if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
+              throw new Error('GitHub did not create the fail-closed disposition sentinel');
+            }
+            return String(response.data.id);
+
+  resolve_target:
+    name: Resolve protected target
+    needs: initialize_disposition
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      repository: ${{ steps.export.outputs.repository }}
+      base_sha: ${{ steps.export.outputs.base_sha }}
+      head_sha: ${{ steps.export.outputs.head_sha }}
+      lkg_sha: ${{ steps.export.outputs.lkg_governance_commit }}
+      target_ref: ${{ steps.export.outputs.target_ref }}
+      fallback_artifact_id: ${{ steps.fallback_upload.outputs.artifact-id }}
+      fallback_artifact_digest: ${{ steps.fallback_upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 .governance/ci/verify-bundle.py
+
+      - name: Reject a stale public authority workflow commit
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-live-authority-ref.py
+          --repository "$AUTHORITY_REPOSITORY"
+          --ref "$AUTHORITY_REF"
+          --expected-sha "${{ job.workflow_sha }}"
+
+      - name: Resolve registry entry
+        run: >-
+          python3 .governance/ci/resolve-target.py
+          --targets .governance/targets.json
+          --target-id "$TARGET_ID"
+          --output target.json
+
+      - name: Export bounded checkout identities
+        id: export
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".governance/ci")
+          from common import load_json
+
+          target = load_json(Path("target.json"))
+          descriptor = os.open(os.environ["GITHUB_OUTPUT"], os.O_WRONLY | os.O_APPEND)
+          with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
+              for name in ("repository", "base_sha", "head_sha", "lkg_governance_commit", "target_ref"):
+                  stream.write(f"{name}={target[name]}\n")
+          PY
+
+      - name: Initialize downstream fail-closed publication
+        run: >-
+          python3 .governance/ci/make-publication.py
+          --target target.json
+          --details-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          --workflow-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-sha "${{ job.workflow_sha }}"
+          --source-repository "$GITHUB_REPOSITORY"
+          --source-head-sha "$GITHUB_SHA"
+          --fallback-reason ADMISSION_PREREQUISITE_UNSUCCESSFUL
+          --output fallback-publication/check.json
+
+      - name: Upload downstream fail-closed publication
+        id: fallback_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: disposition-fallback
+          path: fallback-publication/check.json
+          if-no-files-found: error
+          retention-days: 7
+
+  rollback_rehearsal:
+    name: Protected initial-LKG rollback rehearsal
+    needs: resolve_target
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          path: authority
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 authority/.governance/ci/verify-bundle.py
+
+      - name: Check out exact rollback target
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ needs.resolve_target.outputs.repository }}
+          ref: ${{ needs.resolve_target.outputs.lkg_sha }}
+          path: rollback-candidate
+          persist-credentials: false
+
+      - name: Verify actual rollback checkout identity
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository rollback-candidate
+          --expected-head "${{ needs.resolve_target.outputs.lkg_sha }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Execute exact rollback plan in protected sandbox
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          python3 authority/.governance/ci/resolve-target.py \
+            --targets authority/.governance/targets.json \
+            --target-id "$TARGET_ID" \
+            --output rollback-target.json
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            scope \
+            --repository rollback-candidate \
+            --task authority/.governance/releases/v0.1.0/rollback-task-contract.json \
+            --policy authority/.governance/effective-policy.json \
+            --output artifacts/governance/completion/evidence/rollback-effective-configuration.json
+          OBSERVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            identify \
+            --repository rollback-candidate \
+            --policy authority/.governance/effective-policy.json \
+            --mode commit \
+            --base "${{ needs.resolve_target.outputs.lkg_sha }}" \
+            --head "${{ needs.resolve_target.outputs.lkg_sha }}" \
+            --output artifacts/governance/completion/evidence/rollback-candidate.json
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            run-gates \
+            --repository rollback-candidate \
+            --policy authority/.governance/effective-policy.json \
+            --task authority/.governance/releases/v0.1.0/rollback-task-contract.json \
+            --candidate rollback-candidate/artifacts/governance/completion/evidence/rollback-candidate.json \
+            --reviewer-prompt authority/kernel/.codex/review/reviewer.prompt.md \
+            --run-id "github-${GITHUB_RUN_ID}-rollback" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-system github-actions \
+            --observed-at "$OBSERVED_AT" \
+            --output artifacts/governance/completion/evidence/rollback-gate-summary.json
+          python3 authority/.governance/ci/verify-checkout.py \
+            --repository rollback-candidate \
+            --expected-head "${{ needs.resolve_target.outputs.lkg_sha }}" \
+            --allow-untracked-prefix artifacts/governance/completion/evidence
+          CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 authority/.governance/ci/prepare-rollback-package.py \
+            --authority authority \
+            --candidate rollback-candidate \
+            --target rollback-target.json \
+            --candidate-identity rollback-candidate/artifacts/governance/completion/evidence/rollback-candidate.json \
+            --gate-summary rollback-candidate/artifacts/governance/completion/evidence/rollback-gate-summary.json \
+            --created-at "$CREATED_AT" \
+            --output rollback-package
+
+      - name: Upload protected rollback rehearsal
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rollback-rehearsal
+          path: rollback-package
+          if-no-files-found: error
+          retention-days: 7
+
+  deterministic_evidence:
+    name: Deterministic protected evidence
+    needs: resolve_target
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          fetch-depth: 0
+          path: authority
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 authority/.governance/ci/verify-bundle.py
+
+      - name: Check out exact target candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ needs.resolve_target.outputs.repository }}
+          ref: ${{ needs.resolve_target.outputs.head_sha }}
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify actual target checkout identity
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository candidate
+          --expected-head "${{ needs.resolve_target.outputs.head_sha }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Materialize exact protected inputs
+        run: |
+          python3 authority/.governance/ci/resolve-target.py \
+            --targets authority/.governance/targets.json \
+            --target-id "$TARGET_ID" \
+            --output target.json
+          python3 authority/.governance/ci/prepare-deterministic-inputs.py \
+            --authority authority \
+            --candidate candidate \
+            --target target.json \
+            --event-name "$TRIGGER_EVENT" \
+            --actor "$AUTHENTICATED_ACTOR" \
+            --authority-repository "$AUTHORITY_REPOSITORY" \
+            --authority-ref "$AUTHORITY_REF" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --approved-decision-ids "$APPROVED_DECISION_IDS" \
+            --output candidate/artifacts/governance/completion/evidence
+
+      - name: Validate scope and exact candidate identity
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            scope \
+            --repository candidate \
+            --task candidate/artifacts/governance/completion/evidence/task-contract.json \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --output artifacts/governance/completion/evidence/effective-configuration.json
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            identify \
+            --repository candidate \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --mode commit \
+            --base "${{ needs.resolve_target.outputs.base_sha }}" \
+            --head "${{ needs.resolve_target.outputs.head_sha }}" \
+            --output artifacts/governance/completion/evidence/candidate.json
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "authority/.governance/ci")
+          from common import load_json
+
+          target = load_json(Path("target.json"))
+          candidate = load_json(Path("candidate/artifacts/governance/completion/evidence/candidate.json"))
+          if candidate["candidate_id"] != target["expected_candidate_id"]:
+              raise SystemExit("protected candidate identity mismatch")
+          PY
+
+      - name: Run real-container gates and mutation
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          OBSERVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            run-gates \
+            --repository candidate \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --proposed-policy candidate/artifacts/governance/completion/evidence/proposed-policy.json \
+            --task candidate/artifacts/governance/completion/evidence/task-contract.json \
+            --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
+            --reviewer-prompt authority/kernel/.codex/review/reviewer.prompt.md \
+            --run-id "github-${GITHUB_RUN_ID}" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-system github-actions \
+            --observed-at "$OBSERVED_AT" \
+            --output artifacts/governance/completion/evidence/gate-summary.json
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            mutate \
+            --repository candidate \
+            --governance-repository authority \
+            --mutation-corpus .governance/releases/v0.1.0/mutation-corpus.json \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --task candidate/artifacts/governance/completion/evidence/task-contract.json \
+            --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
+            --reviewer-prompt authority/kernel/.codex/review/reviewer.prompt.md \
+            --run-id "github-${GITHUB_RUN_ID}" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-system github-actions \
+            --observed-at "$OBSERVED_AT" \
+            --output artifacts/governance/completion/evidence/mutation-summary.json
+
+      - name: Reverify candidate after gates and mutation
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository candidate
+          --expected-head "${{ needs.resolve_target.outputs.head_sha }}"
+          --allow-untracked-prefix artifacts/governance/completion/evidence
+
+      - name: Compile protected context and reviewer inputs
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 authority/.governance/ci/prepare-context-sources.py \
+            --candidate candidate \
+            --evidence candidate/artifacts/governance/completion/evidence \
+            --reviewer-prompt authority/kernel/.codex/review/reviewer.prompt.md \
+            --created-at "$CREATED_AT"
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            prepare-review \
+            --repository candidate \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --task candidate/artifacts/governance/completion/evidence/task-contract.json \
+            --gate-summary candidate/artifacts/governance/completion/evidence/gate-summary.json \
+            --mutation-summary candidate/artifacts/governance/completion/evidence/mutation-summary.json \
+            --context-qualification candidate/artifacts/governance/completion/evidence/context-qualification.json \
+            --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
+            --profile DEEP \
+            --token-budget 64000 \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh \
+            --observed-at "$CREATED_AT" \
+            --sources-output artifacts/governance/completion/evidence/context-sources.json \
+            --projection-output artifacts/governance/completion/evidence/context-projection.json \
+            --receipt-output artifacts/governance/completion/evidence/context-receipt.json
+          python3 authority/.governance/ci/prepare-review-inputs.py \
+            --candidate candidate \
+            --evidence candidate/artifacts/governance/completion/evidence \
+            --reviewer-prompt authority/kernel/.codex/review/reviewer.prompt.md
+
+      - name: Upload deterministic evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deterministic-evidence
+          path: candidate/artifacts/governance/completion/evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  fresh_context_review:
+    name: Qualified fresh-context Codex review
+    needs: [resolve_target, deterministic_evidence]
+    runs-on: [self-hosted, linux, x64, governed-reviewer-jit]
+    timeout-minutes: 100
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          path: authority
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 authority/.governance/ci/verify-bundle.py
+
+      - name: Check out exact target read-only candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ needs.resolve_target.outputs.repository }}
+          ref: ${{ needs.resolve_target.outputs.head_sha }}
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify actual review checkout identity
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository candidate
+          --expected-head "${{ needs.resolve_target.outputs.head_sha }}"
+
+      - name: Download deterministic evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.deterministic_evidence.outputs.artifact_id }}
+          path: candidate/artifacts/governance/completion/evidence
+          merge-multiple: true
+
+      - name: Verify deterministic artifact identity
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 authority/.governance/ci/verify-artifact-metadata.py
+          --repository "$GITHUB_REPOSITORY"
+          --artifact-id "${{ needs.deterministic_evidence.outputs.artifact_id }}"
+          --artifact-digest "${{ needs.deterministic_evidence.outputs.artifact_digest }}"
+          --artifact-name deterministic-evidence
+          --workflow-run-id "$GITHUB_RUN_ID"
+
+      - name: Require exact ChatGPT-authenticated Codex identity
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          python3 - <<'PY'
+          from codex_governance.reviewer import (
+              observe_codex_authentication,
+              observe_codex_cli_version,
+          )
+
+          if observe_codex_cli_version("codex") != "codex-cli 0.149.1":
+              raise SystemExit("protected Codex CLI version is unavailable")
+          if observe_codex_authentication("codex") != "chatgpt":
+              raise SystemExit("ChatGPT-authenticated Codex is unavailable")
+          PY
+
+      - name: Run conformance and both rapid-review charters
+        id: review
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          set +e
+          python3 -m codex_governance \
+            --schema-root kernel/schemas \
+            review \
+            --authority-root authority \
+            --repository candidate \
+            --policy artifacts/governance/completion/evidence/effective-policy.json \
+            --candidate artifacts/governance/completion/evidence/candidate.json \
+            --permitted-inputs artifacts/governance/completion/evidence/reviewer-permitted-inputs.json \
+            --prompt kernel/.codex/review/reviewer.prompt.md \
+            --output-schema kernel/schemas/reviewer-result.schema.json \
+            --output artifacts/governance/completion/evidence/reviewer-result.json \
+            --execution-output artifacts/governance/completion/evidence/reviewer-execution.json \
+            --context-execution-output artifacts/governance/completion/evidence/context-execution-receipt.json \
+            --stdout-output artifacts/governance/completion/evidence/reviewer-stdout.jsonl \
+            --stderr-output artifacts/governance/completion/evidence/reviewer-stderr.txt \
+            --workflow-system github-actions \
+            --run-id "github-${GITHUB_RUN_ID}-conformance" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh \
+            --timeout-seconds 1800 \
+            --max-output-bytes 4000000
+          CONFORMANCE_STATUS=$?
+
+          mkdir -p \
+            candidate/artifacts/governance/completion/evidence/rapid-review-sessions \
+            candidate/artifacts/governance/completion/evidence/rapid-review-executions \
+            candidate/artifacts/governance/completion/evidence/rapid-review-context-executions
+          python3 -m codex_governance \
+            --schema-root kernel/schemas \
+            review \
+            --authority-root authority \
+            --repository candidate \
+            --policy artifacts/governance/completion/evidence/effective-policy.json \
+            --candidate artifacts/governance/completion/evidence/candidate.json \
+            --permitted-inputs artifacts/governance/completion/evidence/rapid-review-inputs/t24-authority-and-evidence-001.json \
+            --prompt kernel/.codex/review/reviewer.prompt.md \
+            --output-schema kernel/schemas/rapid-review-session.schema.json \
+            --output artifacts/governance/completion/evidence/rapid-review-sessions/authority.json \
+            --execution-output artifacts/governance/completion/evidence/rapid-review-executions/authority.json \
+            --context-execution-output artifacts/governance/completion/evidence/rapid-review-context-executions/authority.json \
+            --stdout-output artifacts/governance/completion/evidence/rapid-review-executions/authority.stdout.jsonl \
+            --stderr-output artifacts/governance/completion/evidence/rapid-review-executions/authority.stderr.txt \
+            --workflow-system github-actions \
+            --run-id "github-${GITHUB_RUN_ID}-rapid-authority" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh \
+            --timeout-seconds 1800 \
+            --max-output-bytes 4000000
+          AUTHORITY_STATUS=$?
+
+          python3 -m codex_governance \
+            --schema-root kernel/schemas \
+            review \
+            --authority-root authority \
+            --repository candidate \
+            --policy artifacts/governance/completion/evidence/effective-policy.json \
+            --candidate artifacts/governance/completion/evidence/candidate.json \
+            --permitted-inputs artifacts/governance/completion/evidence/rapid-review-inputs/t24-runtime-reviewer-portability-002.json \
+            --prompt kernel/.codex/review/reviewer.prompt.md \
+            --output-schema kernel/schemas/rapid-review-session.schema.json \
+            --output artifacts/governance/completion/evidence/rapid-review-sessions/runtime.json \
+            --execution-output artifacts/governance/completion/evidence/rapid-review-executions/runtime.json \
+            --context-execution-output artifacts/governance/completion/evidence/rapid-review-context-executions/runtime.json \
+            --stdout-output artifacts/governance/completion/evidence/rapid-review-executions/runtime.stdout.jsonl \
+            --stderr-output artifacts/governance/completion/evidence/rapid-review-executions/runtime.stderr.txt \
+            --workflow-system github-actions \
+            --run-id "github-${GITHUB_RUN_ID}-rapid-runtime" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --model gpt-5.6-sol \
+            --reasoning-effort xhigh \
+            --timeout-seconds 1800 \
+            --max-output-bytes 4000000
+          RUNTIME_STATUS=$?
+          set -e
+
+          if [ "$CONFORMANCE_STATUS" -ne 0 ] || [ "$AUTHORITY_STATUS" -ne 0 ] || [ "$RUNTIME_STATUS" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Reverify candidate after fresh review
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository candidate
+          --expected-head "${{ needs.resolve_target.outputs.head_sha }}"
+          --allow-untracked-prefix artifacts/governance/completion/evidence
+
+      - name: Upload fresh-review evidence
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: reviewed-evidence
+          path: candidate/artifacts/governance/completion/evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  admission:
+    name: Reconstruct protected admission
+    if: always() && needs.resolve_target.result == 'success'
+    needs: [resolve_target, rollback_rehearsal, deterministic_evidence, fresh_context_review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      publication_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      publication_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected authority
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          path: authority
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 authority/.governance/ci/verify-bundle.py
+
+      - name: Check out exact target candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ needs.resolve_target.outputs.repository }}
+          ref: ${{ needs.resolve_target.outputs.head_sha }}
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify actual admission checkout identity
+        run: >-
+          python3 authority/.governance/ci/verify-checkout.py
+          --repository candidate
+          --expected-head "${{ needs.resolve_target.outputs.head_sha }}"
+
+      - name: Resolve target and initialize fail-closed publication
+        run: |
+          mkdir -p publication
+          python3 authority/.governance/ci/resolve-target.py \
+            --targets authority/.governance/targets.json \
+            --target-id "$TARGET_ID" \
+            --output target.json
+          python3 authority/.governance/ci/make-publication.py \
+            --target target.json \
+            --details-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --workflow-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --authority-repository "$AUTHORITY_REPOSITORY" \
+            --authority-sha "${{ job.workflow_sha }}" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --source-head-sha "$GITHUB_SHA" \
+            --fallback-reason ADMISSION_PREREQUISITE_UNSUCCESSFUL \
+            --output publication/fallback.json
+
+      - name: Download reviewed evidence
+        if: needs.rollback_rehearsal.result == 'success' && needs.deterministic_evidence.result == 'success' && needs.fresh_context_review.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.fresh_context_review.outputs.artifact_id }}
+          path: candidate/artifacts/governance/completion/evidence
+          merge-multiple: true
+
+      - name: Verify reviewed artifact identity
+        if: needs.rollback_rehearsal.result == 'success' && needs.deterministic_evidence.result == 'success' && needs.fresh_context_review.result == 'success'
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 authority/.governance/ci/verify-artifact-metadata.py
+          --repository "$GITHUB_REPOSITORY"
+          --artifact-id "${{ needs.fresh_context_review.outputs.artifact_id }}"
+          --artifact-digest "${{ needs.fresh_context_review.outputs.artifact_digest }}"
+          --artifact-name reviewed-evidence
+          --workflow-run-id "$GITHUB_RUN_ID"
+
+      - name: Download protected rollback rehearsal
+        if: needs.rollback_rehearsal.result == 'success' && needs.deterministic_evidence.result == 'success' && needs.fresh_context_review.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.rollback_rehearsal.outputs.artifact_id }}
+          path: candidate/artifacts/governance/completion/evidence
+          merge-multiple: true
+
+      - name: Verify rollback artifact identity
+        if: needs.rollback_rehearsal.result == 'success' && needs.deterministic_evidence.result == 'success' && needs.fresh_context_review.result == 'success'
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 authority/.governance/ci/verify-artifact-metadata.py
+          --repository "$GITHUB_REPOSITORY"
+          --artifact-id "${{ needs.rollback_rehearsal.outputs.artifact_id }}"
+          --artifact-digest "${{ needs.rollback_rehearsal.outputs.artifact_digest }}"
+          --artifact-name rollback-rehearsal
+          --workflow-run-id "$GITHUB_RUN_ID"
+
+      - name: Reconstruct exact admission
+        id: reconstruct
+        if: needs.rollback_rehearsal.result == 'success' && needs.deterministic_evidence.result == 'success' && needs.fresh_context_review.result == 'success'
+        env:
+          PYTHONPATH: authority/kernel/src
+        run: |
+          python3 authority/.governance/ci/verify-checkout.py \
+            --repository candidate \
+            --expected-head "${{ needs.resolve_target.outputs.head_sha }}" \
+            --allow-untracked-prefix artifacts/governance/completion/evidence
+          CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          TASK_SHA="$(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'authority/.governance/ci')
+          from common import read_bytes_once, sha256_bytes
+          print(sha256_bytes(read_bytes_once(Path('candidate/artifacts/governance/completion/evidence/task-contract.json'))))
+          PY
+          )"
+          POLICY_SHA="$(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'authority/.governance/ci')
+          from common import read_bytes_once, sha256_bytes
+          print(sha256_bytes(read_bytes_once(Path('candidate/artifacts/governance/completion/evidence/effective-policy.json'))))
+          PY
+          )"
+          CANDIDATE_ID="$(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'authority/.governance/ci')
+          from common import load_json
+          print(load_json(Path('candidate/artifacts/governance/completion/evidence/candidate.json'))['candidate_id'])
+          PY
+          )"
+
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            import-reviewer-result \
+            --repository candidate \
+            --source artifacts/governance/completion/evidence/reviewer-result.json \
+            --evidence-root artifacts/governance/completion/evidence \
+            --destination imported/reviewer-result.json \
+            --repository-id repo:timaday/codex-governed-change \
+            --candidate-id "$CANDIDATE_ID" \
+            --task-contract-sha256 "$TASK_SHA" \
+            --effective-policy-sha256 "$POLICY_SHA"
+          python3 authority/.governance/ci/prepare-closeout-inputs.py \
+            --candidate candidate \
+            --evidence candidate/artifacts/governance/completion/evidence \
+            --created-at "$CREATED_AT"
+          python3 authority/.governance/ci/prepare-manifest-input.py \
+            --candidate candidate \
+            --evidence candidate/artifacts/governance/completion/evidence \
+            --created-at "$CREATED_AT" \
+            --verified-decision-ids-output verified-decision-ids.json
+          python3 -m codex_governance \
+            --schema-root authority/kernel/schemas \
+            assemble-manifest \
+            --repository candidate \
+            --policy candidate/artifacts/governance/completion/evidence/effective-policy.json \
+            --input candidate/artifacts/governance/completion/evidence/manifest-input.json \
+            --output artifacts/governance/completion/evidence/evidence-manifest.json
+
+          DECISION_ARGUMENTS=()
+          while IFS= read -r DECISION_ID; do
+            DECISION_ARGUMENTS+=(--verified-decision-id "$DECISION_ID")
+          done < <(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'authority/.governance/ci')
+          from common import load_json
+          for value in load_json(Path('verified-decision-ids.json')):
+              print(value)
+          PY
+          )
+          set +e
+          python3 -m codex_governance \
+            --schema-root kernel/schemas \
+            evaluate \
+            --authority-root authority \
+            --prompt kernel/.codex/review/reviewer.prompt.md \
+            --repository candidate \
+            --manifest artifacts/governance/completion/evidence/evidence-manifest.json \
+            --candidate artifacts/governance/completion/evidence/candidate.json \
+            --evaluated-at "$CREATED_AT" \
+            "${DECISION_ARGUMENTS[@]}" \
+            --output artifacts/governance/completion/evidence/disposition.json
+          EVALUATION_STATUS=$?
+          set -e
+          python3 authority/.governance/ci/make-publication.py \
+            --target target.json \
+            --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
+            --manifest candidate/artifacts/governance/completion/evidence/evidence-manifest.json \
+            --disposition candidate/artifacts/governance/completion/evidence/disposition.json \
+            --details-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --workflow-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --authority-repository "$AUTHORITY_REPOSITORY" \
+            --authority-sha "${{ job.workflow_sha }}" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --source-head-sha "$GITHUB_SHA" \
+            --output publication/reconstructed.json
+          exit "$EVALUATION_STATUS"
+
+      - name: Select immutable publication payload
+        if: always()
+        env:
+          SOURCE_PUBLICATION: ${{ steps.reconstruct.outcome == 'success' && 'publication/reconstructed.json' || 'publication/fallback.json' }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "authority/.governance/ci")
+          from common import copy_json_once
+
+          copy_json_once(
+              Path(os.environ["SOURCE_PUBLICATION"]),
+              Path("publication/check.json"),
+          )
+          PY
+
+      - name: Upload publication payload
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: disposition-publication
+          path: publication/check.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail admission when reconstruction was not ready
+        if: always() && steps.reconstruct.outcome != 'success'
+        run: exit 1
+
+  publish_disposition:
+    name: Publish App-bound disposition
+    if: >-
+      always() &&
+      needs.initialize_disposition.result == 'success' &&
+      needs.initialize_disposition.outputs.check_run_id != '' &&
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.ref == 'refs/heads/main' &&
+      needs.resolve_target.result == 'success' &&
+      needs.resolve_target.outputs.fallback_artifact_id != '' &&
+      needs.resolve_target.outputs.fallback_artifact_digest != ''
+    needs: [initialize_disposition, resolve_target, admission]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PUBLICATION_ARTIFACT_ID: ${{ needs.admission.outputs.publication_artifact_id || needs.resolve_target.outputs.fallback_artifact_id }}
+      PUBLICATION_ARTIFACT_DIGEST: ${{ needs.admission.outputs.publication_artifact_digest || needs.resolve_target.outputs.fallback_artifact_digest }}
+      PUBLICATION_ARTIFACT_NAME: ${{ needs.admission.outputs.publication_artifact_id != '' && 'disposition-publication' || 'disposition-fallback' }}
+      PUBLICATION_ADMISSION_RESULT: ${{ needs.admission.result == 'success' && needs.admission.outputs.publication_artifact_id != '' && 'success' || 'failure' }}
+      INITIALIZED_CHECK_RUN_ID: ${{ needs.initialize_disposition.outputs.check_run_id }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected authority publisher
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: timaday/codex-governed-change
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Verify protected authority tree
+        run: python3 .governance/ci/verify-bundle.py
+
+      - name: Recheck live public authority ref before publication approval
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-live-authority-ref.py
+          --repository "$AUTHORITY_REPOSITORY"
+          --ref "$AUTHORITY_REF"
+          --expected-sha "${{ job.workflow_sha }}"
+
+      - name: Reload protected target registry
+        run: >-
+          python3 .governance/ci/resolve-target.py
+          --targets .governance/targets.json
+          --target-id "$TARGET_ID"
+          --output publisher-target.json
+
+      - name: Download immutable publication payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ env.PUBLICATION_ARTIFACT_ID }}
+          path: publication
+          merge-multiple: true
+
+      - name: Verify publication artifact identity
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/verify-artifact-metadata.py
+          --repository "$GITHUB_REPOSITORY"
+          --artifact-id "$PUBLICATION_ARTIFACT_ID"
+          --artifact-digest "$PUBLICATION_ARTIFACT_DIGEST"
+          --artifact-name "$PUBLICATION_ARTIFACT_NAME"
+          --workflow-run-id "$GITHUB_RUN_ID"
+
+      - name: Validate publication before credential creation
+        run: >-
+          python3 .governance/ci/publish-check.py
+          --publication publication/check.json
+          --target publisher-target.json
+          --workflow-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-sha "${{ job.workflow_sha }}"
+          --source-repository "$GITHUB_REPOSITORY"
+          --source-head-sha "$GITHUB_SHA"
+          --admission-result "$PUBLICATION_ADMISSION_RESULT"
+          --app-id "${{ inputs.disposition_app_id }}"
+          --check-run-id "$INITIALIZED_CHECK_RUN_ID"
+          --validate-only
+
+      - name: Mint target-scoped GitHub App token
+        id: app-token
+        if: env.PUBLICATION_ADMISSION_RESULT != 'success'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ inputs.disposition_app_id }}
+          private-key: ${{ secrets.disposition_app_private_key }}
+          owner: timaday
+          repositories: codex-governed-change
+          permission-checks: write
+          permission-contents: read
+          permission-metadata: read
+          permission-statuses: write
+
+      - name: Publish fixed fail-closed disposition check
+        if: env.PUBLICATION_ADMISSION_RESULT != 'success'
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_API_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .governance/ci/publish-check.py
+          --publication publication/check.json
+          --target publisher-target.json
+          --workflow-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          --authority-repository "$AUTHORITY_REPOSITORY"
+          --authority-sha "${{ job.workflow_sha }}"
+          --source-repository "$GITHUB_REPOSITORY"
+          --source-head-sha "$GITHUB_SHA"
+          --app-id "${{ inputs.disposition_app_id }}"
+          --check-run-id "$INITIALIZED_CHECK_RUN_ID"
+          --admission-result "$PUBLICATION_ADMISSION_RESULT"

@@ -1,0 +1,21 @@
+# Render __AUTHORITY_SHA__ as the exact protected public authority commit.
+# The called job uses the private-broker-scoped governed-reviewer-jit runner.
+name: Qualify protected Codex reviewer broker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governed-reviewer-qualification-broker
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: >-
+      github.repository == 'timaday/codex-governed-change-authority' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == true
+    uses: timaday/codex-governed-change/.github/workflows/qualify-reviewer.yml@__AUTHORITY_SHA__
