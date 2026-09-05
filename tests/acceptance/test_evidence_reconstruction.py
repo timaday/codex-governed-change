@@ -171,6 +171,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         reviewer_defect: str | None = None,
         rapid_finding_defect: str | None = None,
         rapid_retrieval_defect: str | None = None,
+        rst_relationship_defect: str | None = None,
     ) -> dict:
         corpus_cases = [
             {
@@ -827,6 +828,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "rapid_review": rapid_qualification["qualification_id"],
         }
         policy["reviewer"]["qualification_corpus_sha256"] = corpus_sha
+        policy["mutation"]["corpus_sha256"] = sha256_bytes(
+            (self.ROOT / "tests/mutation/corpus.json").read_bytes()
+        )
         policy["reviewer"]["qualification_label_decision_id"] = label_decision[
             "decision_id"
         ]
@@ -2010,12 +2014,31 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             follow_up_refs.append(
                 self.write("rapid-follow-up.json", follow_up, "follow-up")
             )
+        risk_updates = [
+            *(
+                f"requirement:{source['path']}"
+                for source in task["authoritative_sources"]
+                if source["kind"] == "requirement"
+            ),
+            *(
+                f"change:{path}"
+                for path in candidate_components["changed_paths"]
+            ),
+            "observation:EXPERIMENT-1",
+            *(
+                ["reviewer_finding:RAPID-FINDING-1"]
+                if rapid_finding_defect is not None
+                else []
+            ),
+        ]
+        if rst_relationship_defect == "missing-risk-update":
+            risk_updates.remove("observation:EXPERIMENT-1")
         risk_register = content_address(
             {
                 "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
                 "task_contract_sha256": task_sha, "candidate_id": self.CANDIDATE_ID,
                 "risks": [{"risk_id": "RISK-1", "description": "regression", "threatened_value": "correctness", "impact": "high", "status": "mitigated", "source_refs": [locator["locator_id"]], "charter_refs": ["CHARTER-FIXTURE"]}],
-                "updated_from": ["session:SESSION-FIXTURE"], "created_at": self.AT, "producer_version": "test",
+                "updated_from": risk_updates, "created_at": self.AT, "producer_version": "test",
             },
             "risk_register_id",
         )
@@ -2296,6 +2319,35 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             verified_decision_ids=self.verified_decision_ids(manifest),
         )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
+
+    def test_admission_rejects_an_incomplete_rst_update_graph(self) -> None:
+        manifest = self.complete_manifest(
+            rst_relationship_defect="missing-risk-update"
+        )
+        state, reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.UNKNOWN, state, reasons)
+        self.assertIn("operational RST evidence is incomplete", reasons)
+
+    def test_admission_expiry_is_unknown_before_manifest_reconstruction(self) -> None:
+        state, reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest={},
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate={},
+            evaluated_at="2026-08-26T12:00:00Z",
+            deadline=0.0,
+        )
+        self.assertEqual(DispositionState.UNKNOWN, state)
+        self.assertEqual(["ADMISSION_DEADLINE_EXPIRED"], reasons)
 
     def test_admission_reconstructs_stdin_from_protected_authority_prompt(self) -> None:
         (self.repository / ".codex/review/reviewer.prompt.md").write_bytes(

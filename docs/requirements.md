@@ -78,6 +78,26 @@ allowed merge methods, unattributed changes require extra approval, and the
 required-reviewer list is empty. Missing, extra, or different ruleset fields
 are `UNKNOWN`.
 
+GOV-025 and GOV-TOKEN-003 additionally require production `prepare-review` and
+`evaluate` to establish one absolute monotonic deadline before lock, policy, or
+manifest selection. Their caller-supplied timeout MUST equal the reconstructed
+protected policy reviewer timeout, and the same absolute deadline MUST cross
+every candidate, authority, Git, schema, evidence, context-qualification,
+retrieval, and admission-reconstruction helper. Expiry or omission is
+`UNKNOWN`; a cached byte observation does not waive the deadline.
+
+For GOV-057, the exact coverage graph has one sequence-unique coverage note per
+session and every protected oracle appears exactly once across those notes.
+The risk register's `updated_from` sequence MUST exactly equal the protected
+requirement and changed-path identities plus every direct observation, every
+surviving mutant, and every session or conformance reviewer finding. A merely
+valid subset, an unrelated valid typed identity, an uncovered session/oracle,
+or a duplicated coverage edge is `UNKNOWN`.
+
+For GOV-060, numeric regular-expression backreferences are outside the portable
+ECMA-262/Python intersection because the engines disagree when a referenced
+capture did not participate. Such a pattern is a malformed subset schema.
+
 ## MVP completion rule
 
 Every requirement above is mandatory. A proposed deferral changes the MVP contract and therefore requires an explicit human-reviewed specification change, traceability update, and rationale. An implementation model may not unilaterally defer a requirement.

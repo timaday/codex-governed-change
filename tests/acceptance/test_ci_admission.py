@@ -90,12 +90,32 @@ class CiAdmissionAcceptanceTest(unittest.TestCase):
         self.assertNotIn("--candidate candidate/", review_step)
         self.assertNotIn("--prompt governance/", review_step)
         self.assertIn('json.load(open("candidate/artifacts/governance/effective-policy.json"', review_step)
+        self.assertEqual(
+            1,
+            self.workflow.count(
+                '--timeout-seconds "$PREPARATION_TIMEOUT_SECONDS"'
+            ),
+        )
+        self.assertIn(
+            'json.load(open(sys.argv[1], encoding="utf-8"))["reviewer"]["timeout_seconds"]',
+            self.workflow,
+        )
         self.assertEqual(1, self.final_job.count("--authority-root governance"))
         self.assertEqual(
             1,
             self.final_job.count("--prompt .codex/review/reviewer.prompt.md"),
         )
         self.assertNotIn("--authority-root candidate", self.final_job)
+        self.assertEqual(
+            1,
+            self.final_job.count(
+                '--timeout-seconds "$ADMISSION_TIMEOUT_SECONDS"'
+            ),
+        )
+        self.assertIn(
+            'json.load(open("candidate/artifacts/governance/effective-policy.json", encoding="utf-8"))["reviewer"]["timeout_seconds"]',
+            self.final_job,
+        )
 
     def test_reference_passes_the_executable_static_policy(self) -> None:
         from codex_governance.governance import validate_ci_policy

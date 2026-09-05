@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -99,9 +101,7 @@ def _compile_portable_pattern(pattern: str) -> re.Pattern[str]:
                     raise re.error("malformed portable hexadecimal escape")
                 index += width + 2
             elif escaped in "123456789":
-                if index + 2 < len(pattern) and pattern[index + 2].isdigit():
-                    raise re.error("multi-digit escapes are not portable")
-                index += 2
+                raise re.error("backreferences are outside the portable subset")
             elif escaped == "0":
                 if index + 2 < len(pattern) and pattern[index + 2].isdigit():
                     raise re.error("octal escapes are not portable")
@@ -509,14 +509,28 @@ def parse_json_bytes(data: bytes) -> Any:
         raise ValueError(f"invalid UTF-8 JSON: {exc}") from exc
 
 
-def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
+def load_json(
+    path: Path,
+    *,
+    max_bytes: int = 2_000_000,
+    deadline: float | None = None,
+) -> Any:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
+    if deadline is not None and (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
+        raise TimeoutError("authoritative JSON deadline expired")
     cache = _AUTHORITATIVE_JSON_BYTES.get()
     key = str(path.absolute())
     data = cache.get(key) if cache is not None else None
     if data is None:
-        data = read_bounded_path_file(path, max_bytes=max_bytes)
+        data = read_bounded_path_file(
+            path, max_bytes=max_bytes, deadline=deadline
+        )
         if cache is not None:
             cache[key] = data
     elif len(data) > max_bytes:
@@ -524,9 +538,14 @@ def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
     return parse_json_bytes(data)
 
 
-def validate_loaded_instance(instance: Any, schema_path: Path) -> Any:
+def validate_loaded_instance(
+    instance: Any,
+    schema_path: Path,
+    *,
+    deadline: float | None = None,
+) -> Any:
     """Validate an already-parsed instance without reopening its representation."""
-    schema = load_json(schema_path)
+    schema = load_json(schema_path, deadline=deadline)
     if not isinstance(schema, dict):
         raise SchemaValidationError(["$: schema must be an object"])
     errors = validate_instance(instance, schema)
@@ -538,8 +557,17 @@ def validate_loaded_instance(instance: Any, schema_path: Path) -> Any:
     return instance
 
 
-def load_and_validate(instance_path: Path, schema_path: Path) -> Any:
-    return validate_loaded_instance(load_json(instance_path), schema_path)
+def load_and_validate(
+    instance_path: Path,
+    schema_path: Path,
+    *,
+    deadline: float | None = None,
+) -> Any:
+    return validate_loaded_instance(
+        load_json(instance_path, deadline=deadline),
+        schema_path,
+        deadline=deadline,
+    )
 
 
 class JsonRepresentationAdapter:

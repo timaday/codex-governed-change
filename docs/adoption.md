@@ -166,6 +166,9 @@ checkout, make `--schema-root`, `--prompt`, and `--output-schema` relative to
 that root, and make policy, candidate, permitted-input and output paths relative
 to `--repository`. Derive `--timeout-seconds` and `--max-output-bytes` from the
 protected effective policy; CLI defaults are not deployment policy.
+Pass that protected `--timeout-seconds` to `prepare-review`, every `review`, and
+`evaluate`; each command verifies the value after protected policy
+reconstruction while using its single absolute deadline from command entry.
 The reference CI runs conformance and every protected rapid-review input, then
 passes all three artifact families to the final reconstruction job.
 For a candidate touching a path in the previous LKG policy's

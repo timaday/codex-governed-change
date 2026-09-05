@@ -179,6 +179,8 @@ def validate_rst_lineage(
             or index.get(oracle.get("source")) != oracle.get("source_sha256")
         ):
             return DispositionState.UNKNOWN
+    coverage_session_sequence: list[str] = []
+    coverage_oracle_sequence: list[str] = []
     for coverage_id, note in coverage_by_id.items():
         oracle_refs = note.get("oracle_refs")
         if (
@@ -192,6 +194,15 @@ def validate_rst_lineage(
             or not set(oracle_refs).issubset(oracle_by_id)
         ):
             return DispositionState.UNKNOWN
+        coverage_session_sequence.append(str(note["session_id"]))
+        coverage_oracle_sequence.extend(str(reference) for reference in oracle_refs)
+    if (
+        len(coverage_session_sequence) != len(set(coverage_session_sequence))
+        or set(coverage_session_sequence) != set(session_by_id)
+        or len(coverage_oracle_sequence) != len(set(coverage_oracle_sequence))
+        or set(coverage_oracle_sequence) != set(oracle_by_id)
+    ):
+        return DispositionState.UNKNOWN
 
     risk_ids: set[str] = set()
     for risk in risk_register.get("risks", ()):
@@ -252,6 +263,22 @@ def validate_rst_lineage(
         kind, identity = reference.split(":", 1)
         if identity not in typed_sources.get(kind, set()):
             return DispositionState.UNKNOWN
+    expected_updates = {
+        *(f"requirement:{identity}" for identity in protected_requirement_sources),
+        *(f"change:{identity}" for identity in protected_change_sources),
+        *(f"observation:{identity}" for identity in experiment_ids),
+        *(
+            f"mutant:{record['mutant_id']}"
+            for record in mutation_records
+            if record.get("outcome") == "SURVIVED"
+        ),
+        *(
+            f"reviewer_finding:{identity}"
+            for identity in reviewer_finding_ids | finding_ids
+        ),
+    }
+    if set(updated_from) != expected_updates:
+        return DispositionState.UNKNOWN
 
     session_refs = debrief.get("session_refs", ())
     actionable_findings = debrief.get("actionable_findings", ())

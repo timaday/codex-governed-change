@@ -170,6 +170,13 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "reviewer-os-home-unchecked",
         "schema-unicode-shorthands-accepted",
         "rst-requirement-change-kinds-collapsed",
+        "rst-uncovered-oracle-accepted",
+        "rst-uncovered-session-accepted",
+        "rst-duplicate-session-coverage-accepted",
+        "rst-risk-update-subset-accepted",
+        "prepare-review-deadline-not-started",
+        "admission-deadline-dropped",
+        "schema-backreference-accepted",
     }
 )
 

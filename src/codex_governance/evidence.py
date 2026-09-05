@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -132,6 +134,13 @@ def read_reference(
 ) -> bytes:
     if max_bytes < 1:
         raise ValueError("reference byte bound must be positive")
+    if deadline is not None and (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
+        raise TimeoutError("evidence reference deadline expired")
     root = repository.resolve(strict=True)
     relative = normalize_repo_path(reference.get("path"))
     expected = require_sha256(reference.get("sha256"))
@@ -160,9 +169,14 @@ def load_referenced_json(
     repository: Path,
     reference: Mapping[str, Any],
     schema_path: Path,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
-    data = read_reference(repository=repository, reference=reference)
-    return parse_referenced_json(data=data, schema_path=schema_path)
+    data = read_reference(
+        repository=repository, reference=reference, deadline=deadline
+    )
+    return parse_referenced_json(
+        data=data, schema_path=schema_path, deadline=deadline
+    )
 
 
 def provenance_review_inputs_match(
@@ -180,13 +194,18 @@ def provenance_review_inputs_match(
     )
 
 
-def parse_referenced_json(*, data: bytes, schema_path: Path) -> dict[str, Any]:
+def parse_referenced_json(
+    *,
+    data: bytes,
+    schema_path: Path,
+    deadline: float | None = None,
+) -> dict[str, Any]:
     """Validate already descriptor-read referenced JSON without reopening it."""
     try:
         document = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("referenced artifact is not valid UTF-8 JSON") from exc
-    schema = load_json(schema_path)
+    schema = load_json(schema_path, deadline=deadline)
     errors = validate_instance(document, schema)
     errors.extend(
         validate_semantics(
@@ -357,8 +376,16 @@ def evaluate_manifest(
     evaluated_at: str,
     verified_decision_ids: frozenset[str] = frozenset(),
     qualification_repository: Path | None = None,
+    deadline: float | None = None,
 ) -> tuple[DispositionState, list[str]]:
     """Reconstruct all fixed assurance claims from raw typed references."""
+    if deadline is not None and (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
+        return DispositionState.UNKNOWN, ["ADMISSION_DEADLINE_EXPIRED"]
     if not isinstance(protected_prompt_bytes, bytes):
         return DispositionState.UNKNOWN, ["PROTECTED_REVIEWER_PROMPT_INVALID"]
     prompt_bytes = protected_prompt_bytes
@@ -396,6 +423,7 @@ def evaluate_manifest(
             repository=repository,
             reference=reference,
             schema_path=schema_root / f"{schema_name}.schema.json",
+            deadline=deadline,
         )
 
     try:
@@ -484,7 +512,9 @@ def evaluate_manifest(
             ):
                 locator_id = str(locator["locator_id"])
                 locator_by_id[locator_id] = locator
-                resolved = resolve_evidence_locator(repository, locator)
+                resolved = resolve_evidence_locator(
+                    repository, locator, deadline=deadline
+                )
                 resolved_locator_bytes[locator_id] = resolved
                 resolved_locators[locator_id] = sha256_bytes(resolved)
     except (KeyError, OSError, TypeError, ValueError):
@@ -645,10 +675,20 @@ def evaluate_manifest(
         prompt_bytes: bytes,
     ) -> bool:
         try:
-            stdout = read_reference(repository=repository, reference=execution["stdout"])
-            stderr = read_reference(repository=repository, reference=execution["stderr"])
+            stdout = read_reference(
+                repository=repository,
+                reference=execution["stdout"],
+                deadline=deadline,
+            )
+            stderr = read_reference(
+                repository=repository,
+                reference=execution["stderr"],
+                deadline=deadline,
+            )
             output_bytes = read_reference(
-                repository=repository, reference=output_reference
+                repository=repository,
+                reference=output_reference,
+                deadline=deadline,
             )
             parsed_output = json.loads(output_bytes)
             parsed_stream = parse_codex_jsonl_evidence(stdout)
@@ -886,6 +926,7 @@ def evaluate_manifest(
                         "sha256": artifact.get("sha256"),
                     },
                     max_bytes=expected_max_output_bytes,
+                    deadline=deadline,
                 )
                 if len(data) != declared_bytes:
                     return False
@@ -1078,10 +1119,12 @@ def evaluate_manifest(
             bootstrap_decision_bytes = read_reference(
                 repository=repository,
                 reference=manifest["initial_bootstrap_decision"],
+                deadline=deadline,
             )
             bootstrap_verification_bytes = read_reference(
                 repository=repository,
                 reference=manifest["initial_bootstrap_verification"],
+                deadline=deadline,
             )
             bootstrap_decision = json.loads(
                 bootstrap_decision_bytes.decode("utf-8")
@@ -1232,10 +1275,12 @@ def evaluate_manifest(
             rollback_task = parse_referenced_json(
                 data=rollback_task_bytes,
                 schema_path=schema_root / "task-contract.schema.json",
+                deadline=deadline,
             )
             rollback_candidate = parse_referenced_json(
                 data=rollback_candidate_bytes,
                 schema_path=schema_root / "candidate.schema.json",
+                deadline=deadline,
             )
             proposed_policy = load(
                 manifest["proposed_policy"], "effective-policy"
@@ -1295,6 +1340,7 @@ def evaluate_manifest(
                         "sha256": artifact.get("sha256"),
                     },
                     max_bytes=int(rollback_definition["max_output_bytes"]),
+                    deadline=deadline,
                 )
                 if (
                     artifact.get("truncated") is not False
@@ -1964,7 +2010,11 @@ def evaluate_manifest(
     mutation_records: list[dict[str, Any]] = []
     try:
         corpus_reference = manifest["mutation_corpus"]
-        corpus_bytes = read_reference(repository=repository, reference=corpus_reference)
+        corpus_bytes = read_reference(
+            repository=repository,
+            reference=corpus_reference,
+            deadline=deadline,
+        )
         if (
             corpus_reference.get("sha256")
             != policy["mutation"]["corpus_sha256"]
@@ -2217,7 +2267,7 @@ def evaluate_manifest(
             "context-execution-receipt",
         )
         affected_closure = GitCliRepositoryAdapter(
-            repository
+            repository, deadline=deadline
         ).conservative_affected_closure(
             candidate=current_candidate,
             evidence_root=policy["evidence_root"],
@@ -2226,6 +2276,7 @@ def evaluate_manifest(
             repository,
             affected_closure=affected_closure,
             changed_paths=current_candidate["changed_paths"],
+            deadline=deadline,
         )
         reconstructed_artifacts = build_protected_context_artifacts(
             gate_references=[
@@ -2244,7 +2295,9 @@ def evaluate_manifest(
             artifact_reader=lambda reference, digest: read_reference(
                 repository=repository,
                 reference={"path": reference, "sha256": digest},
+                deadline=deadline,
             ),
+            deadline=deadline,
         )
         reconstructed_sources = build_protected_context_sources(
             candidate=current_candidate,
@@ -2276,12 +2329,14 @@ def evaluate_manifest(
             qualification_artifact_reader=lambda reference: read_reference(
                 repository=(qualification_repository or repository),
                 reference=reference,
+                deadline=deadline,
             ),
             qualification_schema_root=schema_root,
             qualification_repository_id=repository_id,
             qualification_verified_decision_ids=verified_decision_ids,
             qualification_evaluated_at=evaluated_at,
             qualification_prompt_bytes=prompt_bytes,
+            qualification_deadline=deadline,
         )
         reconstructed_retrieval_index = reconstructed["retrieval_index"]
         context_ok = (
@@ -2391,10 +2446,12 @@ def evaluate_manifest(
         qualification_corpus_bytes = read_reference(
             repository=repository,
             reference=manifest["reviewer_qualification_corpus"],
+            deadline=deadline,
         )
         qualification_corpus = parse_referenced_json(
             data=qualification_corpus_bytes,
             schema_path=schema_root / "reviewer-qualification-corpus.schema.json",
+            deadline=deadline,
         )
         qualification_label_decision = load(
             manifest["reviewer_qualification_label_decision"],
@@ -2420,13 +2477,16 @@ def evaluate_manifest(
             ],
             label_decision=qualification_label_decision,
             artifact_reader=lambda reference: read_reference(
-                repository=repository, reference=reference
+                repository=repository,
+                reference=reference,
+                deadline=deadline,
             ),
             schema_root=schema_root,
             protected_repository_id=repository_id,
             verified_decision_ids=verified_decision_ids,
             evaluated_at=evaluated_at,
             prompt_bytes=prompt_bytes,
+            deadline=deadline,
         ) and reviewer_qualification_state(
             identity,
             qualification,
@@ -2652,13 +2712,16 @@ def evaluate_manifest(
                 ],
                 label_decision=qualification_label_decision,
                 artifact_reader=lambda reference: read_reference(
-                    repository=repository, reference=reference
+                    repository=repository,
+                    reference=reference,
+                    deadline=deadline,
                 ),
                 schema_root=schema_root,
                 protected_repository_id=repository_id,
                 verified_decision_ids=verified_decision_ids,
                 evaluated_at=evaluated_at,
                 prompt_bytes=prompt_bytes,
+                deadline=deadline,
             ) and reviewer_qualification_state(
                 rapid_identity,
                 rapid_qualification,
@@ -2940,6 +3003,7 @@ def evaluate_manifest(
                             "path": reference,
                             "sha256": reconstructed_retrieval_index[reference],
                         },
+                        deadline=deadline,
                     ),
                 )
                 == session.get("retrieval_expansions", ())
@@ -3069,6 +3133,8 @@ def evaluate_manifest(
     )
     if not assurance_ok:
         reasons.append("assurance case is missing, stale, unsupported, or inconsistent")
+    if deadline is not None and time.monotonic() >= deadline:
+        return DispositionState.UNKNOWN, ["ADMISSION_DEADLINE_EXPIRED"]
     if state is DispositionState.READY_FOR_HUMAN:
         reasons = ["all fixed assurance claims reconstruct for the exact candidate; human action remains required"]
     return state, reasons

@@ -101,7 +101,10 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
                         "charter_refs": ["CHARTER-1"],
                     }
                 ],
-                "updated_from": ["session:SESSION-1"],
+                "updated_from": [
+                    "observation:OBS-1",
+                    "reviewer_finding:FINDING-1",
+                ],
             },
             "risk_register_id",
         )
@@ -256,7 +259,11 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
                 clean = self.lineage()
                 register = clean["risk_register"]
                 register.pop("risk_register_id")
-                register["updated_from"] = [f"{kind}:{identity}"]
+                register["updated_from"] = [
+                    "observation:OBS-1",
+                    "reviewer_finding:FINDING-1",
+                    f"{kind}:{identity}",
+                ]
                 clean["risk_register"] = content_address(
                     register, "risk_register_id"
                 )
@@ -277,6 +284,127 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
                 self.assertEqual(
                     DispositionState.UNKNOWN,
                     validate_rst_lineage(**relabelled),
+                )
+
+    def test_coverage_graph_is_exact_and_has_one_note_per_session(self) -> None:
+        from codex_governance.rst_operations import validate_rst_lineage
+
+        uncovered_oracle = self.lineage()
+        binding = {
+            key: uncovered_oracle[key]
+            for key in ("repository_id", "task_contract_sha256", "candidate_id")
+        }
+        extra_oracle = content_address(
+            {
+                **binding,
+                "name": "second bounded oracle",
+                "source": "evidence/observation.bin",
+                "source_sha256": "sha256:" + "d" * 64,
+            },
+            "oracle_id",
+        )
+        uncovered_oracle["oracle_references"].append(extra_oracle)
+        self.assertEqual(
+            DispositionState.UNKNOWN,
+            validate_rst_lineage(**uncovered_oracle),
+        )
+
+        duplicate_session = deepcopy(uncovered_oracle)
+        duplicate_session["coverage_notes"].append(
+            content_address(
+                {
+                    **binding,
+                    "session_id": "SESSION-1",
+                    "oracle_refs": [extra_oracle["oracle_id"]],
+                },
+                "coverage_note_id",
+            )
+        )
+        self.assertEqual(
+            DispositionState.UNKNOWN,
+            validate_rst_lineage(**duplicate_session),
+        )
+
+        uncovered_session = self.lineage()
+        second_session = deepcopy(uncovered_session["sessions"][0])
+        second_session.update(
+            session_id="SESSION-2",
+            experiments=[],
+            findings=[],
+            residual_risks=[],
+            retrieval_expansions=[],
+        )
+        uncovered_session["sessions"].append(second_session)
+        uncovered_session["debrief"]["session_refs"].append("SESSION-2")
+        self.assertEqual(
+            DispositionState.UNKNOWN,
+            validate_rst_lineage(**uncovered_session),
+        )
+
+    def test_risk_updates_exactly_cover_every_protected_source(self) -> None:
+        from codex_governance.rst_operations import validate_rst_lineage
+
+        clean = self.lineage()
+        clean["requirement_sources"] = ["docs/requirements.md"]
+        clean["change_sources"] = ["src/service.py"]
+        clean["mutation_records"] = [
+            {"mutant_id": "MUT-1", "outcome": "SURVIVED"}
+        ]
+        clean["reviewer_findings"] = [
+            {"finding_id": "FINDING-2", "severity": "high"}
+        ]
+        binding = {
+            key: clean[key]
+            for key in ("repository_id", "task_contract_sha256", "candidate_id")
+        }
+        for source_kind, source_id in (
+            ("mutant", "MUT-1"),
+            ("reviewer_finding", "FINDING-2"),
+        ):
+            clean["follow_ups"].append(
+                content_address(
+                    {
+                        **binding,
+                        "kind": "risk",
+                        "source_kind": source_kind,
+                        "source_id": source_id,
+                        "required": True,
+                    },
+                    "follow_up_id",
+                )
+            )
+        expected_updates = [
+            "requirement:docs/requirements.md",
+            "change:src/service.py",
+            "observation:OBS-1",
+            "mutant:MUT-1",
+            "reviewer_finding:FINDING-1",
+            "reviewer_finding:FINDING-2",
+        ]
+        register = clean["risk_register"]
+        register.pop("risk_register_id")
+        register["updated_from"] = expected_updates
+        clean["risk_register"] = content_address(register, "risk_register_id")
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN,
+            validate_rst_lineage(**clean),
+        )
+
+        for name, updates in (
+            ("missing", expected_updates[:-1]),
+            ("extra-valid", [*expected_updates, "session:SESSION-1"]),
+        ):
+            with self.subTest(name=name):
+                variant = deepcopy(clean)
+                register = variant["risk_register"]
+                register.pop("risk_register_id")
+                register["updated_from"] = updates
+                variant["risk_register"] = content_address(
+                    register, "risk_register_id"
+                )
+                self.assertEqual(
+                    DispositionState.UNKNOWN,
+                    validate_rst_lineage(**variant),
                 )
 
     def test_observations_mutants_and_findings_create_bidirectional_updates(self) -> None:

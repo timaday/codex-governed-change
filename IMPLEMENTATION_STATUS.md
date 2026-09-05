@@ -847,3 +847,38 @@ so both controls pass and both exact mutants are now causally `KILLED` in
 focused rechecks. Those focused observations are not complete qualification;
 all exact-candidate gates, the full corpus and fresh review must be rebound to
 the next immutable successor. Release remains blocked.
+
+Immutable candidate `5d3baef` then passed blueprint integrity, 107 unit tests,
+237 acceptance tests, the 344-test full suite, rollback rehearsal, public
+portability and the complete 138-operator paired-control corpus. Every clean
+control survived and every mutant was killed. Its exact fresh
+ChatGPT-authenticated `gpt-5.6-sol` review completed with valid bounded process,
+capture, cleanup, candidate and model bindings and returned `BLOCK` with four
+material findings. Coverage validation accepted uncovered or multiply covered
+RST nodes; the risk register accepted a type-valid subset instead of the exact
+protected update set; preparation and admission did not inherit a command-entry
+deadline through all protected reconstruction; and numeric regular-expression
+backreferences used Python semantics despite an advertised portable ECMA-262
+subset. All evidence for `5d3baef` is non-qualifying.
+
+This working-copy successor requires exactly one coverage note per session and
+every protected oracle exactly once, and derives the exact protected
+requirement, changed-path, observation, surviving-mutant and reviewer-finding
+risk-update identities. Preparation, review and admission now establish one
+protected-policy-matched deadline before lock selection and pass it through Git,
+schema, evidence, retrieval, context qualification and admission reconstruction;
+cached observations recheck expiry. Numeric backreferences are rejected from
+the supported portable pattern subset. Seven targeted paired-control operators
+cover these repairs, bringing the corpus to 145 entries with content ID
+`sha256:702032a9006796782110336557127859f01c038fba46c4217a8ee77ddd4d11da`
+and protected byte digest
+`sha256:93c5aff6aa00df3c641fda29c032504fb7a2e67c16ee87fcd758a5fe90ab926b`.
+The seven new controls survived and their mutants were causally killed; the
+243-test acceptance suite passed locally. This status mutation invalidates
+those observations for release admission. Exact-candidate deterministic and
+complete paired-control mutation evidence, a new strict fresh review, protected
+authority/kernel/broker rebinding, hosted real-isolation and human-labelled
+qualification evidence, the approved held-out governed-versus-ordinary
+measurement, protected admission reconstruction and separate human release
+approval are still required. Operational qualification, measured benefit and
+human approval remain `UNKNOWN`; release remains blocked.

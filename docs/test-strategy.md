@@ -207,12 +207,15 @@ chronology, and add limitations. A production-path test runs the separately
 selected rollback producer from an exact-closure read-only protected package
 mount, excludes ignored package files, substitutes a candidate-local
 success-printer, and reconstructs its emitted rollback evidence.
-Reviewer deadline tests stall initial candidate/authority/policy/schema/prompt and
-evidence reads, CLI-version observation, pre/post identity Git observations,
+Preparation, reviewer and admission deadline tests stall initial
+candidate/authority/policy/schema/prompt and evidence reads, CLI-version
+observation, pre/post identity Git observations,
 descriptor-bound snapshot/evidence copies, snapshot Git helpers, permission
-finalization and final output materialization. Each operation must consume the
-same absolute deadline and every potentially blocking read/copy must terminate
-through a stop-capable child. Permission-finalization cases inject a scheduling
+finalization and final output materialization. Each command starts its deadline
+before lock selection, verifies the timeout against protected policy, and passes
+that unchanged deadline through context preparation or admission reconstruction.
+Cached observations recheck expiry. Every potentially blocking read/copy must
+terminate through a stop-capable child. Permission-finalization cases inject a scheduling
 gap between entry and launch, require path resolution inside that child, and
 prove an expired deadline cannot launch it. Shared gate/reviewer portability
 cases include multi-leading-separator POSIX paths and UNC share roots. A dedicated
@@ -286,6 +289,8 @@ Schema lifecycle tests cover every transition advertised by `migration_policy`,
 construct schema-valid legacy documents, prove current schemas reject them,
 execute migrations with separately protected missing facts, reconstruct content
 addresses, and validate each successor against its exact version schema.
+Portable-pattern tests also reject numeric backreferences using a concrete
+nonparticipating-capture case on which Python and ECMAScript differ.
 
 The required-workflow oracle captures current UTC inside the trusted disposition
 job. A rerun after a decision or waiver expires fails even when the original
@@ -535,7 +540,11 @@ For rapid review, replace every experiment, finding, residual-risk, story and
 disposition evidence locator in turn with a non-empty missing ID and require
 `UNKNOWN`. For operational RST, mutate each risk/charter, update-source,
 session/charter, coverage/session/oracle, debrief/session/residual-risk,
-follow-up/source, oracle path/digest and disposition/debrief/item edge. A bare
+follow-up/source, oracle path/digest and disposition/debrief/item edge. Require
+exactly one coverage note per session, every protected oracle exactly once, and
+the exact protected requirement/change/observation/surviving-mutant/finding
+risk-update set. Valid subsets, uncovered nodes and duplicate edges remain
+`UNKNOWN`. A bare
 complete artifact-kind set is a red control, not readiness evidence.
 
 ## Context compiler and reviewer qualification

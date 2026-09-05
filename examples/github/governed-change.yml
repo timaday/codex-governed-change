@@ -137,6 +137,8 @@ jobs:
         run: |
           OBSERVED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           QUALIFICATION_DECISION_ID="$(python3 -c 'import json,re; value=json.load(open("candidate/artifacts/governance/decision-source-observation.json", encoding="utf-8"))["authenticated_label_decision_id"]; assert re.fullmatch(r"sha256:[0-9a-f]{64}", value); print(value)')"
+          PREPARATION_TIMEOUT_SECONDS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["reviewer"]["timeout_seconds"])' "$POLICY")"
+          [[ "$PREPARATION_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || exit 1
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas prepare-review \
             --repository candidate \
             --policy "$POLICY" \
@@ -153,6 +155,7 @@ jobs:
             --reasoning-effort xhigh \
             --verified-decision-id "$QUALIFICATION_DECISION_ID" \
             --observed-at "$OBSERVED_AT" \
+            --timeout-seconds "$PREPARATION_TIMEOUT_SECONDS" \
             --sources-output "$ARTIFACT_REPOSITORY_ROOT/context-sources.json" \
             --projection-output "$ARTIFACT_REPOSITORY_ROOT/context-projection.json" \
             --receipt-output "$ARTIFACT_REPOSITORY_ROOT/context-receipt.json"
@@ -375,6 +378,8 @@ jobs:
           for decision_id in "${VERIFIED_DECISIONS[@]}"; do
             DECISION_ARGS+=(--verified-decision-id "$decision_id")
           done
+          ADMISSION_TIMEOUT_SECONDS="$(python3 -c 'import json; print(json.load(open("candidate/artifacts/governance/effective-policy.json", encoding="utf-8"))["reviewer"]["timeout_seconds"])')"
+          [[ "$ADMISSION_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || exit 1
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root schemas evaluate \
             --repository candidate \
             --authority-root governance \
@@ -383,4 +388,5 @@ jobs:
             --candidate candidate/artifacts/governance/candidate.json \
             --evaluated-at "$EVALUATED_AT" \
             "${DECISION_ARGS[@]}" \
+            --timeout-seconds "$ADMISSION_TIMEOUT_SECONDS" \
             --output artifacts/governance/disposition.json

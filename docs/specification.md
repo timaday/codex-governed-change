@@ -678,6 +678,13 @@ links, typed update sources, session-to-charter links and digests,
 coverage-to-session/oracle links, debrief-to-session, actionable-finding and
 residual-risk links, follow-up source links, oracle source path/digest pairs, and
 disposition-to-debrief/item links. Every relationship sequence is unique.
+The coverage graph contains exactly one note per session and every protected
+oracle occurs exactly once across those notes; an uncovered session/oracle or a
+second note for one session is not complete coverage. The risk register's exact
+update sequence is derived from the protected requirement sources, candidate
+changed paths, every direct observation, every surviving mutant, and every
+session or conformance reviewer finding. Type-valid subsets and unrelated
+type-valid identities do not satisfy that graph.
 Requirement and change update identities come from separate exact protected
 sets derived from the authenticated task sources and candidate paths. The
 untyped evidence-locator index cannot cause one identity to be accepted as
@@ -987,6 +994,13 @@ bytes before launch. Admission repeats the reconstruction from manifest
 references. Missing or different artifacts, index entries, profiles, disclosure
 bytes or inclusion reasons are `UNKNOWN`.
 
+Production preparation and admission each receive the protected policy timeout,
+start one absolute monotonic deadline before lock, policy, or manifest selection,
+and verify that timeout against the reconstructed policy. They pass that same
+deadline unchanged through every candidate, authority, Git, schema, evidence,
+qualification, retrieval, context and admission-reconstruction read. An expired
+deadline remains `UNKNOWN` even when an earlier command-session read is cached.
+
 The source bundle, projection and prepared receipt are separate immutable
 referenced artifacts. The receipt binds projection/profile version,
 context-qualification identity, source/projection digests,
@@ -1060,7 +1074,8 @@ integral JSON numbers satisfy `integer`, JSON boolean/numeric equality remains
 distinct, `$ref` siblings are also applied, and schema-valued `items` and
 `additionalProperties` are enforced. `pattern` is restricted to the portable
 ECMA-262/Python expression intersection used by the protected schemas; shorthand
-escapes with divergent Unicode matching semantics, Python-only extensions and
+escapes with divergent Unicode matching semantics, numeric backreferences,
+Python-only extensions and
 expressions outside that proven intersection are malformed
 subset schemas rather than being interpreted with Python-specific semantics.
 Unsupported keywords and malformed subset schemas fail closed before instance

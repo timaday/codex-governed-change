@@ -195,6 +195,13 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "reviewer-os-home-unchecked",
             "schema-unicode-shorthands-accepted",
             "rst-requirement-change-kinds-collapsed",
+            "rst-uncovered-oracle-accepted",
+            "rst-uncovered-session-accepted",
+            "rst-duplicate-session-coverage-accepted",
+            "rst-risk-update-subset-accepted",
+            "prepare-review-deadline-not-started",
+            "admission-deadline-dropped",
+            "schema-backreference-accepted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

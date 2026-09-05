@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:0ed4abbc83a477e2abf348572570358172382f698c04308adcfcfc3ab55a2fc3",
+  "corpus_id": "sha256:702032a9006796782110336557127859f01c038fba46c4217a8ee77ddd4d11da",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -528,7 +528,7 @@
     {
       "mutant_id": "authoritative-json-pathname-read",
       "path": "src/codex_governance/schema.py",
-      "old": "        data = read_bounded_path_file(path, max_bytes=max_bytes)",
+      "old": "        data = read_bounded_path_file(\n            path, max_bytes=max_bytes, deadline=deadline\n        )",
       "new": "        data = path.read_bytes()",
       "operator": "follow an authoritative JSON pathname without a descriptor-bound read",
       "requirement_id": "GOV-052",
@@ -699,11 +699,11 @@
     {
       "mutant_id": "review-deadline-start-delayed",
       "path": "src/codex_governance/cli.py",
-      "old": "    if args.command == \"review\":\n        args._review_deadline = time.monotonic() + args.timeout_seconds",
-      "new": "    if False:\n        args._review_deadline = time.monotonic() + args.timeout_seconds",
-      "operator": "delay the review deadline until after lock and policy selection",
+      "old": "BOUNDED_COMMANDS = frozenset({\"prepare-review\", \"review\", \"evaluate\"})",
+      "new": "BOUNDED_COMMANDS = frozenset({\"review\"})",
+      "operator": "omit preparation and admission from command-entry deadline enforcement",
       "requirement_id": "GOV-025",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_review_deadline_exists_before_pipeline_lock_selection"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_bounded_command_deadline_exists_before_pipeline_lock_selection"]
     },
     {
       "mutant_id": "untracked-read-deadline-omitted",
@@ -879,8 +879,8 @@
     {
       "mutant_id": "admission-preflight-schema-unprotected",
       "path": "src/codex_governance/cli.py",
-      "old": "    elif args.command == \"evaluate\":\n        _protected_schema_root, manifest, policy = _admission_manifest_policy(\n            args\n        )",
-      "new": "    elif args.command == \"evaluate\":\n        manifest = _validated(args.manifest, args.schema_root, \"evidence-manifest\")\n        policy = load_referenced_json(\n            repository=repository,\n            reference=manifest[\"effective_policy\"],\n            schema_path=args.schema_root / \"effective-policy.schema.json\",\n        )",
+      "old": "    elif args.command == \"evaluate\":\n        _protected_schema_root, manifest, policy = _admission_manifest_policy(\n            args, deadline=command_deadline\n        )",
+      "new": "    elif args.command == \"evaluate\":\n        manifest = _validated(\n            args.manifest, args.schema_root, \"evidence-manifest\", deadline=command_deadline\n        )\n        policy = load_referenced_json(\n            repository=repository,\n            reference=manifest[\"effective_policy\"],\n            schema_path=args.schema_root / \"effective-policy.schema.json\",\n            deadline=command_deadline,\n        )",
       "operator": "preflight evaluate output with caller-selected schemas",
       "requirement_id": "GOV-043",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_evaluate_uses_only_distinct_protected_schema_authority"]
@@ -1104,7 +1104,7 @@
     {
       "mutant_id": "rapid-retrieval-index-unchecked",
       "path": "src/codex_governance/evidence.py",
-      "old": "            rapid_bindings = (\n                rapid_bindings\n                and isinstance(reconstructed_retrieval_index, Mapping)\n                and all(\n                validate_retrieval_expansions(\n                    retrieval_expansions=session.get(\"retrieval_expansions\", ()),\n                    retrieval_index=reconstructed_retrieval_index,\n                    artifact_reader=lambda reference: read_reference(\n                        repository=repository,\n                        reference={\n                            \"path\": reference,\n                            \"sha256\": reconstructed_retrieval_index[reference],\n                        },\n                    ),\n                )\n                == session.get(\"retrieval_expansions\", ())\n                for session in sessions\n                )\n            )",
+      "old": "            rapid_bindings = (\n                rapid_bindings\n                and isinstance(reconstructed_retrieval_index, Mapping)\n                and all(\n                validate_retrieval_expansions(\n                    retrieval_expansions=session.get(\"retrieval_expansions\", ()),\n                    retrieval_index=reconstructed_retrieval_index,\n                    artifact_reader=lambda reference: read_reference(\n                        repository=repository,\n                        reference={\n                            \"path\": reference,\n                            \"sha256\": reconstructed_retrieval_index[reference],\n                        },\n                        deadline=deadline,\n                    ),\n                )\n                == session.get(\"retrieval_expansions\", ())\n                for session in sessions\n                )\n            )",
       "new": "            rapid_bindings = rapid_bindings",
       "operator": "trust matching model-reported rapid retrieval copies without the protected compiled index and exact bytes",
       "requirement_id": "GOV-TOKEN-003",
@@ -1244,6 +1244,69 @@
       "operator": "let one untyped evidence locator impersonate requirement and change update sources",
       "requirement_id": "GOV-057",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_requirement_and_change_updates_use_separate_protected_sets"]
+    },
+    {
+      "mutant_id": "rst-uncovered-oracle-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        or set(coverage_oracle_sequence) != set(oracle_by_id)",
+      "new": "        or not set(coverage_oracle_sequence).issubset(set(oracle_by_id))",
+      "operator": "accept a valid protected oracle with no coverage edge",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_coverage_graph_is_exact_and_has_one_note_per_session"]
+    },
+    {
+      "mutant_id": "rst-uncovered-session-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        or set(coverage_session_sequence) != set(session_by_id)",
+      "new": "        or not set(coverage_session_sequence).issubset(set(session_by_id))",
+      "operator": "accept a completed rapid-review session with no coverage note",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_coverage_graph_is_exact_and_has_one_note_per_session"]
+    },
+    {
+      "mutant_id": "rst-duplicate-session-coverage-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        len(coverage_session_sequence) != len(set(coverage_session_sequence))",
+      "new": "        False",
+      "operator": "accept two distinct coverage notes for one rapid-review session",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_coverage_graph_is_exact_and_has_one_note_per_session"]
+    },
+    {
+      "mutant_id": "rst-risk-update-subset-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "    if set(updated_from) != expected_updates:",
+      "new": "    if not set(updated_from).issubset(expected_updates):",
+      "operator": "accept a type-valid subset of required risk-update identities",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
+    },
+    {
+      "mutant_id": "prepare-review-deadline-not-started",
+      "path": "src/codex_governance/cli.py",
+      "old": "            if args.command in BOUNDED_COMMANDS:",
+      "new": "            if args.command in BOUNDED_COMMANDS and args.command != \"prepare-review\":",
+      "operator": "omit review preparation from command-entry deadline creation",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_bounded_command_deadline_exists_before_pipeline_lock_selection"]
+    },
+    {
+      "mutant_id": "admission-deadline-dropped",
+      "path": "src/codex_governance/cli.py",
+      "old": "        deadline=command_deadline,\n    )\n    disposition = {",
+      "new": "    )\n    disposition = {",
+      "operator": "drop the command-entry deadline at the protected admission kernel",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_preparation_and_admission_thread_the_command_deadline"]
+    },
+    {
+      "mutant_id": "schema-backreference-accepted",
+      "path": "src/codex_governance/schema.py",
+      "old": "                raise re.error(\"backreferences are outside the portable subset\")",
+      "new": "                index += 2",
+      "operator": "accept numeric backreferences with divergent nonparticipating-capture semantics",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_numeric_backreferences_are_outside_the_portable_pattern_subset"]
     }
   ]
 }

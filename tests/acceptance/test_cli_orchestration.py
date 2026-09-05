@@ -922,30 +922,51 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 supplier()
             identities[drifted] = expected
 
-    def test_review_deadline_exists_before_pipeline_lock_selection(self) -> None:
+    def test_bounded_command_deadline_exists_before_pipeline_lock_selection(self) -> None:
         from codex_governance import cli
 
-        args = Namespace(
-            command="review",
-            timeout_seconds=10.0,
-            handler=lambda _args: 0,
+        for command in ("prepare-review", "review", "evaluate"):
+            with self.subTest(command=command):
+                args = Namespace(
+                    command=command,
+                    timeout_seconds=10.0,
+                    handler=lambda _args: 0,
+                )
+                parser = Mock()
+                parser.parse_args.return_value = args
+                observed: list[float] = []
+
+                def lock_for(received: Namespace):
+                    observed.append(received._review_deadline)
+                    return cli.nullcontext()
+
+                with (
+                    patch.object(cli, "_parser", return_value=parser),
+                    patch.object(cli, "_pipeline_lock_for", side_effect=lock_for),
+                    patch.object(cli, "_preflight_cli_outputs"),
+                ):
+                    self.assertEqual(0, cli.main([]))
+                self.assertEqual(1, len(observed))
+                self.assertGreater(observed[0], time.monotonic())
+
+    def test_every_bounded_command_accepts_an_explicit_timeout(self) -> None:
+        from codex_governance import cli
+
+        parser = cli._parser()
+        subparsers = next(
+            action
+            for action in parser._actions
+            if "prepare-review" in (getattr(action, "choices", None) or {})
         )
-        parser = Mock()
-        parser.parse_args.return_value = args
-        observed: list[float] = []
-
-        def lock_for(received: Namespace):
-            observed.append(received._review_deadline)
-            return cli.nullcontext()
-
-        with (
-            patch.object(cli, "_parser", return_value=parser),
-            patch.object(cli, "_pipeline_lock_for", side_effect=lock_for),
-            patch.object(cli, "_preflight_cli_outputs"),
-        ):
-            self.assertEqual(0, cli.main([]))
-        self.assertEqual(1, len(observed))
-        self.assertGreater(observed[0], time.monotonic())
+        for command in ("prepare-review", "review", "evaluate"):
+            with self.subTest(command=command):
+                options = {
+                    option: action
+                    for action in subparsers.choices[command]._actions
+                    for option in action.option_strings
+                }
+                self.assertIn("--timeout-seconds", options)
+                self.assertEqual(1800, options["--timeout-seconds"].default)
 
     def test_protected_read_helpers_receive_the_exact_caller_deadline(self) -> None:
         from codex_governance import context, evidence, qualification
@@ -1042,6 +1063,55 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         self.assertTrue(bound(context_calls[0], "qualification_deadline"))
         self.assertTrue(bound(reference_calls[0], "deadline"))
 
+    def test_preparation_and_admission_thread_the_command_deadline(self) -> None:
+        from codex_governance import cli
+
+        expected = {
+            cli._prepare_review: {
+                "_validated": "deadline",
+                "GitCliRepositoryAdapter": "deadline",
+                "build_repository_inventory": "deadline",
+                "_document": "deadline",
+                "load_referenced_json": "deadline",
+                "verify_protected_context_artifacts": "deadline",
+                "compile_context": "qualification_deadline",
+                "read_reference": "deadline",
+                "read_bounded_path_file": "deadline",
+            },
+            cli._evaluate: {
+                "_admission_manifest_policy": "deadline",
+                "_admission_validated": "deadline",
+                "GitCliRepositoryAdapter": "deadline",
+                "_read_authority_argument": "deadline",
+                "evaluate_manifest": "deadline",
+            },
+        }
+
+        for handler, required_calls in expected.items():
+            tree = ast.parse(textwrap.dedent(inspect.getsource(handler)))
+            with self.subTest(handler=handler.__name__):
+                for name, keyword in required_calls.items():
+                    calls = [
+                        node
+                        for node in ast.walk(tree)
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == name
+                    ]
+                    self.assertTrue(calls, name)
+                    self.assertTrue(
+                        all(
+                            any(
+                                item.arg == keyword
+                                and isinstance(item.value, ast.Name)
+                                and item.value.id == "command_deadline"
+                                for item in call.keywords
+                            )
+                            for call in calls
+                        ),
+                        f"{handler.__name__}:{name}:{keyword}",
+                    )
+
     def test_prepare_and_review_use_only_caller_verified_qualification_ids(
         self,
     ) -> None:
@@ -1077,6 +1147,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         adapter = Mock()
         adapter.identify.return_value = candidate
         args = Namespace(
+            command="evaluate",
             manifest=Path("manifest.json"),
             candidate=Path("candidate.json"),
             schema_root=self.ROOT / "schemas",
@@ -1085,6 +1156,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             prompt=Path(".codex/review/reviewer.prompt.md"),
             evaluated_at="2026-08-26T12:00:00Z",
             verified_decision_id=[decision_id],
+            timeout_seconds=policy["reviewer"]["timeout_seconds"],
+            _review_deadline=time.monotonic() + 30.0,
             output="artifacts/governance/disposition.json",
         )
         with (
@@ -1103,6 +1176,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             frozenset({decision_id}),
             evaluate.call_args.kwargs["verified_decision_ids"],
+        )
+        self.assertEqual(
+            args._review_deadline,
+            evaluate.call_args.kwargs["deadline"],
         )
         self.assertEqual(
             (self.ROOT / ".codex/review/reviewer.prompt.md").read_bytes(),

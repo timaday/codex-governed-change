@@ -15,11 +15,15 @@ def resolve_evidence_locator(
     locator: Mapping[str, Any],
     *,
     max_bytes: int = 8_000_000,
+    deadline: float | None = None,
 ) -> bytes:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
     data = read_bounded_repository_file(
-        repository, str(locator.get("path")), max_bytes=max_bytes
+        repository,
+        str(locator.get("path")),
+        max_bytes=max_bytes,
+        deadline=deadline,
     )
     if sha256_bytes(data) != require_sha256(locator.get("artifact_sha256")):
         raise ValueError("evidence locator artifact digest mismatch")

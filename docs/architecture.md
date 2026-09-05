@@ -471,7 +471,10 @@ The rapid-review policy receives the protected set of resolved evidence-locator
 identities; a non-empty string outside that set is not evidence. The operational
 RST policy separately reconstructs the complete typed graph linking risk
 sources, charters, sessions, oracles, coverage, debrief, follow-ups and risk
-disposition. Every rapid finding also resolves its claimed repository path and
+disposition. It requires one coverage note per session, every protected oracle
+exactly once, and the exact protected requirement, changed-path, observation,
+surviving-mutant and reviewer-finding update set. Every rapid finding also
+resolves its claimed repository path and
 line through that locator set. Follow-up edges are derived exactly from all
 surprising observations, surviving mutants and conformance or rapid findings;
 missing, extra or duplicate edges and duplicate debrief references are

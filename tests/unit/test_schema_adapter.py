@@ -125,6 +125,20 @@ class SchemaAdapterTest(unittest.TestCase):
         self.assertEqual([], validate_instance("GOV-060", schema))
         self.assertTrue(validate_instance("lowercase", schema))
 
+    def test_numeric_backreferences_are_outside_the_portable_pattern_subset(self) -> None:
+        errors = validate_instance(
+            "ac",
+            {
+                "$schema": DRAFT_2020_12,
+                "type": "string",
+                "pattern": r"^(a|(b))\2c$",
+            },
+        )
+        self.assertIn(
+            "$: pattern must be a portable ECMA-262 expression",
+            errors,
+        )
+
     def test_authoritative_json_rejects_symlink_fifo_and_oversize(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -155,6 +169,18 @@ class SchemaAdapterTest(unittest.TestCase):
             self.assertEqual({"value": "first"}, first)
             self.assertEqual(first, second)
             self.assertEqual({"value": "second"}, load_json(document))
+
+    def test_authoritative_json_cache_does_not_waive_an_expired_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = Path(directory) / "document.json"
+            document.write_bytes(b'{"value":"bounded"}')
+            with authoritative_json_session():
+                self.assertEqual(
+                    {"value": "bounded"},
+                    load_json(document, deadline=time.monotonic() + 30.0),
+                )
+                with self.assertRaises(TimeoutError):
+                    load_json(document, deadline=0.0)
 
     def test_authoritative_reference_session_never_reopens_or_rebinds_a_path(self) -> None:
         from unittest.mock import patch
@@ -189,6 +215,12 @@ class SchemaAdapterTest(unittest.TestCase):
                         repository=repository,
                         reference=reference
                         | {"sha256": "sha256:" + "0" * 64},
+                    )
+                with self.assertRaises(TimeoutError):
+                    read_reference(
+                        repository=repository,
+                        reference=reference,
+                        deadline=0.0,
                     )
             reader.assert_called_once()
 
