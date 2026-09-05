@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-03
+Status date: 2026-09-05
 
 ## Current disposition
 
@@ -729,3 +729,37 @@ and protected byte digest
 `sha256:f41359f6899fc8e9dc1d126157f9977dd3d003ccd84f5355e0dcc3edb2bb4704`.
 All `3bee288` evidence is non-qualifying; deterministic gates, paired controls,
 fresh review and candidate identity must be regenerated.
+
+Immutable candidate `eb5c79f` later passed its local blueprint, unit,
+acceptance, full-suite, portability, packaging and complete 124-operator
+paired-control mutation checks. Its exact fresh ChatGPT-authenticated
+`gpt-5.6-sol` review nevertheless declared `BLOCK` with five material findings:
+initial-bootstrap admission still required a previous-LKG decision, duplicate
+risk-to-charter edges could preserve operational RST readiness, protected
+context qualification schema and artifact reads did not receive the review
+deadline, finding validation reopened a repository pathname after locator
+resolution, and Python-only regular-expression syntax could be accepted as a
+Draft 2020-12 `pattern`. All `eb5c79f` evidence is therefore non-qualifying.
+
+This working-copy successor reconstructs the mutually exclusive one-off
+initial-bootstrap decision, verification, authority manifest, rollback plan,
+rollback task, rollback candidate, promotion, capability, provenance and raw
+streams without repository-specific constants. It also requires target-bearing
+rollback command/stdout and bounded exact chronology; rejects duplicate
+risk-to-charter relationships; carries the unchanged review deadline through
+repository inventory and empirical qualification reads; validates finding
+lines from the already retained locator bytes; and restricts `pattern` to the
+protected portable ECMA-262/Python intersection. Five targeted semantic
+operators cover those reviewed fail-open or unusable paths, bringing the corpus
+to 129 entries with content ID
+`sha256:56bd8694f2b6f60743eb317f5e728e2e1c8b162ed0646409938bf43b4f12dbd5`
+and protected byte digest
+`sha256:251cbf4b8971287bf568f1cc8de254e0a2f05524b4e966ad1f4dfb875209285f`.
+Diagnostic focused, unit, blueprint and 235-test acceptance runs, including
+the deeper bootstrap artifact-substitution and stale-plan controls, are green
+but stale by construction after the final documentation mutations. The
+successor still requires exact-candidate deterministic and mutation gates, fresh review,
+protected authority/kernel/broker rebinding, hosted real-isolation and labelled
+qualification evidence, paired governed-versus-ordinary measurement, protected
+admission reconstruction and separate human release approval. Release remains
+blocked.

@@ -99,6 +99,9 @@ class SchemaAdapterTest(unittest.TestCase):
             {"minItems": -1},
             {"uniqueItems": 1},
             {"pattern": "["},
+            {"pattern": "(?P<python_only>[a-z]+)"},
+            {"pattern": "\\Apython-only"},
+            {"pattern": "python-only++"},
             {"enum": []},
             {"enum": [True, True]},
         )
@@ -109,6 +112,15 @@ class SchemaAdapterTest(unittest.TestCase):
                         None, {"$schema": DRAFT_2020_12, **fragment}
                     )
                 )
+
+    def test_portable_ecma_pattern_subset_matches_supported_schema_patterns(self) -> None:
+        schema = {
+            "$schema": DRAFT_2020_12,
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{1,15}$",
+        }
+        self.assertEqual([], validate_instance("GOV-060", schema))
+        self.assertTrue(validate_instance("lowercase", schema))
 
     def test_authoritative_json_rejects_symlink_fifo_and_oversize(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

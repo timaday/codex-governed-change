@@ -1,3 +1,5 @@
+import ast
+import inspect
 import json
 import os
 import shutil
@@ -5,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import textwrap
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -919,6 +922,101 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             self.assertEqual(0, cli.main([]))
         self.assertEqual(1, len(observed))
         self.assertGreater(observed[0], time.monotonic())
+
+    def test_protected_read_helpers_receive_the_exact_caller_deadline(self) -> None:
+        from codex_governance import context, evidence, qualification
+
+        deadline = time.monotonic() + 30.0
+        digest = sha256_bytes(b"bounded\n")
+        with patch.object(
+            evidence,
+            "read_bounded_repository_file",
+            return_value=b"bounded\n",
+        ) as referenced_read:
+            self.assertEqual(
+                b"bounded\n",
+                evidence.read_reference(
+                    repository=self.ROOT,
+                    reference={"path": "bounded.txt", "sha256": digest},
+                    deadline=deadline,
+                ),
+            )
+        self.assertEqual(deadline, referenced_read.call_args.kwargs["deadline"])
+
+        with patch.object(
+            context,
+            "read_bounded_repository_file",
+            return_value=b"bounded\n",
+        ) as inventory_read:
+            context.build_repository_inventory(
+                self.ROOT,
+                affected_closure=["bounded.txt"],
+                changed_paths=[],
+                deadline=deadline,
+            )
+        self.assertEqual(deadline, inventory_read.call_args.kwargs["deadline"])
+
+        schema_bytes = canonical_json_bytes(
+            {"$schema": "https://json-schema.org/draft/2020-12/schema"}
+        )
+        with patch.object(
+            qualification,
+            "read_bounded_path_file",
+            return_value=schema_bytes,
+        ) as schema_read:
+            qualification.qualification_evidence_valid(
+                mode="conformance",
+                record={},
+                case_evidence={},
+                corpus={},
+                corpus_bytes=b"{}",
+                protected_corpus_sha256=sha256_bytes(b"{}"),
+                label_decision={},
+                artifact_reader=lambda _reference: b"",
+                schema_root=self.ROOT / "schemas",
+                protected_repository_id="repo:example/project",
+                verified_decision_ids=frozenset(),
+                evaluated_at="2026-08-26T12:00:00Z",
+                prompt_bytes=b"prompt",
+                deadline=deadline,
+            )
+        self.assertTrue(schema_read.call_args_list)
+        self.assertTrue(
+            all(call.kwargs["deadline"] == deadline for call in schema_read.call_args_list)
+        )
+
+    def test_review_threads_one_deadline_to_context_reconstruction(self) -> None:
+        from codex_governance import cli
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(cli._review)))
+
+        def calls(name: str) -> list[ast.Call]:
+            return [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == name
+            ]
+
+        inventory_calls = calls("build_repository_inventory")
+        context_calls = calls("compile_context")
+        reference_calls = calls("read_reference")
+        self.assertEqual(1, len(inventory_calls))
+        self.assertEqual(1, len(context_calls))
+        self.assertEqual(1, len(reference_calls))
+
+        def bound(call: ast.Call, keyword: str) -> bool:
+            return any(
+                item.arg == keyword
+                and isinstance(item.value, ast.Name)
+                and item.value.id == "review_deadline"
+                for item in call.keywords
+            )
+
+        self.assertTrue(bound(inventory_calls[0], "deadline"))
+        self.assertTrue(bound(context_calls[0], "qualification_deadline"))
+        self.assertTrue(bound(reference_calls[0], "deadline"))
 
     def test_evaluate_accepts_nonempty_verified_decision_ids(self) -> None:
         from codex_governance import cli

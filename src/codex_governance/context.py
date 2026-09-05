@@ -93,6 +93,7 @@ def build_repository_inventory(
     *,
     affected_closure: Sequence[str],
     changed_paths: Sequence[str],
+    deadline: float | None = None,
 ) -> list[dict[str, str]]:
     """Hash the complete protected closure without following repository links."""
     changed = set(changed_paths)
@@ -100,7 +101,9 @@ def build_repository_inventory(
     for raw_path in affected_closure:
         path = normalize_repo_path(raw_path)
         try:
-            data = read_bounded_repository_file(repository, path, max_bytes=8_000_000)
+            data = read_bounded_repository_file(
+                repository, path, max_bytes=8_000_000, deadline=deadline
+            )
         except ArtifactSafetyError as exc:
             absolute = repository.joinpath(*path.split("/"))
             try:
@@ -372,6 +375,7 @@ def context_qualification_valid(
     verified_decision_ids: frozenset[str] = frozenset(),
     evaluated_at: str | None = None,
     prompt_bytes: bytes | None = None,
+    deadline: float | None = None,
 ) -> bool:
     """Recompute one protected projection-profile qualification decision."""
     try:
@@ -403,6 +407,7 @@ def context_qualification_valid(
                     verified_decision_ids=verified_decision_ids,
                     evaluated_at=evaluated_at,
                     prompt_bytes=prompt_bytes,
+                    deadline=deadline,
                 )
             )
         return bool(
@@ -477,6 +482,7 @@ def compile_context(
     qualification_verified_decision_ids: frozenset[str] = frozenset(),
     qualification_evaluated_at: str | None = None,
     qualification_prompt_bytes: bytes | None = None,
+    qualification_deadline: float | None = None,
 ) -> dict[str, Any]:
     if (
         not verify_candidate_identity(candidate)
@@ -562,6 +568,7 @@ def compile_context(
         verified_decision_ids=qualification_verified_decision_ids,
         evaluated_at=qualification_evaluated_at,
         prompt_bytes=qualification_prompt_bytes,
+        deadline=qualification_deadline,
     ):
         raise ValueError("context profile/version qualification is unavailable")
     artifacts = sources.get("artifacts", ())

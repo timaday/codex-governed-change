@@ -173,6 +173,7 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
         mutations = {
             "risk-source": lambda value: value["risk_register"]["risks"][0].update(source_refs=["sha256:" + "0" * 64]),
             "risk-charter": lambda value: value["risk_register"]["risks"][0].update(charter_refs=["CHARTER-MISSING"]),
+            "risk-duplicate-charter": lambda value: value["risk_register"]["risks"][0].update(charter_refs=["CHARTER-1", "CHARTER-1"]),
             "risk-update": lambda value: value["risk_register"].update(updated_from=["session:SESSION-MISSING"]),
             "charter-risk": lambda value: value["charters"][0].update(risk_assessment_sha256="sha256:" + "0" * 64),
             "session-charter-id": lambda value: value["sessions"][0].update(charter_id="CHARTER-MISSING"),

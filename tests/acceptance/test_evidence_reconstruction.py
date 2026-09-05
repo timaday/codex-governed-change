@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from codex_governance.attestation import (
     build_provenance_statement,
@@ -2101,9 +2102,17 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         *,
         manifest: dict,
         proposed_policy_sha256: str,
+        source_identity: str | None = None,
+        task_contract_sha256: str | None = None,
+        include_target_materials: bool = True,
+        profile: str = "governance",
     ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
         policy = json.loads(
             (self.repository / manifest["effective_policy"]["path"]).read_text()
+        )
+        source_identity = source_identity or self.CANDIDATE_ID
+        task_contract_sha256 = (
+            task_contract_sha256 or manifest["task_contract"]["sha256"]
         )
         qualification = json.loads(
             (
@@ -2136,7 +2145,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "implementation_sha256": gate_implementation_sha256(),
                 "image": policy["sandbox"]["image"],
                 "command": command,
-                "source_identity": self.CANDIDATE_ID,
+                "source_identity": source_identity,
                 "execution_identity": execution_identity,
                 "disposable": True,
                 "secrets_present": False,
@@ -2166,9 +2175,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         stderr_ref = self.raw("rollback/stderr.bin", b"")
         provenance = build_provenance_statement(
             repository_id=self.REPOSITORY_ID,
-            candidate_id=self.CANDIDATE_ID,
-            repository_digest=self.CANDIDATE_ID,
-            task_contract_sha256=manifest["task_contract"]["sha256"],
+            candidate_id=source_identity,
+            repository_digest=source_identity,
+            task_contract_sha256=task_contract_sha256,
             effective_policy_sha256=manifest["effective_policy"]["sha256"],
             gate_definition_sha256=sha256_canonical(definition),
             reviewer_prompt_sha256=qualification["prompt_sha256"],
@@ -2183,25 +2192,34 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 {"name": "docker", "version": "fixture"},
             ],
             environment={
-                "source_identity": self.CANDIDATE_ID,
+                "source_identity": source_identity,
                 "execution_identity": execution_identity,
                 "sandbox_capability_sha256": capability_ref["sha256"],
             },
             materials=[
-                {"name": "candidate", "sha256": self.CANDIDATE_ID},
+                {"name": "candidate", "sha256": source_identity},
                 {
                     "name": "task-contract",
-                    "sha256": manifest["task_contract"]["sha256"],
+                    "sha256": task_contract_sha256,
                 },
                 {
                     "name": "effective-policy",
                     "sha256": manifest["effective_policy"]["sha256"],
                 },
-                {
-                    "name": "rollback-target-commit",
-                    "sha256": sha256_bytes(target.encode()),
-                },
-                {"name": "proposed-policy", "sha256": proposed_policy_sha256},
+                *(
+                    [
+                        {
+                            "name": "rollback-target-commit",
+                            "sha256": sha256_bytes(target.encode()),
+                        },
+                        {
+                            "name": "proposed-policy",
+                            "sha256": proposed_policy_sha256,
+                        },
+                    ]
+                    if include_target_materials
+                    else []
+                ),
             ],
             started_at=self.AT,
             ended_at=self.ENDED,
@@ -2226,12 +2244,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         result = {
             "schema_version": "1.0.0",
             "repository_id": self.REPOSITORY_ID,
-            "task_contract_sha256": manifest["task_contract"]["sha256"],
+            "task_contract_sha256": task_contract_sha256,
             "gate_id": "rollback-rehearsal",
-            "profile": "governance",
-            "candidate_before": self.CANDIDATE_ID,
-            "candidate_after": self.CANDIDATE_ID,
-            "source_identity": self.CANDIDATE_ID,
+            "profile": profile,
+            "candidate_before": source_identity,
+            "candidate_after": source_identity,
+            "source_identity": source_identity,
             "execution_identity": execution_identity,
             "sandbox_capability_sha256": capability_ref["sha256"],
             "command": command,
@@ -2502,6 +2520,33 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             with self.subTest(defect=defect):
                 self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_finding_location_uses_the_already_resolved_locator_bytes(self) -> None:
+        from codex_governance import evidence as evidence_module
+
+        manifest = self.complete_manifest(reviewer_defect="valid-finding")
+        original = evidence_module.read_bounded_repository_file
+
+        def reject_pathname_reopen(repository, relative_path, **kwargs):
+            if str(relative_path) == "src/service.py":
+                raise OSError("finding target pathname was reopened")
+            return original(repository, relative_path, **kwargs)
+
+        with patch.object(
+            evidence_module,
+            "read_bounded_repository_file",
+            side_effect=reject_pathname_reopen,
+        ):
+            state, reasons = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+        self.assertEqual(DispositionState.BLOCK, state, reasons)
 
     def test_rapid_findings_require_concrete_digest_bound_locations(self) -> None:
         valid_manifest = self.complete_manifest(rapid_finding_defect="valid")
@@ -3285,6 +3330,437 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             )
             with self.subTest(defect=defect):
                 self.assertNotEqual(DispositionState.READY_FOR_HUMAN, state)
+
+    def test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision(self) -> None:
+        manifest = self.complete_manifest()
+        policy = json.loads(
+            (self.repository / manifest["effective_policy"]["path"]).read_text()
+        )
+        task_decision = json.loads(
+            (
+                self.repository
+                / manifest["authenticated_decisions"][0]["path"]
+            ).read_text()
+        )
+        previous_lkg_reference = manifest["lkg_policy_decision"]
+        proposed_policy = deepcopy(policy)
+        proposed_policy["policy_id"] = "POLICY-INITIAL-SUCCESSOR"
+        proposed_policy["lkg_governance_commit"] = self.candidate["head_commit"]
+        proposed_reference = self.write(
+            "initial-proposed-policy.json", proposed_policy, "effective-policy"
+        )
+        bootstrap_basis = self.candidate["base_commit"]
+        main_task = json.loads(
+            (self.repository / manifest["task_contract"]["path"]).read_text()
+        )
+        rollback_task = deepcopy(main_task)
+        rollback_task.update(
+            task_id="FIXTURE-INITIAL-LKG-ROLLBACK",
+            profile="governance",
+            base_commit=bootstrap_basis,
+            scope=["rehearse the exact initial-LKG rollback target"],
+            affected_surfaces=[
+                {"path": "scripts/validate_blueprint.py", "reason": "rollback oracle"}
+            ],
+            required_gate_ids=["rollback-rehearsal"],
+            specialist_reviews=[],
+            risk_profile="low",
+            rapid_review={
+                "required": False,
+                "minimum_charters": 0,
+                "skip_rationale": "unchanged initial-LKG rollback source",
+            },
+            governance_change_requested=False,
+            unknowns=[],
+        )
+        rollback_task_reference = self.write(
+            "initial-rollback-task.json", rollback_task, "task-contract"
+        )
+        rollback_candidate_components = {
+            "repository_id": self.REPOSITORY_ID,
+            "mode": "commit",
+            "base_commit": bootstrap_basis,
+            "head_commit": bootstrap_basis,
+            "tracked_diff_sha256": sha256_bytes(b""),
+            "changed_paths": [],
+            "untracked_entries": [],
+            "submodules": [],
+            "effective_policy_sha256": manifest["effective_policy"]["sha256"],
+        }
+        rollback_source = candidate_id_from_components(
+            **rollback_candidate_components
+        )
+        rollback_candidate = {
+            "schema_version": "1.0.0",
+            **rollback_candidate_components,
+            "candidate_id": rollback_source,
+            "dirty": False,
+        }
+        rollback_candidate_reference = self.write(
+            "initial-rollback-candidate.json", rollback_candidate, "candidate"
+        )
+        gate_reference, capability_reference, provenance_reference = (
+            self.rollback_execution_references(
+                manifest=manifest,
+                proposed_policy_sha256=proposed_reference["sha256"],
+                source_identity=rollback_source,
+                task_contract_sha256=rollback_task_reference["sha256"],
+                include_target_materials=False,
+            )
+        )
+        rollback = content_address(
+            {
+                "schema_version": "2.0.0",
+                "repository_id": self.REPOSITORY_ID,
+                "task_contract_sha256": manifest["task_contract"]["sha256"],
+                "candidate_id": self.CANDIDATE_ID,
+                "previous_lkg_policy_sha256": manifest["effective_policy"]["sha256"],
+                "proposed_policy_sha256": proposed_reference["sha256"],
+                "rollback_target_commit": bootstrap_basis,
+                "gate_result": gate_reference,
+                "sandbox_capability": capability_reference,
+                "provenance_statement": provenance_reference,
+                "status": "PASS",
+                "created_at": self.ENDED,
+                "limitations": [],
+            },
+            "rollback_evidence_id",
+        )
+        rollback_reference = self.write(
+            "initial-rollback-evidence.json", rollback, "rollback-evidence"
+        )
+        authority_basis = "b" * 40
+        authority_commit = "c" * 40
+        bootstrap_decision = content_address(
+            task_decision
+            | {
+                "decision_type": "lkg_bootstrap",
+                "scope": [
+                    f"initial-lkg:{bootstrap_basis}",
+                    f"authority-basis:{authority_basis}",
+                    f"kernel-source:{self.candidate['head_commit']}",
+                    f"bootstrap-policy:{manifest['effective_policy']['sha256']}",
+                ],
+                "single_use": True,
+                "consumption_id": f"initial-lkg-bootstrap:{self.CANDIDATE_ID}",
+            },
+            "decision_id",
+        )
+        bootstrap_reference = self.raw(
+            "initial-bootstrap-decision.json",
+            canonical_json_bytes(bootstrap_decision),
+        )
+        promotion_decision = content_address(
+            task_decision
+            | {
+                "decision_type": "lkg_promotion",
+                "base_commit": bootstrap_basis,
+                "scope": [
+                    f"promote:{proposed_reference['sha256']}",
+                    f"rollback:{rollback['rollback_evidence_id']}",
+                ],
+                "issued_at": "2026-08-26T10:00:02Z",
+                "expires_at": "2026-08-27T10:00:02Z",
+                "single_use": True,
+                "consumption_id": f"lkg-promotion:{self.CANDIDATE_ID}",
+            },
+            "decision_id",
+        )
+        promotion_reference = self.write(
+            "initial-promotion-decision.json",
+            promotion_decision,
+            "authenticated-decision",
+        )
+        rollback_gate = json.loads(
+            (self.repository / gate_reference["path"]).read_text()
+        )
+        rollback_definition = next(
+            item
+            for item in policy["gates"]
+            if item["gate_id"] == rollback_gate["gate_id"]
+        )
+        stream_digests = {
+            item["stream"]: item["sha256"] for item in rollback_gate["artifacts"]
+        }
+        stream_paths = {
+            item["stream"]: item["path"] for item in rollback_gate["artifacts"]
+        }
+        rollback_plan = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": self.REPOSITORY_ID,
+                "task_contract_sha256": manifest["task_contract"]["sha256"],
+                "rollback_task_contract_sha256": rollback_task_reference["sha256"],
+                "bootstrap_policy_sha256": manifest["effective_policy"]["sha256"],
+                "current_candidate_id": self.CANDIDATE_ID,
+                "rollback_target_commit": bootstrap_basis,
+                "rollback_source_identity": rollback_source,
+                "gate_definition": rollback_definition,
+                "gate_definition_sha256": sha256_canonical(rollback_definition),
+                "implementation_sha256": gate_implementation_sha256(),
+                "reviewer_prompt_sha256": sha256_bytes(
+                    self.protected_prompt_bytes
+                ),
+                "raw_artifacts": {
+                    "stdout": stream_paths["stdout"],
+                    "stderr": stream_paths["stderr"],
+                },
+                "workflow_system": "unit",
+                "producer_builder_id": "codex-governed-change",
+                "producer_version": PRODUCER_VERSION,
+                "max_age_seconds": 86400,
+                "limitations": ["one-off non-reusable initial bootstrap"],
+            },
+            "rollback_plan_id",
+        )
+        rollback_plan_reference = self.raw(
+            "initial-rollback-plan.json", canonical_json_bytes(rollback_plan)
+        )
+        authority_manifest = {
+            "bundle": "example/authority",
+            "files": [
+                {
+                    "path": "kernel/.codex/review/reviewer.prompt.md",
+                    "sha256": sha256_bytes(self.protected_prompt_bytes),
+                }
+            ],
+        }
+        authority_manifest_reference = self.raw(
+            "initial-authority-manifest.json",
+            canonical_json_bytes(authority_manifest),
+        )
+
+        def artifact_locator(name: str, reference: dict[str, str]) -> dict[str, str]:
+            return self.write(
+                f"initial-locator-{name}.json",
+                content_address(
+                    {
+                        "schema_version": "1.0.0",
+                        "repository_id": self.REPOSITORY_ID,
+                        "task_contract_sha256": manifest["task_contract"]["sha256"],
+                        "candidate_id": self.CANDIDATE_ID,
+                        "kind": "artifact",
+                        "path": reference["path"],
+                        "artifact_sha256": reference["sha256"],
+                        "media_type": "application/json",
+                    },
+                    "locator_id",
+                ),
+                "evidence-locator",
+            )
+
+        manifest["evidence_locators"].extend(
+            artifact_locator(name, reference)
+            for name, reference in (
+                ("authority-manifest", authority_manifest_reference),
+                ("rollback-plan", rollback_plan_reference),
+                ("rollback-task", rollback_task_reference),
+                ("rollback-candidate", rollback_candidate_reference),
+            )
+        )
+        verification = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": self.REPOSITORY_ID,
+                "task_contract_sha256": manifest["task_contract"]["sha256"],
+                "candidate_id": self.CANDIDATE_ID,
+                "evaluation_mode": "initial_lkg_bootstrap",
+                "bootstrap_basis_commit": bootstrap_basis,
+                "authority_commit": authority_commit,
+                "authority_basis_commit": authority_basis,
+                "authority_manifest_sha256": authority_manifest_reference["sha256"],
+                "bootstrap_policy_sha256": manifest["effective_policy"]["sha256"],
+                "proposed_policy_sha256": proposed_reference["sha256"],
+                "rollback_plan_id": rollback_plan["rollback_plan_id"],
+                "rollback_plan_sha256": rollback_plan_reference["sha256"],
+                "rollback_task_contract_sha256": rollback_task_reference["sha256"],
+                "rollback_candidate_sha256": rollback_candidate_reference["sha256"],
+                "bootstrap_decision_id": bootstrap_decision["decision_id"],
+                "promotion_decision_id": promotion_decision["decision_id"],
+                "rollback_evidence_id": rollback["rollback_evidence_id"],
+                "rollback_gate_result_sha256": gate_reference["sha256"],
+                "rollback_sandbox_capability_sha256": capability_reference["sha256"],
+                "rollback_provenance_statement_sha256": provenance_reference["sha256"],
+                "rollback_stdout_sha256": stream_digests["stdout"],
+                "rollback_stderr_sha256": stream_digests["stderr"],
+                "state": "READY_FOR_HUMAN",
+                "created_at": "2026-08-26T10:00:03Z",
+                "producer_version": "test-authority-bootstrap",
+                "limitations": ["one-off non-reusable initial bootstrap"],
+            },
+            "bootstrap_verification_id",
+        )
+        verification_reference = self.raw(
+            "initial-bootstrap-verification.json",
+            canonical_json_bytes(verification),
+        )
+        manifest.pop("lkg_policy_decision")
+        manifest["authenticated_decisions"] = [
+            reference
+            for reference in manifest["authenticated_decisions"]
+            if reference != previous_lkg_reference
+        ] + [promotion_reference]
+        manifest.update(
+            proposed_policy=proposed_reference,
+            lkg_promotion_decision=promotion_reference,
+            rollback_evidence=rollback_reference,
+            initial_bootstrap_decision=bootstrap_reference,
+            initial_bootstrap_verification=verification_reference,
+            created_at=verification["created_at"],
+        )
+        manifest = content_address(manifest, "manifest_id")
+        state, reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest)
+            | {bootstrap_decision["decision_id"]},
+        )
+        self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
+
+        unverified_state, unverified_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.BLOCK, unverified_state)
+        self.assertIn("INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", unverified_reasons)
+
+        for field in (
+            "authority_manifest_sha256",
+            "rollback_plan_id",
+            "rollback_plan_sha256",
+            "rollback_task_contract_sha256",
+            "rollback_candidate_sha256",
+        ):
+            unresolved_verification = dict(verification)
+            unresolved_verification[field] = "sha256:" + "9" * 64
+            unresolved_verification = content_address(
+                unresolved_verification, "bootstrap_verification_id"
+            )
+            unresolved_reference = self.raw(
+                f"initial-bootstrap-verification-{field}.json",
+                canonical_json_bytes(unresolved_verification),
+            )
+            unresolved_manifest = content_address(
+                {
+                    **manifest,
+                    "initial_bootstrap_verification": unresolved_reference,
+                },
+                "manifest_id",
+            )
+            unresolved_state, unresolved_reasons = evaluate_manifest(
+                repository=self.repository,
+                manifest=unresolved_manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest)
+                | {bootstrap_decision["decision_id"]},
+            )
+            with self.subTest(unresolved_bootstrap_field=field):
+                self.assertEqual(DispositionState.BLOCK, unresolved_state)
+                self.assertIn(
+                    "INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", unresolved_reasons
+                )
+
+        stale_plan = content_address(
+            {**rollback_plan, "max_age_seconds": 1}, "rollback_plan_id"
+        )
+        stale_plan_reference = self.raw(
+            "initial-rollback-plan-stale.json", canonical_json_bytes(stale_plan)
+        )
+        stale_plan_locator = artifact_locator("rollback-plan-stale", stale_plan_reference)
+        stale_verification = content_address(
+            {
+                **verification,
+                "rollback_plan_id": stale_plan["rollback_plan_id"],
+                "rollback_plan_sha256": stale_plan_reference["sha256"],
+            },
+            "bootstrap_verification_id",
+        )
+        stale_verification_reference = self.raw(
+            "initial-bootstrap-verification-stale.json",
+            canonical_json_bytes(stale_verification),
+        )
+        stale_manifest = content_address(
+            {
+                **manifest,
+                "evidence_locators": [
+                    *manifest["evidence_locators"],
+                    stale_plan_locator,
+                ],
+                "initial_bootstrap_verification": stale_verification_reference,
+            },
+            "manifest_id",
+        )
+        stale_state, stale_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=stale_manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest)
+            | {bootstrap_decision["decision_id"]},
+        )
+        self.assertEqual(DispositionState.BLOCK, stale_state)
+        self.assertIn("INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", stale_reasons)
+
+        mismatched_verification = dict(verification)
+        mismatched_verification["rollback_stdout_sha256"] = (
+            "sha256:" + "9" * 64
+        )
+        mismatched_verification = content_address(
+            mismatched_verification, "bootstrap_verification_id"
+        )
+        mismatched_reference = self.raw(
+            "initial-bootstrap-verification-mismatched.json",
+            canonical_json_bytes(mismatched_verification),
+        )
+        mismatched_manifest = content_address(
+            {
+                **manifest,
+                "initial_bootstrap_verification": mismatched_reference,
+            },
+            "manifest_id",
+        )
+        mismatched_state, mismatched_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=mismatched_manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest)
+            | {bootstrap_decision["decision_id"]},
+        )
+        self.assertEqual(DispositionState.BLOCK, mismatched_state)
+        self.assertIn("INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", mismatched_reasons)
+
+        partial = dict(manifest)
+        partial.pop("initial_bootstrap_verification")
+        partial = content_address(partial, "manifest_id")
+        partial_state, partial_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=partial,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest)
+            | {bootstrap_decision["decision_id"]},
+        )
+        self.assertEqual(DispositionState.UNKNOWN, partial_state)
+        self.assertIn("INITIAL_BOOTSTRAP_EVIDENCE_INCOMPLETE", partial_reasons)
 
 
 if __name__ == "__main__":

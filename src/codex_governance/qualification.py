@@ -748,6 +748,7 @@ def qualification_evidence_valid(
     evaluated_at: str,
     prompt_bytes: bytes,
     requested_context_profile: str | None = None,
+    deadline: float | None = None,
 ) -> bool:
     """Recompute a protected qualification from its corpus and every case."""
     if mode not in {"conformance", "rapid_review"}:
@@ -760,7 +761,9 @@ def qualification_evidence_valid(
         if retained is not None:
             return retained
         path = schema_root / f"{name}.schema.json"
-        data = read_bounded_path_file(path, max_bytes=2_000_000)
+        data = read_bounded_path_file(
+            path, max_bytes=2_000_000, deadline=deadline
+        )
         schema = parse_json_bytes(data)
         if not isinstance(schema, dict):
             raise ValueError("protected qualification schema must be an object")
@@ -1427,6 +1430,7 @@ def context_qualification_evidence_valid(
     verified_decision_ids: frozenset[str],
     evaluated_at: str,
     prompt_bytes: bytes,
+    deadline: float | None = None,
 ) -> bool:
     """Replay both profiles and modes behind one empirical context record."""
     try:
@@ -1507,6 +1511,7 @@ def context_qualification_evidence_valid(
                     evaluated_at=evaluated_at,
                     prompt_bytes=prompt_bytes,
                     requested_context_profile=expected_profile,
+                    deadline=deadline,
                 ):
                     return False
                 mode_metrics[mode] = _context_mode_metrics(

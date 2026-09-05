@@ -14,6 +14,7 @@ from codex_governance.canonical import (
     canonical_json_bytes,
     content_address,
     normalize_repo_path,
+    require_git_object,
     require_sha256,
     sha256_bytes,
     sha256_canonical,
@@ -123,7 +124,11 @@ def repository_reference(
 
 
 def read_reference(
-    *, repository: Path, reference: Mapping[str, Any], max_bytes: int = 8_000_000
+    *,
+    repository: Path,
+    reference: Mapping[str, Any],
+    max_bytes: int = 8_000_000,
+    deadline: float | None = None,
 ) -> bytes:
     if max_bytes < 1:
         raise ValueError("reference byte bound must be positive")
@@ -140,7 +145,9 @@ def read_reference(
         if len(data) > max_bytes:
             raise ValueError("evidence reference exceeds the size bound")
         return data
-    data = read_bounded_repository_file(root, relative, max_bytes=max_bytes)
+    data = read_bounded_repository_file(
+        root, relative, max_bytes=max_bytes, deadline=deadline
+    )
     if sha256_bytes(data) != expected:
         raise ValueError("evidence reference digest mismatch")
     if cache is not None:
@@ -419,38 +426,55 @@ def evaluate_manifest(
     except (KeyError, OSError, TypeError, ValueError):
         decisions = []
     valid_decisions = [item for item in decisions if verify_content_address(item, "decision_id")]
-    try:
-        lkg_policy_decision = load(
-            manifest["lkg_policy_decision"], "authenticated-decision"
-        )
-        base_commit = str(current_candidate["base_commit"])
-        lkg_policy_authorized = bool(
-            manifest["lkg_policy_decision"] in manifest["authenticated_decisions"]
-            and policy.get("lkg_governance_commit") == base_commit
-            and decision_applies(
-                decision=lkg_policy_decision,
-                repository_id=repository_id,
-                candidate_id=current_candidate_id,
-                task_contract_sha256=task_sha,
-                policy_sha256=policy_sha,
-                required_type="lkg_policy_authorization",
-                required_scope=[f"policy:{policy_sha}", f"lkg:{base_commit}"],
-                now=now,
-                source_verified=(
-                    lkg_policy_decision.get("decision_id")
-                    in verified_decision_ids
-                ),
-                required_base_commit=base_commit,
+    bootstrap_keys = {
+        "initial_bootstrap_decision",
+        "initial_bootstrap_verification",
+    }
+    bootstrap_present = bootstrap_keys & set(manifest)
+    if bootstrap_present and bootstrap_present != bootstrap_keys:
+        return DispositionState.UNKNOWN, ["INITIAL_BOOTSTRAP_EVIDENCE_INCOMPLETE"]
+    initial_bootstrap_authorized = False
+    if bootstrap_present:
+        if "lkg_policy_decision" in manifest:
+            return DispositionState.BLOCK, ["INITIAL_BOOTSTRAP_AUTHORITY_CONFLICT"]
+        lkg_policy_decision = None
+    else:
+        try:
+            lkg_policy_decision = load(
+                manifest["lkg_policy_decision"], "authenticated-decision"
             )
-        )
-    except (KeyError, OSError, TypeError, ValueError):
-        lkg_policy_authorized = False
-    if not lkg_policy_authorized:
-        return DispositionState.BLOCK, ["PREVIOUS_LKG_POLICY_NOT_AUTHENTICATED"]
+            base_commit = str(current_candidate["base_commit"])
+            lkg_policy_authorized = bool(
+                manifest["lkg_policy_decision"]
+                in manifest["authenticated_decisions"]
+                and policy.get("lkg_governance_commit") == base_commit
+                and decision_applies(
+                    decision=lkg_policy_decision,
+                    repository_id=repository_id,
+                    candidate_id=current_candidate_id,
+                    task_contract_sha256=task_sha,
+                    policy_sha256=policy_sha,
+                    required_type="lkg_policy_authorization",
+                    required_scope=[f"policy:{policy_sha}", f"lkg:{base_commit}"],
+                    now=now,
+                    source_verified=(
+                        lkg_policy_decision.get("decision_id")
+                        in verified_decision_ids
+                    ),
+                    required_base_commit=base_commit,
+                )
+            )
+        except (KeyError, OSError, TypeError, ValueError):
+            lkg_policy_authorized = False
+        if not lkg_policy_authorized:
+            return DispositionState.BLOCK, [
+                "PREVIOUS_LKG_POLICY_NOT_AUTHENTICATED"
+            ]
     try:
         locators = [load(reference, "evidence-locator") for reference in manifest["evidence_locators"]]
         locator_by_id: dict[str, Mapping[str, Any]] = {}
         resolved_locators: dict[str, str] = {}
+        resolved_locator_bytes: dict[str, bytes] = {}
         for locator in locators:
             if (
                 verify_content_address(locator, "locator_id")
@@ -460,12 +484,27 @@ def evaluate_manifest(
             ):
                 locator_id = str(locator["locator_id"])
                 locator_by_id[locator_id] = locator
-                resolved_locators[locator_id] = sha256_bytes(
-                    resolve_evidence_locator(repository, locator)
-                )
+                resolved = resolve_evidence_locator(repository, locator)
+                resolved_locator_bytes[locator_id] = resolved
+                resolved_locators[locator_id] = sha256_bytes(resolved)
     except (KeyError, OSError, TypeError, ValueError):
+        locators = []
         locator_by_id = {}
         resolved_locators = {}
+        resolved_locator_bytes = {}
+
+    def uniquely_resolved_artifact(expected_sha256: str) -> bytes:
+        expected = require_sha256(expected_sha256, name="bootstrap artifact")
+        matches = [
+            resolved_locator_bytes[str(locator["locator_id"])]
+            for locator in locators
+            if locator.get("kind") == "artifact"
+            and locator.get("artifact_sha256") == expected
+            and resolved_locators.get(str(locator.get("locator_id"))) == expected
+        ]
+        if len(matches) != 1:
+            raise ValueError("bootstrap artifact locator is absent or ambiguous")
+        return matches[0]
 
     def references_resolve(references: Sequence[Mapping[str, Any]]) -> bool:
         return all(
@@ -488,11 +527,6 @@ def evaluate_manifest(
                 or not references
             ):
                 return False
-            source = read_bounded_repository_file(
-                repository, path, max_bytes=8_000_000
-            )
-            if line > len(source.splitlines()):
-                return False
             for reference in references:
                 if isinstance(reference, str):
                     locator_id = reference
@@ -512,13 +546,16 @@ def evaluate_manifest(
                     or normalize_repo_path(locator.get("path")) != path
                 ):
                     continue
-                if locator.get("kind") == "repository_excerpt" and not (
-                    isinstance(locator.get("start_line"), int)
-                    and not isinstance(locator.get("start_line"), bool)
-                    and isinstance(locator.get("end_line"), int)
-                    and not isinstance(locator.get("end_line"), bool)
-                    and locator["start_line"] <= line <= locator["end_line"]
-                ):
+                if locator.get("kind") == "repository_excerpt":
+                    if not (
+                        isinstance(locator.get("start_line"), int)
+                        and not isinstance(locator.get("start_line"), bool)
+                        and isinstance(locator.get("end_line"), int)
+                        and not isinstance(locator.get("end_line"), bool)
+                        and locator["start_line"] <= line <= locator["end_line"]
+                    ):
+                        continue
+                elif line > len(resolved_locator_bytes[str(locator_id)].splitlines()):
                     continue
                 return True
         except (OSError, TypeError, ValueError):
@@ -774,7 +811,11 @@ def evaluate_manifest(
         expected_shell: bool = False,
         expected_stdout: bytes | None = None,
         expected_stdout_validator: Callable[[bytes], bool] | None = None,
+        expected_task_contract_sha256: str | None = None,
+        expected_repository_digest: str | None = None,
     ) -> bool:
+        expected_task_sha = expected_task_contract_sha256 or task_sha
+        expected_repository_sha = expected_repository_digest or current_candidate_id
         capability_sha = result.get("sandbox_capability_sha256")
         capability = capability_by_sha.get(str(capability_sha))
         statement_ref = result.get("provenance_statement")
@@ -891,10 +932,10 @@ def evaluate_manifest(
                 statement,
                 repository_id,
                 source_identity,
-                current_candidate_id,
+                expected_repository_sha,
             )
             and result.get("repository_id") == repository_id
-            and result.get("task_contract_sha256") == task_sha
+            and result.get("task_contract_sha256") == expected_task_sha
             and result.get("candidate_before") == source_identity
             and result.get("candidate_after") == source_identity
             and result.get("gate_id") == expected_gate_id
@@ -916,7 +957,7 @@ def evaluate_manifest(
             and result.get("execution_identity") == environment.get("execution_identity")
             and source_identity == environment.get("source_identity")
             and capability_sha == environment.get("sandbox_capability_sha256")
-            and predicate.get("task_contract_sha256") == task_sha
+            and predicate.get("task_contract_sha256") == expected_task_sha
             and predicate.get("effective_policy_sha256") == policy_sha
             and provenance_review_inputs_match(
                 predicate=predicate,
@@ -1032,7 +1073,581 @@ def evaluate_manifest(
     else:
         upstream["gates"] = "success"
 
-    if governed_paths:
+    if bootstrap_present:
+        try:
+            bootstrap_decision_bytes = read_reference(
+                repository=repository,
+                reference=manifest["initial_bootstrap_decision"],
+            )
+            bootstrap_verification_bytes = read_reference(
+                repository=repository,
+                reference=manifest["initial_bootstrap_verification"],
+            )
+            bootstrap_decision = json.loads(
+                bootstrap_decision_bytes.decode("utf-8")
+            )
+            bootstrap_verification = json.loads(
+                bootstrap_verification_bytes.decode("utf-8")
+            )
+            if (
+                not isinstance(bootstrap_decision, dict)
+                or not isinstance(bootstrap_verification, dict)
+                or canonical_json_bytes(bootstrap_decision)
+                != bootstrap_decision_bytes
+                or canonical_json_bytes(bootstrap_verification)
+                != bootstrap_verification_bytes
+            ):
+                raise ValueError("bootstrap authority must be canonical JSON")
+            expected_bootstrap_decision_fields = {
+                "schema_version",
+                "decision_id",
+                "repository_id",
+                "decision_type",
+                "task_contract_sha256",
+                "candidate_id",
+                "base_commit",
+                "effective_policy_sha256",
+                "scope",
+                "issuer",
+                "issued_at",
+                "expires_at",
+                "single_use",
+                "consumption_id",
+            }
+            expected_bootstrap_verification_fields = {
+                "schema_version",
+                "bootstrap_verification_id",
+                "repository_id",
+                "task_contract_sha256",
+                "candidate_id",
+                "evaluation_mode",
+                "bootstrap_basis_commit",
+                "authority_commit",
+                "authority_basis_commit",
+                "authority_manifest_sha256",
+                "bootstrap_policy_sha256",
+                "proposed_policy_sha256",
+                "rollback_plan_id",
+                "rollback_plan_sha256",
+                "rollback_task_contract_sha256",
+                "rollback_candidate_sha256",
+                "bootstrap_decision_id",
+                "promotion_decision_id",
+                "rollback_evidence_id",
+                "rollback_gate_result_sha256",
+                "rollback_sandbox_capability_sha256",
+                "rollback_provenance_statement_sha256",
+                "rollback_stdout_sha256",
+                "rollback_stderr_sha256",
+                "state",
+                "created_at",
+                "producer_version",
+                "limitations",
+            }
+            digest_fields = {
+                "authority_manifest_sha256",
+                "bootstrap_policy_sha256",
+                "proposed_policy_sha256",
+                "rollback_plan_id",
+                "rollback_plan_sha256",
+                "rollback_task_contract_sha256",
+                "rollback_candidate_sha256",
+                "bootstrap_decision_id",
+                "promotion_decision_id",
+                "rollback_evidence_id",
+                "rollback_gate_result_sha256",
+                "rollback_sandbox_capability_sha256",
+                "rollback_provenance_statement_sha256",
+                "rollback_stdout_sha256",
+                "rollback_stderr_sha256",
+            }
+            for field in digest_fields:
+                require_sha256(
+                    bootstrap_verification.get(field), name=field
+                )
+            bootstrap_basis = require_git_object(
+                bootstrap_verification.get("bootstrap_basis_commit"),
+                name="bootstrap basis commit",
+            )
+            authority_commit = require_git_object(
+                bootstrap_verification.get("authority_commit"),
+                name="authority commit",
+            )
+            authority_basis = require_git_object(
+                bootstrap_verification.get("authority_basis_commit"),
+                name="authority basis commit",
+            )
+            authority_manifest_bytes = uniquely_resolved_artifact(
+                bootstrap_verification["authority_manifest_sha256"]
+            )
+            rollback_plan_bytes = uniquely_resolved_artifact(
+                bootstrap_verification["rollback_plan_sha256"]
+            )
+            rollback_task_bytes = uniquely_resolved_artifact(
+                bootstrap_verification["rollback_task_contract_sha256"]
+            )
+            rollback_candidate_bytes = uniquely_resolved_artifact(
+                bootstrap_verification["rollback_candidate_sha256"]
+            )
+
+            def strict_json_object(data: bytes, *, name: str) -> dict[str, Any]:
+                def reject_duplicate_keys(
+                    pairs: list[tuple[str, Any]],
+                ) -> dict[str, Any]:
+                    document: dict[str, Any] = {}
+                    for key, value in pairs:
+                        if key in document:
+                            raise ValueError(f"{name} contains duplicate keys")
+                        document[key] = value
+                    return document
+
+                value = json.loads(
+                    data.decode("utf-8"),
+                    object_pairs_hook=reject_duplicate_keys,
+                    parse_constant=lambda item: (_ for _ in ()).throw(
+                        ValueError(item)
+                    ),
+                )
+                if (
+                    not isinstance(value, dict)
+                    or canonical_json_bytes(value) != data
+                ):
+                    raise ValueError(f"{name} must be canonical JSON")
+                return value
+
+            authority_manifest = strict_json_object(
+                authority_manifest_bytes, name="authority manifest"
+            )
+            rollback_plan = strict_json_object(
+                rollback_plan_bytes, name="rollback plan"
+            )
+            rollback_task = parse_referenced_json(
+                data=rollback_task_bytes,
+                schema_path=schema_root / "task-contract.schema.json",
+            )
+            rollback_candidate = parse_referenced_json(
+                data=rollback_candidate_bytes,
+                schema_path=schema_root / "candidate.schema.json",
+            )
+            proposed_policy = load(
+                manifest["proposed_policy"], "effective-policy"
+            )
+            promotion_decision = load(
+                manifest["lkg_promotion_decision"],
+                "authenticated-decision",
+            )
+            rollback_evidence = load(
+                manifest["rollback_evidence"], "rollback-evidence"
+            )
+            rollback_gate = load(
+                rollback_evidence["gate_result"], "gate-result"
+            )
+            rollback_capability = load(
+                rollback_evidence["sandbox_capability"],
+                "sandbox-capability",
+            )
+            rollback_provenance = load(
+                rollback_evidence["provenance_statement"],
+                "provenance-statement",
+            )
+            rollback_definition = gate_policy[str(rollback_gate["gate_id"])]
+            rollback_source = require_sha256(
+                rollback_candidate.get("candidate_id"),
+                name="bootstrap rollback source",
+            )
+            rollback_task_sha = require_sha256(
+                bootstrap_verification["rollback_task_contract_sha256"],
+                name="bootstrap rollback task",
+            )
+            artifacts = rollback_gate.get("artifacts")
+            if (
+                not isinstance(artifacts, Sequence)
+                or isinstance(artifacts, (str, bytes))
+                or len(artifacts) != 2
+            ):
+                raise ValueError("bootstrap rollback streams are incomplete")
+            artifacts_by_stream = {
+                item.get("stream"): item
+                for item in artifacts
+                if isinstance(item, Mapping)
+            }
+            if set(artifacts_by_stream) != {"stdout", "stderr"}:
+                raise ValueError("bootstrap rollback streams are ambiguous")
+            stream_bytes: dict[str, bytes] = {}
+            for stream in ("stdout", "stderr"):
+                artifact = artifacts_by_stream[stream]
+                data = read_reference(
+                    repository=repository,
+                    reference={
+                        "path": artifact.get("path"),
+                        "sha256": artifact.get("sha256"),
+                    },
+                    max_bytes=int(rollback_definition["max_output_bytes"]),
+                )
+                if (
+                    artifact.get("truncated") is not False
+                    or artifact.get("bytes") != len(data)
+                ):
+                    raise ValueError("bootstrap rollback stream is incomplete")
+                stream_bytes[stream] = data
+            base_materials = [
+                {"name": "candidate", "sha256": rollback_source},
+                {"name": "task-contract", "sha256": rollback_task_sha},
+                {"name": "effective-policy", "sha256": policy_sha},
+            ]
+            observed_materials = rollback_provenance.get("predicate", {}).get(
+                "materials"
+            )
+            if observed_materials != base_materials:
+                raise ValueError("bootstrap rollback materials are not exact")
+            bootstrap_scope = [
+                f"initial-lkg:{bootstrap_basis}",
+                f"authority-basis:{authority_basis}",
+                f"kernel-source:{current_candidate['head_commit']}",
+                f"bootstrap-policy:{policy_sha}",
+            ]
+            scope = bootstrap_decision.get("scope")
+            bootstrap_decision_valid = bool(
+                set(bootstrap_decision) == expected_bootstrap_decision_fields
+                and isinstance(scope, list)
+                and len(scope) == len(bootstrap_scope)
+                and set(scope) == set(bootstrap_scope)
+                and bootstrap_decision.get("single_use") is True
+                and bootstrap_decision.get("consumption_id")
+                == f"initial-lkg-bootstrap:{current_candidate_id}"
+                and decision_applies(
+                    decision=bootstrap_decision,
+                    repository_id=repository_id,
+                    candidate_id=current_candidate_id,
+                    task_contract_sha256=task_sha,
+                    policy_sha256=policy_sha,
+                    required_type="lkg_bootstrap",
+                    required_scope=bootstrap_scope,
+                    now=now,
+                    source_verified=(
+                        bootstrap_decision.get("decision_id")
+                        in verified_decision_ids
+                    ),
+                    required_base_commit=str(current_candidate["base_commit"]),
+                )
+            )
+            authority_files = authority_manifest.get("files")
+            if (
+                set(authority_manifest) != {"bundle", "files"}
+                or not isinstance(authority_manifest.get("bundle"), str)
+                or not authority_manifest["bundle"]
+                or not isinstance(authority_files, Sequence)
+                or isinstance(authority_files, (str, bytes))
+                or not authority_files
+            ):
+                raise ValueError("authority manifest shape is invalid")
+            authority_paths: list[str] = []
+            for item in authority_files:
+                if not isinstance(item, Mapping) or set(item) != {"path", "sha256"}:
+                    raise ValueError("authority manifest file entry is invalid")
+                authority_paths.append(normalize_repo_path(item.get("path")))
+                require_sha256(item.get("sha256"), name="authority file")
+            if len(authority_paths) != len(set(authority_paths)):
+                raise ValueError("authority manifest paths are duplicated")
+
+            expected_plan_fields = {
+                "schema_version",
+                "rollback_plan_id",
+                "repository_id",
+                "task_contract_sha256",
+                "rollback_task_contract_sha256",
+                "bootstrap_policy_sha256",
+                "current_candidate_id",
+                "rollback_target_commit",
+                "rollback_source_identity",
+                "gate_definition",
+                "gate_definition_sha256",
+                "implementation_sha256",
+                "reviewer_prompt_sha256",
+                "raw_artifacts",
+                "workflow_system",
+                "producer_builder_id",
+                "producer_version",
+                "max_age_seconds",
+                "limitations",
+            }
+            raw_paths = rollback_plan.get("raw_artifacts")
+            plan_limitations = rollback_plan.get("limitations")
+            max_age_seconds = rollback_plan.get("max_age_seconds")
+            rollback_plan_valid = bool(
+                set(rollback_plan) == expected_plan_fields
+                and rollback_plan.get("schema_version") == "1.0.0"
+                and verify_content_address(rollback_plan, "rollback_plan_id")
+                and rollback_plan.get("repository_id") == repository_id
+                and rollback_plan.get("task_contract_sha256") == task_sha
+                and rollback_plan.get("rollback_task_contract_sha256")
+                == rollback_task_sha
+                and rollback_plan.get("bootstrap_policy_sha256") == policy_sha
+                and rollback_plan.get("current_candidate_id")
+                == current_candidate_id
+                and rollback_plan.get("rollback_target_commit") == bootstrap_basis
+                and rollback_plan.get("rollback_source_identity") == rollback_source
+                and rollback_plan.get("gate_definition") == rollback_definition
+                and rollback_plan.get("gate_definition_sha256")
+                == sha256_canonical(rollback_definition)
+                and rollback_plan.get("implementation_sha256")
+                == gate_implementation_sha256()
+                and rollback_plan.get("reviewer_prompt_sha256")
+                == protected_reviewer_prompt_sha256
+                and isinstance(raw_paths, Mapping)
+                and set(raw_paths) == {"stdout", "stderr"}
+                and raw_paths
+                == {
+                    stream: artifacts_by_stream[stream].get("path")
+                    for stream in ("stdout", "stderr")
+                }
+                and rollback_plan.get("producer_builder_id")
+                == "codex-governed-change"
+                and rollback_plan.get("producer_version") == PRODUCER_VERSION
+                and isinstance(rollback_plan.get("workflow_system"), str)
+                and bool(rollback_plan.get("workflow_system"))
+                and isinstance(max_age_seconds, int)
+                and not isinstance(max_age_seconds, bool)
+                and 1 <= max_age_seconds <= 86_400
+                and isinstance(plan_limitations, list)
+                and all(
+                    isinstance(item, str) and bool(item)
+                    for item in plan_limitations
+                )
+            )
+            rollback_task_valid = bool(
+                rollback_task.get("repository_id") == repository_id
+                and rollback_task.get("base_commit") == bootstrap_basis
+                and rollback_task.get("required_gate_ids")
+                == [rollback_definition.get("gate_id")]
+                and rollback_task.get("profile")
+                in rollback_definition.get("profiles", ())
+                and rollback_task.get("governance_change_requested") is False
+                and rollback_task.get("rapid_review", {}).get("required") is False
+            )
+            rollback_candidate_valid = bool(
+                verify_candidate_identity(rollback_candidate)
+                and rollback_candidate.get("repository_id") == repository_id
+                and rollback_candidate.get("mode") == "commit"
+                and rollback_candidate.get("dirty") is False
+                and rollback_candidate.get("base_commit") == bootstrap_basis
+                and rollback_candidate.get("head_commit") == bootstrap_basis
+                and rollback_candidate.get("changed_paths") == []
+                and rollback_candidate.get("untracked_entries") == []
+                and rollback_candidate.get("submodules") == []
+                and rollback_candidate.get("effective_policy_sha256") == policy_sha
+            )
+            rollback_predicate = rollback_provenance.get("predicate", {})
+            rollback_producer = (
+                rollback_predicate.get("producer", {})
+                if isinstance(rollback_predicate, Mapping)
+                else {}
+            )
+            rollback_workflow = (
+                rollback_predicate.get("workflow", {})
+                if isinstance(rollback_predicate, Mapping)
+                else {}
+            )
+            rollback_command = rollback_definition.get("command")
+            expected_rollback_stdout = (
+                f"ROLLBACK_REHEARSAL=PASS target={bootstrap_basis}\n".encode(
+                    "ascii"
+                )
+            )
+            rollback_reconstructed = bool(
+                rollback_plan_valid
+                and rollback_task_valid
+                and rollback_candidate_valid
+                and rollback_evidence["sandbox_capability"]
+                in manifest["sandbox_capabilities"]
+                and rollback_evidence["provenance_statement"]
+                in manifest["provenance_statements"]
+                and rollback_gate.get("sandbox_capability_sha256")
+                == rollback_evidence["sandbox_capability"]["sha256"]
+                and rollback_gate.get("provenance_statement")
+                == rollback_evidence["provenance_statement"]
+                and rollback_evidence.get("limitations") == []
+                and rollback_gate.get("limitations") == []
+                and rollback_capability.get("limitations")
+                in ([], ["unsigned local capability report"])
+                and rollback_provenance.get("predicate", {}).get("limitations")
+                == []
+                and rollback_definition.get("shell") is False
+                and isinstance(rollback_command, Sequence)
+                and not isinstance(rollback_command, (str, bytes))
+                and bool(rollback_command)
+                and rollback_command[-1] == bootstrap_basis
+                and rollback_gate.get("profile")
+                == rollback_task.get("profile")
+                and rollback_gate.get("profile")
+                in rollback_definition.get("profiles", ())
+                and rollback_producer.get("builder_id")
+                == rollback_plan.get("producer_builder_id")
+                and rollback_producer.get("version")
+                == rollback_plan.get("producer_version")
+                and rollback_workflow.get("system")
+                == rollback_plan.get("workflow_system")
+                and isinstance(rollback_workflow.get("run_id"), str)
+                and bool(rollback_workflow.get("run_id"))
+                and isinstance(rollback_workflow.get("attempt"), int)
+                and not isinstance(rollback_workflow.get("attempt"), bool)
+                and rollback_workflow["attempt"] >= 1
+                and execution_evidence_valid(
+                    rollback_gate,
+                    source_identity=rollback_source,
+                    expected_command=rollback_definition["command"],
+                    expected_gate_id=str(rollback_definition["gate_id"]),
+                    expected_gate_definition_sha256=sha256_canonical(
+                        rollback_definition
+                    ),
+                    expected_implementation_sha256=gate_implementation_sha256(),
+                    expected_timeout_seconds=int(
+                        rollback_definition["timeout_seconds"]
+                    ),
+                    expected_max_output_bytes=int(
+                        rollback_definition["max_output_bytes"]
+                    ),
+                    expected_reviewer_prompt_sha256=(
+                        protected_reviewer_prompt_sha256
+                    ),
+                    expected_materials=observed_materials,
+                    expected_stdout=expected_rollback_stdout,
+                    expected_task_contract_sha256=rollback_task_sha,
+                    expected_repository_digest=rollback_source,
+                )
+            )
+            promotion_state = evaluate_lkg_promotion(
+                repository_id=repository_id,
+                candidate_id=current_candidate_id,
+                task_contract_sha256=task_sha,
+                evaluating_policy_sha256=policy_sha,
+                previous_lkg_policy_sha256=policy_sha,
+                proposed_policy_sha256=manifest["proposed_policy"]["sha256"],
+                promotion_decision=promotion_decision,
+                rollback_evidence=rollback_evidence,
+                expected_rollback_target_commit=bootstrap_basis,
+                rollback_reconstructed=rollback_reconstructed,
+                now=now,
+                verified_decision_ids=verified_decision_ids,
+            )
+            verification_created = parse_rfc3339(
+                str(bootstrap_verification["created_at"])
+            )
+            rollback_created = parse_rfc3339(
+                str(rollback_evidence["created_at"])
+            )
+            promotion_issued = parse_rfc3339(
+                str(promotion_decision["issued_at"])
+            )
+            capability_verified = parse_rfc3339(
+                str(rollback_capability["verified_at"])
+            )
+            rollback_started = parse_rfc3339(str(rollback_gate["started_at"]))
+            rollback_ended = parse_rfc3339(str(rollback_gate["ended_at"]))
+            duration_ms = rollback_gate.get("duration_ms")
+            rollback_chronology_valid = bool(
+                isinstance(max_age_seconds, int)
+                and not isinstance(max_age_seconds, bool)
+                and isinstance(duration_ms, int)
+                and not isinstance(duration_ms, bool)
+                and 0 <= duration_ms <= max_age_seconds * 1000
+                and capability_verified
+                <= rollback_started
+                <= rollback_ended
+                <= rollback_created
+                <= promotion_issued
+                <= verification_created
+                <= now
+                and (now - rollback_created).total_seconds()
+                <= max_age_seconds
+                and (rollback_started - capability_verified).total_seconds()
+                <= max_age_seconds
+                and duration_ms
+                <= (rollback_ended - rollback_started).total_seconds() * 1000
+                + 1000
+            )
+            initial_bootstrap_authorized = bool(
+                set(bootstrap_verification)
+                == expected_bootstrap_verification_fields
+                and verify_content_address(
+                    bootstrap_verification, "bootstrap_verification_id"
+                )
+                and bootstrap_verification.get("schema_version") == "1.0.0"
+                and bootstrap_verification.get("repository_id") == repository_id
+                and bootstrap_verification.get("task_contract_sha256") == task_sha
+                and bootstrap_verification.get("candidate_id")
+                == current_candidate_id
+                and bootstrap_verification.get("evaluation_mode")
+                == "initial_lkg_bootstrap"
+                and authority_commit != authority_basis
+                and bootstrap_verification.get("bootstrap_basis_commit")
+                == rollback_plan.get("rollback_target_commit")
+                and bootstrap_verification.get("authority_manifest_sha256")
+                == sha256_bytes(authority_manifest_bytes)
+                and policy.get("lkg_governance_commit")
+                == current_candidate.get("base_commit")
+                and proposed_policy.get("repository_id") == repository_id
+                and proposed_policy.get("lkg_governance_commit")
+                == current_candidate.get("head_commit")
+                and manifest["proposed_policy"]["sha256"] != policy_sha
+                and bootstrap_verification.get("bootstrap_policy_sha256")
+                == policy_sha
+                and bootstrap_verification.get("proposed_policy_sha256")
+                == manifest["proposed_policy"]["sha256"]
+                and bootstrap_verification.get("rollback_plan_id")
+                == rollback_plan.get("rollback_plan_id")
+                and bootstrap_verification.get("rollback_plan_sha256")
+                == sha256_bytes(rollback_plan_bytes)
+                and bootstrap_verification.get(
+                    "rollback_task_contract_sha256"
+                )
+                == sha256_bytes(rollback_task_bytes)
+                and bootstrap_verification.get("rollback_candidate_sha256")
+                == sha256_bytes(rollback_candidate_bytes)
+                and bootstrap_verification.get("bootstrap_decision_id")
+                == bootstrap_decision.get("decision_id")
+                and bootstrap_verification.get("promotion_decision_id")
+                == promotion_decision.get("decision_id")
+                and bootstrap_verification.get("rollback_evidence_id")
+                == rollback_evidence.get("rollback_evidence_id")
+                and bootstrap_verification.get("rollback_gate_result_sha256")
+                == rollback_evidence["gate_result"]["sha256"]
+                and bootstrap_verification.get(
+                    "rollback_sandbox_capability_sha256"
+                )
+                == rollback_evidence["sandbox_capability"]["sha256"]
+                and bootstrap_verification.get(
+                    "rollback_provenance_statement_sha256"
+                )
+                == rollback_evidence["provenance_statement"]["sha256"]
+                and bootstrap_verification.get("rollback_stdout_sha256")
+                == sha256_bytes(stream_bytes["stdout"])
+                and bootstrap_verification.get("rollback_stderr_sha256")
+                == sha256_bytes(stream_bytes["stderr"])
+                and manifest["lkg_promotion_decision"]
+                in manifest["authenticated_decisions"]
+                and bootstrap_verification.get("state") == "READY_FOR_HUMAN"
+                and verification_created == manifest_created
+                and rollback_chronology_valid
+                and isinstance(bootstrap_verification.get("producer_version"), str)
+                and bool(bootstrap_verification.get("producer_version"))
+                and bootstrap_verification.get("limitations") == plan_limitations
+                and bootstrap_decision_valid
+                and promotion_state is DispositionState.READY_FOR_HUMAN
+            )
+        except (
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ):
+            initial_bootstrap_authorized = False
+        if not initial_bootstrap_authorized:
+            return DispositionState.BLOCK, ["INITIAL_BOOTSTRAP_NOT_AUTHENTICATED"]
+
+    if governed_paths and not initial_bootstrap_authorized:
         try:
             proposed_policy = load(
                 manifest["proposed_policy"], "effective-policy"

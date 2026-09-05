@@ -1038,8 +1038,12 @@ advertised Draft 2020-12 keyword subset, but implements that subset faithfully:
 keyword shapes are validated, boolean subschemas are supported where admitted,
 integral JSON numbers satisfy `integer`, JSON boolean/numeric equality remains
 distinct, `$ref` siblings are also applied, and schema-valued `items` and
-`additionalProperties` are enforced. Unsupported keywords and malformed subset
-schemas fail closed before instance validation.
+`additionalProperties` are enforced. `pattern` is restricted to the portable
+ECMA-262/Python expression intersection used by the protected schemas; Python-
+only extensions and expressions outside that proven intersection are malformed
+subset schemas rather than being interpreted with Python-specific semantics.
+Unsupported keywords and malformed subset schemas fail closed before instance
+validation.
 An old document is accepted only
 as migration input and never as current admission evidence. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time

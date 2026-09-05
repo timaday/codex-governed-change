@@ -199,6 +199,8 @@ def validate_rst_lineage(
             or not isinstance(charter_refs, Sequence)
             or isinstance(charter_refs, (str, bytes))
             or not charter_refs
+            or any(not isinstance(reference, str) for reference in charter_refs)
+            or len(charter_refs) != len(set(charter_refs))
             or not set(charter_refs).issubset(charter_by_id)
         ):
             return DispositionState.UNKNOWN

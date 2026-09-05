@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from codex_governance.candidate import GitCliRepositoryAdapter, candidate_id_from_components
 from codex_governance.canonical import canonical_json_bytes, content_address, sha256_bytes
@@ -85,6 +86,32 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     "STANDARD": synthetic["qualification_id"],
                 },
             )
+
+    def test_context_qualification_receives_the_unchanged_review_deadline(self) -> None:
+        from codex_governance.context import compile_context
+
+        sources = self.sources()
+        deadline = 12345.5
+        with patch(
+            "codex_governance.context.context_qualification_valid",
+            return_value=True,
+        ) as qualification_valid:
+            compile_context(
+                sources=sources,
+                candidate=self.candidate(),
+                requested_profile="STANDARD",
+                token_budget=24000,
+                changed_paths=["src/service.py"],
+                affected_closure=sources["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=self.qualification("STANDARD"),
+                protected_qualification_ids=self.qualification_ids(),
+                qualification_deadline=deadline,
+            )
+        self.assertEqual(
+            deadline, qualification_valid.call_args.kwargs["deadline"]
+        )
 
     def test_protected_artifact_closure_is_derived_and_byte_resolved(self) -> None:
         from codex_governance.context import (

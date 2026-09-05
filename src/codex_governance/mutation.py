@@ -156,6 +156,11 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "rapid-finding-location-unchecked",
         "rapid-retrieval-index-unchecked",
         "context-qualification-raw-evidence-unchecked",
+        "rst-duplicate-risk-charter-accepted",
+        "finding-target-pathname-reopened",
+        "context-qualification-deadline-dropped",
+        "schema-python-pattern-extension-accepted",
+        "initial-bootstrap-forced-through-previous-lkg",
     }
 )
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:283ec86e8fd14363a59763210339d9411b4686dccfbca9af5ffd7ba1e5e7be1a",
+  "corpus_id": "sha256:56bd8694f2b6f60743eb317f5e728e2e1c8b162ed0646409938bf43b4f12dbd5",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1113,11 +1113,56 @@
     {
       "mutant_id": "context-qualification-raw-evidence-unchecked",
       "path": "src/codex_governance/context.py",
-      "old": "                and context_qualification_evidence_valid(\n                    record=record,\n                    artifact_reader=artifact_reader,\n                    schema_root=schema_root,\n                    protected_repository_id=protected_repository_id,\n                    verified_decision_ids=verified_decision_ids,\n                    evaluated_at=evaluated_at,\n                    prompt_bytes=prompt_bytes,\n                )",
+      "old": "                and context_qualification_evidence_valid(\n                    record=record,\n                    artifact_reader=artifact_reader,\n                    schema_root=schema_root,\n                    protected_repository_id=protected_repository_id,\n                    verified_decision_ids=verified_decision_ids,\n                    evaluated_at=evaluated_at,\n                    prompt_bytes=prompt_bytes,\n                    deadline=deadline,\n                )",
       "new": "                and True",
       "operator": "promote a self-addressed context aggregate without replaying its corpus labels cases and raw executions",
       "requirement_id": "GOV-TOKEN-002",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_context_qualification_reconstructs_raw_profile_executions"]
+    },
+    {
+      "mutant_id": "rst-duplicate-risk-charter-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "            or len(charter_refs) != len(set(charter_refs))\n            or not set(charter_refs).issubset(charter_by_id)",
+      "new": "            or not set(charter_refs).issubset(charter_by_id)",
+      "operator": "accept a duplicate risk-to-charter relationship as a complete RST graph",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_complete_operational_relationship_graph_is_required"]
+    },
+    {
+      "mutant_id": "finding-target-pathname-reopened",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                elif line > len(resolved_locator_bytes[str(locator_id)].splitlines()):\n                    continue",
+      "new": "                elif line > len(read_bounded_repository_file(repository, path, max_bytes=8_000_000).splitlines()):\n                    continue",
+      "operator": "reopen a reviewer finding target pathname after resolving its locator bytes",
+      "requirement_id": "GOV-052",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_finding_location_uses_the_already_resolved_locator_bytes"]
+    },
+    {
+      "mutant_id": "context-qualification-deadline-dropped",
+      "path": "src/codex_governance/context.py",
+      "old": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n        deadline=qualification_deadline,\n    ):",
+      "new": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n    ):",
+      "operator": "drop the caller's unchanged deadline before protected context qualification",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_context_compiler.ContextCompilerAcceptanceTest.test_context_qualification_receives_the_unchanged_review_deadline"]
+    },
+    {
+      "mutant_id": "schema-python-pattern-extension-accepted",
+      "path": "src/codex_governance/schema.py",
+      "old": "        if (\n            not in_class\n            and character == \"(\"\n            and index + 1 < len(pattern)\n            and pattern[index + 1] == \"?\"\n        ):\n            raise re.error(\"extended groups are outside the portable subset\")",
+      "new": "        if (\n            False\n            and not in_class\n            and character == \"(\"\n            and index + 1 < len(pattern)\n            and pattern[index + 1] == \"?\"\n        ):\n            raise re.error(\"extended groups are outside the portable subset\")",
+      "operator": "accept Python-only regular-expression syntax as Draft 2020-12 pattern",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_malformed_supported_keyword_definitions_fail_closed"]
+    },
+    {
+      "mutant_id": "initial-bootstrap-forced-through-previous-lkg",
+      "path": "src/codex_governance/evidence.py",
+      "old": "    if bootstrap_present:\n        if \"lkg_policy_decision\" in manifest:",
+      "new": "    if False:\n        if \"lkg_policy_decision\" in manifest:",
+      "operator": "force an initial-bootstrap manifest through the unavailable previous-LKG decision path",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
     }
   ]
 }

@@ -181,6 +181,11 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "rapid-finding-location-unchecked",
             "rapid-retrieval-index-unchecked",
             "context-qualification-raw-evidence-unchecked",
+            "rst-duplicate-risk-charter-accepted",
+            "finding-target-pathname-reopened",
+            "context-qualification-deadline-dropped",
+            "schema-python-pattern-extension-accepted",
+            "initial-bootstrap-forced-through-previous-lkg",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

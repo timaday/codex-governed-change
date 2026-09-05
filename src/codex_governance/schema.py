@@ -75,6 +75,76 @@ class SchemaValidationError(ValueError):
         self.errors = tuple(errors)
 
 
+_PORTABLE_SIMPLE_ESCAPES = frozenset(
+    r".^$*+?{}[]()|/\-dDsSwWbBfnrtv"
+)
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _compile_portable_pattern(pattern: str) -> re.Pattern[str]:
+    """Compile only the schema repository's proven ECMA-262/Python subset."""
+    in_class = False
+    previous_quantifier = False
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "\\":
+            if index + 1 >= len(pattern):
+                raise re.error("trailing pattern escape")
+            escaped = pattern[index + 1]
+            if escaped in {"x", "u"}:
+                width = 2 if escaped == "x" else 4
+                digits = pattern[index + 2 : index + 2 + width]
+                if len(digits) != width or any(
+                    digit not in _HEX_DIGITS for digit in digits
+                ):
+                    raise re.error("malformed portable hexadecimal escape")
+                index += width + 2
+            elif escaped in "123456789":
+                if index + 2 < len(pattern) and pattern[index + 2].isdigit():
+                    raise re.error("multi-digit escapes are not portable")
+                index += 2
+            elif escaped == "0":
+                if index + 2 < len(pattern) and pattern[index + 2].isdigit():
+                    raise re.error("octal escapes are not portable")
+                index += 2
+            elif escaped in _PORTABLE_SIMPLE_ESCAPES:
+                index += 2
+            else:
+                raise re.error("escape is outside the portable pattern subset")
+            previous_quantifier = False
+            continue
+        if (
+            not in_class
+            and character == "("
+            and index + 1 < len(pattern)
+            and pattern[index + 1] == "?"
+        ):
+            raise re.error("extended groups are outside the portable subset")
+        if character == "[":
+            if in_class:
+                raise re.error("nested character classes are not portable")
+            in_class = True
+            previous_quantifier = False
+        elif character == "]":
+            in_class = False
+            previous_quantifier = False
+        elif in_class and pattern[index : index + 2] in {"&&", "--", "~~", "||"}:
+            raise re.error("character-class operators are outside the portable subset")
+        elif not in_class and character in "*+?":
+            if previous_quantifier:
+                raise re.error("nested quantifiers are outside the portable subset")
+            previous_quantifier = True
+        elif not in_class and character == "}":
+            previous_quantifier = True
+        else:
+            previous_quantifier = False
+        index += 1
+    if in_class:
+        raise re.error("unterminated character class")
+    return re.compile(pattern)
+
+
 def _json_type_matches(value: Any, expected: str) -> bool:
     return {
         "object": isinstance(value, dict),
@@ -230,9 +300,11 @@ def validate_schema_definition(schema: dict[str, Any]) -> list[str]:
                 errors.append(f"{location}: pattern must be a string")
             else:
                 try:
-                    re.compile(pattern)
+                    _compile_portable_pattern(pattern)
                 except re.error:
-                    errors.append(f"{location}: pattern must be a valid expression")
+                    errors.append(
+                        f"{location}: pattern must be a portable ECMA-262 expression"
+                    )
         if "$ref" in node:
             try:
                 _resolve_ref(schema, node["$ref"])
@@ -321,7 +393,10 @@ def validate_instance(instance: Any, schema: dict[str, Any]) -> list[str]:
                 if isinstance(minimum, int) and len(value) < minimum:
                     errors.append(f"{location}: string is shorter than {minimum}")
                 pattern = node.get("pattern")
-                if isinstance(pattern, str) and re.search(pattern, value) is None:
+                if (
+                    isinstance(pattern, str)
+                    and _compile_portable_pattern(pattern).search(value) is None
+                ):
                     errors.append(f"{location}: string does not match {pattern!r}")
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 minimum = node.get("minimum")

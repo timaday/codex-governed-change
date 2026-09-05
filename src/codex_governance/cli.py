@@ -1218,6 +1218,7 @@ def _review(args: argparse.Namespace) -> int:
         args.repository,
         affected_closure=affected_closure,
         changed_paths=candidate["changed_paths"],
+        deadline=review_deadline,
     )
     reconstructed_sources = build_protected_context_sources(
         candidate=candidate,
@@ -1254,6 +1255,7 @@ def _review(args: argparse.Namespace) -> int:
                 / "context-qualification-authority"
             ),
             reference=reference,
+            deadline=review_deadline,
         ),
         qualification_schema_root=args.authority_root / args.schema_root,
         qualification_repository_id=policy["repository_id"],
@@ -1262,6 +1264,7 @@ def _review(args: argparse.Namespace) -> int:
         ),
         qualification_evaluated_at=str(context_sources.get("created_at")),
         qualification_prompt_bytes=prompt_bytes,
+        qualification_deadline=review_deadline,
     )
     context_chain_exact = bool(
         declared_artifacts == reconstructed_artifacts
