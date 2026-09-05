@@ -5,14 +5,25 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timezone
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from common import canonical_bytes, content_address, require_digest, sha256_bytes
+from common import (
+    canonical_bytes,
+    content_address,
+    load_json,
+    require_digest,
+    sha256_bytes,
+)
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.portability import stream_contains_shaped_value
 from codex_governance.qualification import qualification_case_classes_complete
-from codex_governance.reviewer import parse_codex_jsonl_evidence
+from codex_governance.reviewer import (
+    parse_codex_jsonl_evidence,
+    reviewer_observation_facts,
+    reviewer_stream_is_portable,
+)
+from codex_governance.schema import validate_instance
 
 
 DISPOSITIONS = frozenset({"BLOCK", "NO_BLOCKING_FINDING_OBSERVED", "UNKNOWN"})
@@ -21,6 +32,12 @@ TOKEN_FIELDS = (
     "cached_input_tokens",
     "output_tokens",
     "reasoning_output_tokens",
+)
+REVIEWER_EXECUTION_SCHEMA = (
+    Path(__file__).resolve().parents[2]
+    / "kernel"
+    / "schemas"
+    / "reviewer-execution.schema.json"
 )
 
 
@@ -53,6 +70,90 @@ def _json_object(data: bytes) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("comparison artifact is not a JSON object")
     return value
+
+
+def ordinary_candidate_id(case: Mapping[str, Any]) -> str:
+    """Bind the ordinary arm to only the same protected candidate file bytes."""
+    files = case.get("files")
+    if not isinstance(files, Mapping) or any(
+        not isinstance(path, str) or not isinstance(body, str)
+        for path, body in files.items()
+    ):
+        raise ValueError("comparison candidate files are malformed")
+    return sha256_bytes(canonical_bytes({"files": dict(files)}))
+
+
+def _governed_primitive_valid(
+    *,
+    source: Mapping[str, Any],
+    result: Mapping[str, Any],
+    references: Mapping[str, Mapping[str, str]],
+    observed: Mapping[str, bytes],
+    parsed_stream: Mapping[str, Any],
+    usage: Mapping[str, Any],
+) -> bool:
+    """Reconstruct governed execution validity instead of trusting its summary."""
+    schema = load_json(REVIEWER_EXECUTION_SCHEMA)
+    observation = source.get("observation")
+    if (
+        not isinstance(schema, dict)
+        or validate_instance(dict(source), schema)
+        or not isinstance(observation, Mapping)
+    ):
+        return False
+    derived = reviewer_observation_facts(observation)
+    stdout_ref = source.get("stdout")
+    stderr_ref = source.get("stderr")
+    supervisor = observation.get("supervisor")
+    output = observation.get("output")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (stdout_ref, stderr_ref, supervisor, output)
+    ):
+        return False
+    summary_fields = {
+        "return_code": observation.get("return_code"),
+        "timed_out": observation.get("timed_out"),
+        **derived,
+    }
+    output_bindings = {
+        "repository_id": source.get("repository_id"),
+        "task_contract_sha256": source.get("task_contract_sha256"),
+        "effective_policy_sha256": source.get("effective_policy_sha256"),
+        "candidate_id": source.get("candidate_id"),
+        "reviewer_prompt_sha256": source.get("prompt_sha256"),
+        "qualification_id": source.get("qualification_id"),
+        "model": source.get("model"),
+        "context_receipt_sha256": source.get("input_context_receipt_sha256"),
+    }
+    return bool(
+        all(source.get(name) == value for name, value in summary_fields.items())
+        and all(result.get(name) == value for name, value in output_bindings.items())
+        and source.get("review_mode") == "conformance"
+        and source.get("candidate_id")
+        == source.get("candidate_before")
+        == source.get("candidate_after")
+        and source.get("reviewer_output_sha256")
+        == references["result"]["sha256"]
+        and source.get("stdout_sha256") == references["stdout"]["sha256"]
+        and source.get("stderr_sha256") == references["stderr"]["sha256"]
+        and stdout_ref.get("sha256") == references["stdout"]["sha256"]
+        and stderr_ref.get("sha256") == references["stderr"]["sha256"]
+        and output.get("bytes") == len(observed["result"])
+        and observation.get("stdout", {}).get("bytes_normalized")
+        == len(observed["stdout"])
+        and observation.get("stderr", {}).get("bytes_normalized")
+        == len(observed["stderr"])
+        and source.get("executed_argv_sha256")
+        == supervisor.get("executed_argv_sha256")
+        and source.get("codex_thread_id") == parsed_stream.get("thread_id")
+        and source.get("usage_observed") is True
+        and all(source.get(name) == usage[name] for name in TOKEN_FIELDS)
+        and source.get("limitations") == []
+        and reviewer_stream_is_portable(observed["stdout"])
+        and reviewer_stream_is_portable(observed["stderr"])
+        and derived["execution_valid"] is True
+    )
 
 
 def validate_comparison_inputs(
@@ -268,34 +369,32 @@ def reconstruct_task(
             or any(source.get(name) != usage[name] for name in TOKEN_FIELDS)
         ):
             raise ValueError("governed primitive execution does not reconstruct")
-        primitive_valid = source.get("execution_valid") is True
+        primitive_valid = _governed_primitive_valid(
+            source=source,
+            result=result,
+            references=references,
+            observed=observed,
+            parsed_stream=parsed_stream,
+            usage=usage,
+        )
     else:
+        ordinary_observation = primitive.get("reviewer_observation")
+        if set(primitive) != {"reviewer_observation"} or not isinstance(
+            ordinary_observation, Mapping
+        ):
+            raise ValueError("ordinary primitive execution does not reconstruct")
+        ordinary_facts = reviewer_observation_facts(ordinary_observation)
+        ordinary_output = ordinary_observation.get("output")
         primitive_valid = bool(
-            set(primitive)
-            == {
-                "return_code",
-                "timed_out",
-                "stdin_complete",
-                "output_present",
-                "output_valid",
-                "stdout_complete",
-                "stderr_complete",
-                "process_cleanup_complete",
-                "output_truncated",
-                "ambiguous_redaction",
-                "candidate_unchanged",
-            }
-            and primitive.get("return_code") == 0
-            and primitive.get("timed_out") is False
-            and primitive.get("stdin_complete") is True
-            and primitive.get("output_present") is True
-            and primitive.get("output_valid") is True
-            and primitive.get("stdout_complete") is True
-            and primitive.get("stderr_complete") is True
-            and primitive.get("process_cleanup_complete") is True
-            and primitive.get("output_truncated") is False
-            and primitive.get("ambiguous_redaction") is False
-            and primitive.get("candidate_unchanged") is True
+            isinstance(ordinary_output, Mapping)
+            and execution.get("candidate_id") == ordinary_candidate_id(case)
+            and result.get("candidate_id") == execution.get("candidate_id")
+            and ordinary_observation.get("stdout", {}).get("bytes_normalized")
+            == len(observed["stdout"])
+            and ordinary_observation.get("stderr", {}).get("bytes_normalized")
+            == len(observed["stderr"])
+            and ordinary_output.get("bytes") == len(observed["result"])
+            and ordinary_facts["execution_valid"] is True
         )
     if execution.get("execution_valid") is not primitive_valid:
         raise ValueError("comparison execution summary differs from primitive facts")

@@ -8,11 +8,8 @@ import importlib.util
 import json
 import os
 import re
-import signal
 import stat
-import subprocess
 import tempfile
-import threading
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -34,16 +31,16 @@ from paired_comparison import (
     _json_object,
     build_comparison_document,
     comparison_document_valid,
+    ordinary_candidate_id,
     reconstruct_task,
     validate_comparison_inputs,
 )
 from codex_governance.reviewer import (
-    _BoundedCapture,
-    _normalize_reviewer_jsonl,
     _normalize_reviewer_stream,
     REVIEWER_TOOL_ENVIRONMENT_POLICY,
     build_reviewer_environment,
     build_reviewer_permission_profile,
+    launch_reviewer,
     observe_codex_authentication,
     observe_codex_cli_version,
     parse_codex_jsonl_evidence,
@@ -96,7 +93,7 @@ def _reader(root: Path, reference: Mapping[str, str]) -> bytes:
     return data
 
 
-def _ordinary_prompt(case: Mapping[str, Any]) -> str:
+def _ordinary_prompt(case: Mapping[str, Any], candidate_id: str | None = None) -> str:
     """Build a label-blind baseline task from only protected non-label fields."""
     return (
         "Review this bounded synthetic repository read-only. Determine whether the "
@@ -106,6 +103,7 @@ def _ordinary_prompt(case: Mapping[str, Any]) -> str:
         "If evidence is unavailable, return UNKNOWN. Do not expose environment, host, "
         "credential, or endpoint values.\n\n"
         f"CASE_ID: {case['case_id']}\n"
+        f"CANDIDATE_ID: {candidate_id or ordinary_candidate_id(case)}\n"
         f"REQUIREMENT_ID: {case['requirement_id']}\n"
         "OBJECTIVE: Review the bounded synthetic candidate against its sole mandatory "
         "requirement.\n"
@@ -181,34 +179,6 @@ def _candidate_matches(candidate: Path, expected: Mapping[str, str]) -> bool:
         return False
 
 
-def _group_absent(group_id: int) -> bool:
-    try:
-        os.killpg(group_id, 0)
-    except ProcessLookupError:
-        return True
-    except (OSError, PermissionError):
-        return False
-    return False
-
-
-def _cleanup_group(process: subprocess.Popen[bytes]) -> bool:
-    if not _group_absent(process.pid):
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        return False
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if _group_absent(process.pid):
-            return process.poll() is not None
-        time.sleep(0.01)
-    return False
-
-
 def _run_ordinary_case(
     *,
     case: Mapping[str, Any],
@@ -243,8 +213,6 @@ def _run_ordinary_case(
                 raise ValueError("comparison candidate contains an unsupported file")
             path.chmod(0o555 if path.is_dir() else 0o444)
         candidate.chmod(0o555)
-        candidate_before = _candidate_matches(candidate, expected_files)
-
         schema = root / "ordinary-result.schema.json"
         result_path = root / "ordinary-result.json"
         schema.write_bytes(read_bytes_once(schema_path))
@@ -262,138 +230,41 @@ def _run_ordinary_case(
         )
         if observe_codex_authentication(codex, environment=environment) != authentication:
             raise ValueError("Codex authentication changed before comparison invocation")
-        started = time.monotonic()
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=0,
-            env=environment,
-            start_new_session=True,
+        expected_candidate_id = ordinary_candidate_id(case)
+
+        def current_candidate(observation_deadline: float) -> str:
+            if time.monotonic() >= observation_deadline:
+                raise TimeoutError("comparison candidate observation expired")
+            if not _candidate_matches(candidate, expected_files):
+                raise ValueError("comparison candidate changed")
+            return expected_candidate_id
+
+        launched = launch_reviewer(
+            command=command,
+            stdin_text=_ordinary_prompt(case, expected_candidate_id),
+            schema_path=schema,
+            output_path=result_path,
+            expected_candidate_id=expected_candidate_id,
+            candidate_supplier=current_candidate,
+            review_mode="conformance",
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=max_output_bytes,
+            environment=environment,
+            absolute_deadline=time.monotonic() + timeout_seconds,
         )
-        assert process.stdin is not None
-        assert process.stdout is not None
-        assert process.stderr is not None
-        stdout_capture = _BoundedCapture(max_output_bytes)
-        stderr_capture = _BoundedCapture(max_output_bytes)
-        capture_threads = [
-            threading.Thread(
-                target=stdout_capture.read, args=(process.stdout,), daemon=True
-            ),
-            threading.Thread(
-                target=stderr_capture.read, args=(process.stderr,), daemon=True
-            ),
-        ]
-        for thread in capture_threads:
-            thread.start()
-        timed_out = False
-        input_complete = False
-        cleanup_complete = True
-        try:
-            prompt_bytes = _ordinary_prompt(case).encode("utf-8")
-            written = process.stdin.write(prompt_bytes)
-            if written != len(prompt_bytes):
-                raise OSError("comparison prompt delivery was incomplete")
-            process.stdin.close()
-            input_complete = True
-            process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            cleanup_complete = _cleanup_group(process)
-        except (OSError, ValueError):
-            cleanup_complete = _cleanup_group(process)
-        else:
-            cleanup_complete = _cleanup_group(process)
-        finally:
-            try:
-                process.stdin.close()
-            except (OSError, ValueError):
-                pass
-        for thread in capture_threads:
-            thread.join(timeout=10)
-        streams_complete = bool(
-            all(not thread.is_alive() for thread in capture_threads)
-            and stdout_capture.eof
-            and stderr_capture.eof
-        )
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        stdout_raw = bytes(stdout_capture.data)
-        stderr_raw = bytes(stderr_capture.data)
-        truncated = bool(
-            stdout_capture.truncated
-            or stderr_capture.truncated
-            or stdout_capture.total + stderr_capture.total > max_output_bytes
-        )
-        stdout, stdout_redactions = _normalize_reviewer_jsonl(
-            stdout_raw,
+        stdout = launched.get("stdout_bytes", b"")
+        stderr = launched.get("stderr_bytes", b"")
+        raw_result = launched.get("output_bytes", b"{}") or b"{}"
+        if not all(isinstance(value, bytes) for value in (stdout, stderr, raw_result)):
+            raise ValueError("comparison reviewer streams are unavailable")
+        result, _result_redactions = _normalize_reviewer_stream(
+            raw_result,
             command=command,
             schema_path=schema,
             output_path=result_path,
             environment=environment,
         )
-        stderr, stderr_redactions = _normalize_reviewer_stream(
-            stderr_raw,
-            command=command,
-            schema_path=schema,
-            output_path=result_path,
-            environment=environment,
-        )
-        result_present = False
-        result_raw = b"{}"
-        result_oversized = False
-        try:
-            result_info = result_path.lstat()
-            result_present = stat.S_ISREG(result_info.st_mode) and not result_path.is_symlink()
-            result_oversized = result_info.st_size > max_output_bytes
-            if result_present and not result_oversized:
-                result_raw = read_bytes_once(result_path)
-        except OSError:
-            pass
-        truncated = truncated or result_oversized
-        result, result_redactions = _normalize_reviewer_stream(
-            result_raw,
-            command=command,
-            schema_path=schema,
-            output_path=result_path,
-            environment=environment,
-        )
-        candidate_after = _candidate_matches(candidate, expected_files)
-        parsed: dict[str, Any] | None = None
-        output_valid = False
-        try:
-            parsed_value = _json_object(result)
-            schema_value = load_json(schema_path)
-            output_valid = not validate_instance(parsed_value, schema_value)
-            parsed = parsed_value
-        except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
-            pass
         stream = parse_codex_jsonl_evidence(stdout)
-        ambiguous = bool(stdout_redactions or stderr_redactions or result_redactions)
-        final_matches = False
-        try:
-            final_message = stream.get("final_message")
-            if isinstance(final_message, str):
-                final_matches = _json_object(final_message.encode("utf-8")) == parsed
-        except (TypeError, ValueError, json.JSONDecodeError):
-            pass
-        execution_valid = bool(
-            process.returncode == 0
-            and not timed_out
-            and input_complete
-            and cleanup_complete
-            and streams_complete
-            and not truncated
-            and result_present
-            and output_valid
-            and not ambiguous
-            and stream["jsonl_valid"] is True
-            and stream["usage_observed"] is True
-            and parsed is not None
-            and final_matches
-            and candidate_before
-            and candidate_after
-        )
         usage = {
             name: int(stream[name]) if stream["usage_observed"] is True else 0
             for name in TOKEN_FIELDS
@@ -412,32 +283,21 @@ def _run_ordinary_case(
                 name="stderr.bin", data=stderr,
             ),
         }
-        primitive = {
-            "return_code": process.returncode if isinstance(process.returncode, int) else -1,
-            "timed_out": timed_out,
-            "stdin_complete": input_complete,
-            "output_present": result_present,
-            "output_valid": output_valid,
-            "stdout_complete": not timed_out and streams_complete,
-            "stderr_complete": not timed_out and streams_complete,
-            "process_cleanup_complete": cleanup_complete,
-            "output_truncated": truncated,
-            "ambiguous_redaction": ambiguous,
-            "candidate_unchanged": candidate_before and candidate_after,
-        }
+        primitive = {"reviewer_observation": launched.get("observation")}
         execution = content_address(
             {
                 "schema_version": "1.0.0",
                 "case_id": case["case_id"],
                 "case_sha256": sha256_bytes(canonical_bytes(dict(case))),
                 "arm": "ordinary",
+                "candidate_id": expected_candidate_id,
                 "result_sha256": references["result"]["sha256"],
                 "stdout_sha256": references["stdout"]["sha256"],
                 "stderr_sha256": references["stderr"]["sha256"],
-                "execution_valid": execution_valid,
+                "execution_valid": launched.get("execution_valid") is True,
                 "usage_observed": stream["usage_observed"] is True,
                 **usage,
-                "elapsed_ms": elapsed_ms,
+                "elapsed_ms": launched.get("latency_ms", 0),
                 "primitive": primitive,
             },
             "execution_id",

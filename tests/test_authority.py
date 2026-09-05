@@ -43,6 +43,7 @@ from paired_comparison import (  # noqa: E402
     build_comparison_document,
     comparison_document_valid,
     human_effort_record_valid,
+    ordinary_candidate_id,
     reconstruct_task,
     score_task,
     validate_comparison_inputs,
@@ -1629,10 +1630,25 @@ class AdapterTests(unittest.TestCase):
             if isinstance(expected, dict)
             else []
         )
+        digest = lambda value: "sha256:" + value * 64
+        governed_bindings = {
+            "repository_id": "repo:qualification/case",
+            "task_contract_sha256": digest("1"),
+            "effective_policy_sha256": digest("2"),
+            "candidate_id": digest("3"),
+            "reviewer_prompt_sha256": digest("4"),
+            "qualification_id": digest("5"),
+            "model": "gpt-5.6-sol",
+            "context_receipt_sha256": digest("6"),
+        }
         result = {
             "findings": findings,
             "verdict" if arm == "governed" else "disposition": disposition,
         }
+        if arm == "governed":
+            result.update(governed_bindings)
+        else:
+            result["candidate_id"] = ordinary_candidate_id(case)
         result_bytes = canonical_bytes(result)
         event = canonical_bytes(
             {"type": "thread.started", "thread_id": "comparison-thread"}
@@ -1667,41 +1683,190 @@ class AdapterTests(unittest.TestCase):
         }
         primitive: dict[str, object]
         if arm == "governed":
+            observation = {
+                "parent_exit_observed": True,
+                "return_code": 0,
+                "timed_out": False,
+                "candidate_unchanged": True,
+                "stdin": {"complete": True, "bytes_expected": 1, "bytes_written": 1},
+                "stdout": {
+                    "bytes_observed": len(event),
+                    "bytes_captured": len(event),
+                    "bytes_normalized": len(event),
+                    "thread_completed": True,
+                    "eof": True,
+                    "read_failed": False,
+                    "truncated": False,
+                    "ambiguous_redaction": False,
+                },
+                "stderr": {
+                    "bytes_observed": 0,
+                    "bytes_captured": 0,
+                    "bytes_normalized": 0,
+                    "thread_completed": True,
+                    "eof": True,
+                    "read_failed": False,
+                    "truncated": False,
+                    "ambiguous_redaction": False,
+                },
+                "supervisor": {
+                    "boundary_available": True,
+                    "boundary_kind": "seccomp_signal_guard",
+                    "descendants_observed": False,
+                    "cleanup_complete": True,
+                    "executed_argv_sha256": digest("9"),
+                },
+                "process_cleanup_complete": True,
+                "output": {
+                    "present": True,
+                    "regular": True,
+                    "bytes": len(result_bytes),
+                    "schema_valid": True,
+                    "candidate_matches": True,
+                    "bindings_match": True,
+                    "truncated": False,
+                },
+            }
             source_execution = content_address(
                 {
+                    "schema_version": "5.0.0",
+                    "repository_id": governed_bindings["repository_id"],
+                    "task_contract_sha256": governed_bindings["task_contract_sha256"],
+                    "effective_policy_sha256": governed_bindings["effective_policy_sha256"],
+                    "candidate_id": governed_bindings["candidate_id"],
+                    "review_mode": "conformance",
+                    "prompt_sha256": governed_bindings["reviewer_prompt_sha256"],
+                    "output_schema_sha256": digest("7"),
+                    "launcher_sha256": digest("8"),
+                    "qualification_id": governed_bindings["qualification_id"],
+                    "model": governed_bindings["model"],
+                    "reasoning_effort": "xhigh",
+                    "authentication": "chatgpt",
+                    "input_context_receipt_sha256": governed_bindings["context_receipt_sha256"],
+                    "context_execution_receipt_sha256": digest("a"),
                     "reviewer_output_sha256": refs["result"]["sha256"],
+                    "candidate_before": governed_bindings["candidate_id"],
+                    "candidate_after": governed_bindings["candidate_id"],
+                    "observation": observation,
+                    "invocation": {
+                        "process": "codex exec",
+                        "fresh": True,
+                        "ephemeral": True,
+                        "ignore_user_config": True,
+                        "ignore_rules": True,
+                        "sandbox": "custom-read-only",
+                        "filesystem_read_scope": "sanitized-workspace-and-runtime-minimum",
+                        "host_root_readable": False,
+                        "tool_network_enabled": False,
+                        "tool_environment": "fixed-non-secret-key-allowlist",
+                        "approval_policy": "never",
+                        "hooks_enabled": False,
+                        "subagents_enabled": False,
+                        "schema_bound": True,
+                        "json_events": True,
+                        "author_context_available": False,
+                        "persisted_reasoning_available": False,
+                        "candidate_configuration_active": False,
+                        "connectors_available": False,
+                        "unrelated_mcp_available": False,
+                        "model": governed_bindings["model"],
+                        "reasoning_effort": "xhigh",
+                        "reviewer_prompt_sha256": governed_bindings["reviewer_prompt_sha256"],
+                        "environment_values_recorded": False,
+                    },
+                    "argv_sha256": digest("b"),
+                    "executed_argv_sha256": digest("9"),
+                    "stdin_sha256": digest("c"),
+                    "codex_thread_id": "comparison-thread",
+                    "workflow": {"system": "fixture", "run_id": "1", "attempt": 1},
+                    "limits": {"timeout_seconds": 60, "max_output_bytes": 100000},
+                    "tools": [{"name": "codex-cli", "version": "codex-cli 0.149.1"}],
+                    "materials": [{"name": "candidate", "sha256": governed_bindings["candidate_id"]}],
+                    "environment_keys": ["PATH"],
+                    "started_at": "2026-09-05T12:00:00Z",
+                    "ended_at": "2026-09-05T12:00:01Z",
+                    "latency_ms": 25,
+                    "return_code": 0,
+                    "timed_out": False,
+                    "stdin_delivery_complete": True,
+                    "observation_complete": True,
+                    "capture_threads_completed": True,
+                    "process_cleanup_complete": True,
                     "stdout_sha256": refs["stdout"]["sha256"],
                     "stderr_sha256": refs["stderr"]["sha256"],
+                    "stdout": {"path": "qualification/stdout.bin", "sha256": refs["stdout"]["sha256"]},
+                    "stderr": {"path": "qualification/stderr.bin", "sha256": refs["stderr"]["sha256"]},
                     "execution_valid": True,
+                    "output_valid": True,
+                    "bindings_match": True,
+                    "output_truncated": False,
+                    "usage_observed": True,
                     "input_tokens": 10,
                     "cached_input_tokens": 2,
                     "output_tokens": 3,
                     "reasoning_output_tokens": 1,
-                    "latency_ms": 25,
+                    "limitations": [],
                 },
                 "execution_id",
             )
             primitive = {"reviewer_execution": source_execution}
         else:
-            primitive = {
+            ordinary_observation = {
+                "parent_exit_observed": True,
                 "return_code": 0,
                 "timed_out": False,
-                "stdin_complete": True,
-                "output_present": True,
-                "output_valid": True,
-                "stdout_complete": True,
-                "stderr_complete": True,
-                "process_cleanup_complete": True,
-                "output_truncated": False,
-                "ambiguous_redaction": False,
                 "candidate_unchanged": True,
+                "stdin": {"complete": True, "bytes_expected": 1, "bytes_written": 1},
+                "stdout": {
+                    "bytes_observed": len(event),
+                    "bytes_captured": len(event),
+                    "bytes_normalized": len(event),
+                    "thread_completed": True,
+                    "eof": True,
+                    "read_failed": False,
+                    "truncated": False,
+                    "ambiguous_redaction": False,
+                },
+                "stderr": {
+                    "bytes_observed": 0,
+                    "bytes_captured": 0,
+                    "bytes_normalized": 0,
+                    "thread_completed": True,
+                    "eof": True,
+                    "read_failed": False,
+                    "truncated": False,
+                    "ambiguous_redaction": False,
+                },
+                "supervisor": {
+                    "boundary_available": True,
+                    "boundary_kind": "seccomp_signal_guard",
+                    "descendants_observed": False,
+                    "cleanup_complete": True,
+                    "executed_argv_sha256": digest("9"),
+                },
+                "process_cleanup_complete": True,
+                "output": {
+                    "present": True,
+                    "regular": True,
+                    "bytes": len(result_bytes),
+                    "schema_valid": True,
+                    "candidate_matches": True,
+                    "bindings_match": True,
+                    "truncated": False,
+                },
             }
+            primitive = {"reviewer_observation": ordinary_observation}
         execution = content_address(
             {
                 "schema_version": "1.0.0",
                 "case_id": case["case_id"],
                 "case_sha256": sha256_bytes(canonical_bytes(case)),
                 "arm": arm,
+                **(
+                    {"candidate_id": ordinary_candidate_id(case)}
+                    if arm == "ordinary"
+                    else {}
+                ),
                 "result_sha256": refs["result"]["sha256"],
                 "stdout_sha256": refs["stdout"]["sha256"],
                 "stderr_sha256": refs["stderr"]["sha256"],
@@ -1923,9 +2088,43 @@ class AdapterTests(unittest.TestCase):
             ordinary_tasks=arms["ordinary"],
             created_at="2026-09-05T12:10:00Z",
         )
+        governed_execution_ref = refs_by_arm["governed"][0]["execution"]
+        governed_execution = json.loads(stored[governed_execution_ref["path"]])
+        source_execution = governed_execution["primitive"]["reviewer_execution"]
+        source_execution["observation"]["supervisor"]["cleanup_complete"] = False
+        source_execution["execution_id"] = content_address(
+            source_execution, "execution_id"
+        )["execution_id"]
+        governed_execution["execution_id"] = content_address(
+            governed_execution, "execution_id"
+        )["execution_id"]
+        stored[governed_execution_ref["path"]] = canonical_bytes(governed_execution)
+        governed_execution_ref["sha256"] = sha256_bytes(
+            stored[governed_execution_ref["path"]]
+        )
+        document["arms"]["governed"]["tasks"][0]["artifacts"][
+            "execution"
+        ] = governed_execution_ref
+        document = content_address(document, "comparison_id")
+        self.assertFalse(
+            comparison_document_valid(
+                document,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=document["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+        fresh_governed_refs, fresh_governed_artifacts = self._comparison_artifacts(
+            corpus["cases"][0], "governed"
+        )
+        stored.update(fresh_governed_artifacts)
+        document["arms"]["governed"]["tasks"][0]["artifacts"] = (
+            fresh_governed_refs
+        )
         execution_ref = refs_by_arm["ordinary"][0]["execution"]
         execution = json.loads(stored[execution_ref["path"]])
-        execution["primitive"]["return_code"] = 9
+        execution["primitive"]["reviewer_observation"]["return_code"] = 9
         execution["execution_id"] = content_address(execution, "execution_id")["execution_id"]
         stored[execution_ref["path"]] = canonical_bytes(execution)
         execution_ref["sha256"] = sha256_bytes(stored[execution_ref["path"]])
@@ -1996,6 +2195,7 @@ class AdapterTests(unittest.TestCase):
         spec.loader.exec_module(module)
         corpus, _decision = self._comparison_fixture()
         case = corpus["cases"][0]
+        candidate_id = ordinary_candidate_id(case)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "fake-codex"
@@ -2007,7 +2207,8 @@ class AdapterTests(unittest.TestCase):
                 "    print('Logged in using ChatGPT')\n"
                 "    raise SystemExit(0)\n"
                 "output = pathlib.Path(args[args.index('--output-last-message') + 1])\n"
-                "payload = {'disposition': 'BLOCK', 'findings': [{"
+                "payload = {'candidate_id': " + repr(candidate_id) + ", "
+                "'disposition': 'BLOCK', 'findings': [{"
                 "'requirement_id': 'GOV-001', 'path': 'src/example.py', 'line': 1}]}\n"
                 "text = json.dumps(payload, sort_keys=True, separators=(',', ':'))\n"
                 "output.write_text(text)\n"
@@ -2079,6 +2280,77 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual("UNKNOWN", task["observed_disposition"])
             self.assertTrue(task["unknown"])
             self.assertFalse(task["correct_completion"])
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX descendant supervision")
+    def test_ordinary_comparison_rejects_session_escaped_descendant(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_comparison_descendant", CI / "run-comparison.py"
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "escaping-codex"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, pathlib, sys, time\n"
+                "args = sys.argv[1:]\n"
+                "if args == ['login', 'status']:\n"
+                "    print('Logged in using ChatGPT')\n"
+                "    raise SystemExit(0)\n"
+                "prompt = sys.stdin.read()\n"
+                "candidate_id = next(line.split(': ', 1)[1] for line in "
+                "prompt.splitlines() if line.startswith('CANDIDATE_ID: '))\n"
+                "output = pathlib.Path(args[args.index('--output-last-message') + 1])\n"
+                "payload = {'candidate_id': candidate_id, 'disposition': 'BLOCK', "
+                "'findings': [{'requirement_id': 'GOV-001', "
+                "'path': 'src/example.py', 'line': 1}]}\n"
+                "text = json.dumps(payload, sort_keys=True, separators=(',', ':'))\n"
+                "output.write_text(text)\n"
+                "child = os.fork()\n"
+                "if child == 0:\n"
+                "    os.setsid()\n"
+                "    os.close(1)\n"
+                "    os.close(2)\n"
+                "    time.sleep(60)\n"
+                "    os._exit(0)\n"
+                "print(json.dumps({'type': 'thread.started', "
+                "'thread_id': 'ordinary-thread'}))\n"
+                "print(json.dumps({'type': 'item.completed', 'item': {"
+                "'type': 'agent_message', 'text': text}}))\n"
+                "print(json.dumps({'type': 'turn.completed', 'usage': {"
+                "'input_tokens': 7, 'cached_input_tokens': 1, 'output_tokens': 2, "
+                "'reasoning_output_tokens': 1}}))\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            evidence = root / "evidence"
+            with mock.patch.object(
+                module,
+                "resolve_reviewer_runtime_read_roots",
+                return_value=(Path("/opt/codex-runtime"),),
+            ):
+                task = module._run_ordinary_case(
+                    case=case,
+                    codex=str(executable),
+                    authentication="chatgpt",
+                    schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+                    timeout_seconds=5,
+                    max_output_bytes=100_000,
+                    output=evidence,
+                )
+            execution = load_json(
+                evidence.joinpath(*task["artifacts"]["execution"]["path"].split("/"))
+            )
+            observation = execution["primitive"]["reviewer_observation"]
+            self.assertTrue(observation["supervisor"]["descendants_observed"])
+            self.assertTrue(observation["supervisor"]["cleanup_complete"])
+            self.assertEqual("UNKNOWN", task["observed_disposition"])
+            self.assertTrue(task["unknown"])
 
     def test_ordinary_comparison_bounds_streams_while_the_process_runs(self) -> None:
         spec = importlib.util.spec_from_file_location(

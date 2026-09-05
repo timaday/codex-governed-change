@@ -4,8 +4,12 @@
   "title": "Ordinary Codex held-out comparison result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["disposition", "findings"],
+  "required": ["candidate_id", "disposition", "findings"],
   "properties": {
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "disposition": {
       "enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED", "UNKNOWN"]
     },
