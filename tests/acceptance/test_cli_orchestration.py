@@ -743,6 +743,27 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             source_bundle = repository / "artifacts/governance/sources.json"
             projection = repository / "artifacts/governance/projection.json"
             receipt = repository / "artifacts/governance/receipt.json"
+            unverified = self.run_cli(
+                "prepare-review", "--repository", str(repository),
+                "--policy", str(policy_path),
+                "--task", str(task_path),
+                "--gate-summary", str(gate_summary),
+                "--mutation-summary", str(mutation_summary),
+                "--context-qualification", str(qualification_path),
+                "--qualification-repository", str(qualification_repository),
+                "--qualification-prompt", str(
+                    self.ROOT / ".codex/review/reviewer.prompt.md"
+                ),
+                "--candidate", str(candidate_path), "--profile", "DEEP",
+                "--token-budget", "64000",
+                "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
+                "--observed-at", "2026-08-26T10:00:00Z",
+                "--sources-output", "artifacts/governance/unverified-sources.json",
+                "--projection-output", "artifacts/governance/unverified-projection.json",
+                "--receipt-output", "artifacts/governance/unverified-receipt.json",
+            )
+            self.assertEqual(2, unverified.returncode)
+            self.assertEqual("UNKNOWN", json.loads(unverified.stdout)["state"])
             prepared = self.run_cli(
                 "prepare-review", "--repository", str(repository),
                 "--policy", str(policy_path),
@@ -757,6 +778,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "DEEP",
                 "--token-budget", "64000",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
+                "--verified-decision-id", qualification["label_decision_id"],
                 "--observed-at", "2026-08-26T10:00:00Z",
                 "--sources-output", "artifacts/governance/sources.json",
                 "--projection-output", "artifacts/governance/projection.json",
@@ -803,6 +825,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "COMPACT",
                 "--token-budget", "1",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
+                "--verified-decision-id", qualification["label_decision_id"],
                 "--observed-at", "2026-08-26T10:00:00Z",
                 "--sources-output", "artifacts/governance/small-sources.json",
                 "--projection-output", "artifacts/governance/small-projection.json",
@@ -827,6 +850,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--candidate", str(candidate_path), "--profile", "DEEP",
                 "--token-budget", "64000", "--model", "gpt-5.6-sol",
                 "--reasoning-effort", "xhigh",
+                "--verified-decision-id", qualification["label_decision_id"],
                 "--observed-at", "2026-08-26T10:00:00Z",
                 "--sources-output", "artifacts/governance/tampered-sources.json",
                 "--projection-output", "artifacts/governance/tampered-projection.json",
@@ -1017,6 +1041,21 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         self.assertTrue(bound(inventory_calls[0], "deadline"))
         self.assertTrue(bound(context_calls[0], "qualification_deadline"))
         self.assertTrue(bound(reference_calls[0], "deadline"))
+
+    def test_prepare_and_review_use_only_caller_verified_qualification_ids(
+        self,
+    ) -> None:
+        from codex_governance import cli
+
+        for handler in (cli._prepare_review, cli._review):
+            source = inspect.getsource(handler)
+            with self.subTest(handler=handler.__name__):
+                self.assertIn("args.verified_decision_id", source)
+                self.assertNotIn(
+                    'frozenset(\n            {policy["reviewer"]'
+                    '["qualification_label_decision_id"]}',
+                    source,
+                )
 
     def test_evaluate_accepts_nonempty_verified_decision_ids(self) -> None:
         from codex_governance import cli

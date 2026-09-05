@@ -161,6 +161,14 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "context-qualification-deadline-dropped",
         "schema-python-pattern-extension-accepted",
         "initial-bootstrap-forced-through-previous-lkg",
+        "prepare-review-policy-verifies-labels",
+        "review-policy-verifies-labels",
+        "initial-bootstrap-authority-state-unchecked",
+        "initial-bootstrap-plan-limitations-accepted",
+        "initial-bootstrap-capability-limitations-accepted",
+        "reviewer-os-home-unchecked",
+        "schema-unicode-shorthands-accepted",
+        "rst-requirement-change-kinds-collapsed",
     }
 )
 

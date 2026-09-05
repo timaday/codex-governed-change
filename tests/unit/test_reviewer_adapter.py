@@ -1225,13 +1225,19 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         executable = install / "codex"
         executable.write_text("#!/bin/sh\n", encoding="utf-8")
         executable.chmod(0o755)
-        roots = resolve_reviewer_runtime_read_roots(
-            "codex",
-            environment={
-                "PATH": str(install),
-                "HOME": str(Path(self.temporary.name) / "reviewer-home"),
-            },
-        )
+        with patch(
+            "codex_governance.reviewer._trusted_operating_system_homes",
+            return_value=(
+                Path(Path(self.temporary.name).anchor) / "synthetic-account-home",
+            ),
+        ):
+            roots = resolve_reviewer_runtime_read_roots(
+                "codex",
+                environment={
+                    "PATH": str(install),
+                    "HOME": str(Path(self.temporary.name) / "reviewer-home"),
+                },
+            )
         self.assertEqual((install.parent,), roots)
         profile = build_reviewer_permission_profile(roots)
         self.assertIn(json.dumps(str(install.parent)) + '="read"', profile)
@@ -1248,14 +1254,52 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         executable = install / "codex"
         executable.write_text("#!/bin/sh\n", encoding="utf-8")
         executable.chmod(0o755)
-        for home in (root, install.parent / "user-home"):
-            with self.subTest(home=home), self.assertRaisesRegex(
-                ValueError, "unsafe"
-            ):
-                resolve_reviewer_runtime_read_roots(
-                    "codex",
-                    environment={"PATH": str(install), "HOME": str(home)},
-                )
+        with patch(
+            "codex_governance.reviewer._trusted_operating_system_homes",
+            return_value=(Path(root.anchor) / "synthetic-account-home",),
+        ):
+            for home in (root, install.parent / "user-home"):
+                with self.subTest(home=home), self.assertRaisesRegex(
+                    ValueError, "unsafe"
+                ):
+                    resolve_reviewer_runtime_read_roots(
+                        "codex",
+                        environment={"PATH": str(install), "HOME": str(home)},
+                    )
+
+    def test_runtime_profile_uses_os_home_when_environment_home_is_false(self) -> None:
+        root = Path(self.temporary.name)
+        operating_system_home = root / "account-home"
+        install = operating_system_home / "runtime" / "bin"
+        install.mkdir(parents=True, exist_ok=True)
+        executable = install / "codex"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+        with patch(
+            "codex_governance.reviewer._trusted_operating_system_homes",
+            return_value=(operating_system_home,),
+        ), self.assertRaisesRegex(ValueError, "unsafe"):
+            resolve_reviewer_runtime_read_roots(
+                "codex",
+                environment={
+                    "PATH": str(install),
+                    "HOME": str(root / "false-environment-home"),
+                },
+            )
+
+    def test_runtime_profile_rejects_missing_operating_system_home(self) -> None:
+        install = Path(self.temporary.name) / "runtime" / "bin"
+        install.mkdir(parents=True, exist_ok=True)
+        executable = install / "codex"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+        with patch(
+            "codex_governance.reviewer._trusted_operating_system_homes",
+            return_value=(),
+        ), self.assertRaisesRegex(ValueError, "home.*unavailable"):
+            resolve_reviewer_runtime_read_roots(
+                "codex", environment={"PATH": str(install)}
+            )
 
     def test_runtime_profile_rejects_harness_and_runtime_root_overlap(self) -> None:
         runtime = Path(self.temporary.name) / "runtime"

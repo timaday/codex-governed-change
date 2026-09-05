@@ -245,6 +245,40 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(DispositionState.UNKNOWN, validate_rst_lineage(**variant))
 
+    def test_requirement_and_change_updates_use_separate_protected_sets(self) -> None:
+        from codex_governance.rst_operations import validate_rst_lineage
+
+        for kind, identity, keyword in (
+            ("requirement", "docs/requirements.md", "requirement_sources"),
+            ("change", "src/service.py", "change_sources"),
+        ):
+            with self.subTest(kind=kind):
+                clean = self.lineage()
+                register = clean["risk_register"]
+                register.pop("risk_register_id")
+                register["updated_from"] = [f"{kind}:{identity}"]
+                clean["risk_register"] = content_address(
+                    register, "risk_register_id"
+                )
+                clean[keyword] = frozenset({identity})
+                self.assertEqual(
+                    DispositionState.READY_FOR_HUMAN,
+                    validate_rst_lineage(**clean),
+                )
+
+                relabelled = deepcopy(clean)
+                register = relabelled["risk_register"]
+                register.pop("risk_register_id")
+                other = "change" if kind == "requirement" else "requirement"
+                register["updated_from"] = [f"{other}:{identity}"]
+                relabelled["risk_register"] = content_address(
+                    register, "risk_register_id"
+                )
+                self.assertEqual(
+                    DispositionState.UNKNOWN,
+                    validate_rst_lineage(**relabelled),
+                )
+
     def test_observations_mutants_and_findings_create_bidirectional_updates(self) -> None:
         from codex_governance.rst_operations import derive_follow_ups
 

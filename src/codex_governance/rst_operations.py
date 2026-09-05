@@ -30,6 +30,8 @@ def validate_rst_lineage(
     follow_ups: Sequence[Mapping[str, Any]] = (),
     risk_disposition: Mapping[str, Any] | None = None,
     evidence_index: Mapping[str, str] | None = None,
+    requirement_sources: Sequence[str] = (),
+    change_sources: Sequence[str] = (),
     charter_digests: Mapping[str, str] | None = None,
     debrief_digest: str | None = None,
     mutation_records: Sequence[Mapping[str, Any]] = (),
@@ -75,6 +77,10 @@ def validate_rst_lineage(
             for charter_id, digest in (charter_digests or {}).items()
         }
         expected_debrief_digest = require_sha256(debrief_digest)
+        protected_requirement_sources = {
+            str(identity) for identity in requirement_sources
+        }
+        protected_change_sources = {str(identity) for identity in change_sources}
     except (TypeError, ValueError):
         return DispositionState.UNKNOWN
 
@@ -229,8 +235,8 @@ def validate_rst_lineage(
         "mutant": set(mutant_ids),
         "reviewer_finding": set(reviewer_finding_ids) | finding_ids,
         "debrief": {str(debrief.get("debrief_id"))},
-        "requirement": set(index),
-        "change": set(index),
+        "requirement": protected_requirement_sources,
+        "change": protected_change_sources,
     }
     updated_from = risk_register.get("updated_from", ())
     if (

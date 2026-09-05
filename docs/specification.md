@@ -273,7 +273,10 @@ The launcher MUST:
   detected Codex/tool runtime installation roots, and disables tool network
   access; runtime roots are derived at launch, never accepted from candidate
   input, MUST be canonical and MUST NOT equal, contain, or be contained by a
-  user home or overlap the sanitized harness in either direction; redundant
+  user home or overlap the sanitized harness in either direction; the account
+  home is derived from trusted operating-system identity, every environment-
+  declared home is an additional denied boundary, and inability to establish
+  the operating-system home blocks launch; redundant
   descendant runtime roots are coalesced, and
   the resulting non-overlapping grants persist only through the
   argv digest; because a more-specific read rule can reopen a subtree beneath a
@@ -612,6 +615,15 @@ ruleset activation are one-time, exact-commit, human-approved bootstrap actions
 whose post-installation state MUST be verified and whose exception cannot be
 reused.
 
+The bootstrap verification MUST retain the authenticated dispatch assertion
+that selected the bootstrap decision at the exact hosted authority commit, a
+live GitHub observation showing the protected authority ref still resolves to
+that commit and the required sole-user or reviewed ruleset is active without a
+bypass, and the exact authority manifest bytes read from that Git commit. The
+admission kernel independently resolves those artifacts and their digests; a
+different commit-shaped value, an unprotected ref, or a manifest copied from a
+different tree blocks.
+
 ## 12. Waivers
 
 A waiver is a protected human decision, not a fallback. It records:
@@ -662,6 +674,10 @@ links, typed update sources, session-to-charter links and digests,
 coverage-to-session/oracle links, debrief-to-session, actionable-finding and
 residual-risk links, follow-up source links, oracle source path/digest pairs, and
 disposition-to-debrief/item links. Every relationship sequence is unique.
+Requirement and change update identities come from separate exact protected
+sets derived from the authenticated task sources and candidate paths. The
+untyped evidence-locator index cannot cause one identity to be accepted as
+both kinds.
 Admission derives the exact typed follow-up edge set from surprising
 observations, surviving mutants and every reviewer finding, then requires the
 submitted follow-up graph to match it exactly; severity controls whether the
@@ -1039,8 +1055,9 @@ keyword shapes are validated, boolean subschemas are supported where admitted,
 integral JSON numbers satisfy `integer`, JSON boolean/numeric equality remains
 distinct, `$ref` siblings are also applied, and schema-valued `items` and
 `additionalProperties` are enforced. `pattern` is restricted to the portable
-ECMA-262/Python expression intersection used by the protected schemas; Python-
-only extensions and expressions outside that proven intersection are malformed
+ECMA-262/Python expression intersection used by the protected schemas; shorthand
+escapes with divergent Unicode matching semantics, Python-only extensions and
+expressions outside that proven intersection are malformed
 subset schemas rather than being interpreted with Python-specific semantics.
 Unsupported keywords and malformed subset schemas fail closed before instance
 validation.

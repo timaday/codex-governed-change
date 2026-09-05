@@ -151,14 +151,15 @@ home-directory, host or local endpoint values in policy or committed artifacts.
 only `evaluate` may report or successfully return `READY_FOR_HUMAN`.
 `prepare-review` requires the repository, policy, task, candidate, complete gate
 and mutation summaries, protected context qualification repository and prompt,
-protected observation
+the separately adapter-verified qualification label-decision ID, protected observation
 time, profile/model/effort and exact policy-selected budget. It re-identifies the
 candidate, derives and hashes the complete conservative Git-visible closure, and
 writes separate source-bundle, projection and prepared-receipt artifacts. Any
 optional caller source document must equal that protected reconstruction exactly;
 it cannot replace the inventory, closure or adverse evidence. Each `review` call
 requires all three context references plus the protected context-qualification
-reference, a portable workflow run ID, and writes the schema-bound model result,
+reference, the separately adapter-verified qualification label-decision ID, a
+portable workflow run ID, and writes the schema-bound model result,
 reviewer-execution statement, and post-run context-execution receipt.
 In a split checkout, pass `--authority-root` for the protected governance
 checkout, make `--schema-root`, `--prompt`, and `--output-schema` relative to

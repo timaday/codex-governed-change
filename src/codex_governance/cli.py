@@ -931,7 +931,8 @@ def _prepare_review(args: argparse.Namespace) -> int:
         qualification_schema_root=args.schema_root,
         qualification_repository_id=policy["repository_id"],
         qualification_verified_decision_ids=frozenset(
-            {policy["reviewer"]["qualification_label_decision_id"]}
+            require_sha256(item, name="verified qualification decision")
+            for item in args.verified_decision_id
         ),
         qualification_evaluated_at=args.observed_at,
         qualification_prompt_bytes=read_bounded_path_file(
@@ -1260,7 +1261,8 @@ def _review(args: argparse.Namespace) -> int:
         qualification_schema_root=args.authority_root / args.schema_root,
         qualification_repository_id=policy["repository_id"],
         qualification_verified_decision_ids=frozenset(
-            {policy["reviewer"]["qualification_label_decision_id"]}
+            require_sha256(item, name="verified qualification decision")
+            for item in args.verified_decision_id
         ),
         qualification_evaluated_at=str(context_sources.get("created_at")),
         qualification_prompt_bytes=prompt_bytes,
@@ -1781,6 +1783,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--token-budget", type=int, required=True)
     prepare.add_argument("--model", required=True)
     prepare.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh"), required=True)
+    prepare.add_argument("--verified-decision-id", action="append", default=[])
     prepare.add_argument("--observed-at", required=True)
     prepare.add_argument("--sources-output", required=True)
     prepare.add_argument("--projection-output", required=True)
@@ -1828,6 +1831,7 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--attempt", type=int, default=1)
     review.add_argument("--model", required=True)
     review.add_argument("--reasoning-effort", choices=("high", "xhigh"), default="xhigh")
+    review.add_argument("--verified-decision-id", action="append", default=[])
     review.add_argument("--timeout-seconds", type=float, default=1800)
     review.add_argument("--max-output-bytes", type=int, default=1_000_000)
     review.set_defaults(handler=_review)

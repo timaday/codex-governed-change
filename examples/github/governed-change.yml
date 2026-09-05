@@ -136,6 +136,7 @@ jobs:
       - name: Compile context and reviewer allowlist
         run: |
           OBSERVED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          QUALIFICATION_DECISION_ID="$(python3 -c 'import json,re; value=json.load(open("candidate/artifacts/governance/decision-source-observation.json", encoding="utf-8"))["authenticated_label_decision_id"]; assert re.fullmatch(r"sha256:[0-9a-f]{64}", value); print(value)')"
           PYTHONPATH=governance/src python3 -m codex_governance --schema-root governance/schemas prepare-review \
             --repository candidate \
             --policy "$POLICY" \
@@ -150,6 +151,7 @@ jobs:
             --token-budget 64000 \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$QUALIFICATION_DECISION_ID" \
             --observed-at "$OBSERVED_AT" \
             --sources-output "$ARTIFACT_REPOSITORY_ROOT/context-sources.json" \
             --projection-output "$ARTIFACT_REPOSITORY_ROOT/context-projection.json" \
@@ -214,6 +216,7 @@ jobs:
         run: |
           test "$(codex login status 2>&1)" = "Logged in using ChatGPT"
           test -f candidate/artifacts/governance/reviewer-permitted-inputs.json
+          QUALIFICATION_DECISION_ID="$(python3 -c 'import json,re; value=json.load(open("candidate/artifacts/governance/decision-source-observation.json", encoding="utf-8"))["authenticated_label_decision_id"]; assert re.fullmatch(r"sha256:[0-9a-f]{64}", value); print(value)')"
           read -r REVIEW_TIMEOUT_SECONDS REVIEW_MAX_OUTPUT_BYTES < <(
             python3 -c 'import json; policy=json.load(open("candidate/artifacts/governance/effective-policy.json", encoding="utf-8")); print(policy["reviewer"]["timeout_seconds"], policy["reviewer"]["max_output_bytes"])'
           )
@@ -237,6 +240,7 @@ jobs:
             --attempt "${{ github.run_attempt }}" \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$QUALIFICATION_DECISION_ID" \
             --timeout-seconds "$REVIEW_TIMEOUT_SECONDS" \
             --max-output-bytes "$REVIEW_MAX_OUTPUT_BYTES"
 
@@ -266,6 +270,7 @@ jobs:
               --attempt "${{ github.run_attempt }}" \
               --model gpt-5.6-sol \
               --reasoning-effort xhigh \
+              --verified-decision-id "$QUALIFICATION_DECISION_ID" \
               --timeout-seconds "$REVIEW_TIMEOUT_SECONDS" \
               --max-output-bytes "$REVIEW_MAX_OUTPUT_BYTES"
           done

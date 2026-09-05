@@ -102,6 +102,9 @@ class SchemaAdapterTest(unittest.TestCase):
             {"pattern": "(?P<python_only>[a-z]+)"},
             {"pattern": "\\Apython-only"},
             {"pattern": "python-only++"},
+            {"pattern": "\\w+"},
+            {"pattern": "\\d+"},
+            {"pattern": "\\bword\\b"},
             {"enum": []},
             {"enum": [True, True]},
         )

@@ -75,9 +75,7 @@ class SchemaValidationError(ValueError):
         self.errors = tuple(errors)
 
 
-_PORTABLE_SIMPLE_ESCAPES = frozenset(
-    r".^$*+?{}[]()|/\-dDsSwWbBfnrtv"
-)
+_PORTABLE_SIMPLE_ESCAPES = frozenset(r".^$*+?{}[]()|/\-fnrtv")
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 

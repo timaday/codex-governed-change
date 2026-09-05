@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:56bd8694f2b6f60743eb317f5e728e2e1c8b162ed0646409938bf43b4f12dbd5",
+  "corpus_id": "sha256:ea08fda439f8345fbc9d3e1bef27c287808d9617b7c501419a478d91cfba1350",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1163,6 +1163,78 @@
       "operator": "force an initial-bootstrap manifest through the unavailable previous-LKG decision path",
       "requirement_id": "GOV-050",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "prepare-review-policy-verifies-labels",
+      "path": "src/codex_governance/cli.py",
+      "old": "        qualification_repository_id=policy[\"repository_id\"],\n        qualification_verified_decision_ids=frozenset(\n            require_sha256(item, name=\"verified qualification decision\")\n            for item in args.verified_decision_id\n        ),\n        qualification_evaluated_at=args.observed_at,",
+      "new": "        qualification_repository_id=policy[\"repository_id\"],\n        qualification_verified_decision_ids=frozenset(\n            {policy[\"reviewer\"][\"qualification_label_decision_id\"]}\n        ),\n        qualification_evaluated_at=args.observed_at,",
+      "operator": "let context preparation manufacture label verification from candidate-visible policy",
+      "requirement_id": "GOV-048",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_prepare_review_emits_schema_valid_receipt_and_budget_blocks", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_prepare_and_review_use_only_caller_verified_qualification_ids"]
+    },
+    {
+      "mutant_id": "review-policy-verifies-labels",
+      "path": "src/codex_governance/cli.py",
+      "old": "        qualification_repository_id=policy[\"repository_id\"],\n        qualification_verified_decision_ids=frozenset(\n            require_sha256(item, name=\"verified qualification decision\")\n            for item in args.verified_decision_id\n        ),\n        qualification_evaluated_at=str(context_sources.get(\"created_at\")),",
+      "new": "        qualification_repository_id=policy[\"repository_id\"],\n        qualification_verified_decision_ids=frozenset(\n            {policy[\"reviewer\"][\"qualification_label_decision_id\"]}\n        ),\n        qualification_evaluated_at=str(context_sources.get(\"created_at\")),",
+      "operator": "let reviewer launch manufacture label verification from candidate-visible policy",
+      "requirement_id": "GOV-048",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_prepare_and_review_use_only_caller_verified_qualification_ids"]
+    },
+    {
+      "mutant_id": "initial-bootstrap-authority-state-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and authority_state_valid\n                and policy.get(\"lkg_governance_commit\")",
+      "new": "                and True\n                and policy.get(\"lkg_governance_commit\")",
+      "operator": "accept an arbitrary hosted authority commit without reconstructing its ref ruleset and manifest",
+      "requirement_id": "GOV-063",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "initial-bootstrap-plan-limitations-accepted",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and plan_limitations == []\n            )",
+      "new": "                and isinstance(plan_limitations, list)\n            )",
+      "operator": "accept a limited initial-bootstrap rollback plan",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "initial-bootstrap-capability-limitations-accepted",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and rollback_capability.get(\"limitations\") == []\n                and rollback_provenance.get(\"predicate\", {}).get(\"limitations\")\n                == []\n                and rollback_definition.get(\"shell\") is False\n                and isinstance(rollback_command, Sequence)",
+      "new": "                and rollback_capability.get(\"limitations\") in ([], [\"rollback capability incomplete\"])\n                and rollback_provenance.get(\"predicate\", {}).get(\"limitations\")\n                == []\n                and rollback_definition.get(\"shell\") is False\n                and isinstance(rollback_command, Sequence)",
+      "operator": "accept a limited initial-bootstrap rollback sandbox capability",
+      "requirement_id": "GOV-050",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "reviewer-os-home-unchecked",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "    homes = set(_trusted_operating_system_homes())\n    if not homes:\n        raise ValueError(\"trusted operating-system home is unavailable\")",
+      "new": "    homes: set[Path] = set()",
+      "operator": "trust only mutable environment homes when checking reviewer runtime roots",
+      "requirement_id": "GOV-006",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_runtime_profile_uses_os_home_when_environment_home_is_false", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_runtime_profile_rejects_missing_operating_system_home"]
+    },
+    {
+      "mutant_id": "schema-unicode-shorthands-accepted",
+      "path": "src/codex_governance/schema.py",
+      "old": "_PORTABLE_SIMPLE_ESCAPES = frozenset(r\".^$*+?{}[]()|/\\-fnrtv\")",
+      "new": "_PORTABLE_SIMPLE_ESCAPES = frozenset(r\".^$*+?{}[]()|/\\-dDwWbBfnrtv\")",
+      "operator": "accept shorthand escapes whose Python and ECMAScript Unicode semantics diverge",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_malformed_supported_keyword_definitions_fail_closed"]
+    },
+    {
+      "mutant_id": "rst-requirement-change-kinds-collapsed",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        \"requirement\": protected_requirement_sources,\n        \"change\": protected_change_sources,",
+      "new": "        \"requirement\": set(index),\n        \"change\": set(index),",
+      "operator": "let one untyped evidence locator impersonate requirement and change update sources",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_requirement_and_change_updates_use_separate_protected_sets"]
     }
   ]
 }

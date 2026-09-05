@@ -3431,6 +3431,18 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         )
         authority_basis = "b" * 40
         authority_commit = "c" * 40
+        authority_repository = "example/authority"
+        authority_ref = "refs/heads/governance-authority"
+        bootstrap_issuer_descriptor = {
+            "subject": "github:fixture-maintainer",
+            "authentication_method": "github-actions-workflow-dispatch",
+            "protected_source": f"{authority_repository}@{authority_ref}",
+        }
+        bootstrap_issuer = bootstrap_issuer_descriptor | {
+            "assertion_sha256": sha256_bytes(
+                canonical_json_bytes(bootstrap_issuer_descriptor)
+            )
+        }
         bootstrap_decision = content_address(
             task_decision
             | {
@@ -3443,6 +3455,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 ],
                 "single_use": True,
                 "consumption_id": f"initial-lkg-bootstrap:{self.CANDIDATE_ID}",
+                "issuer": bootstrap_issuer,
             },
             "decision_id",
         )
@@ -3463,6 +3476,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "expires_at": "2026-08-27T10:00:02Z",
                 "single_use": True,
                 "consumption_id": f"lkg-promotion:{self.CANDIDATE_ID}",
+                "issuer": bootstrap_issuer,
             },
             "decision_id",
         )
@@ -3509,7 +3523,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "producer_builder_id": "codex-governed-change",
                 "producer_version": PRODUCER_VERSION,
                 "max_age_seconds": 86400,
-                "limitations": ["one-off non-reusable initial bootstrap"],
+                "limitations": [],
             },
             "rollback_plan_id",
         )
@@ -3528,6 +3542,68 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         authority_manifest_reference = self.raw(
             "initial-authority-manifest.json",
             canonical_json_bytes(authority_manifest),
+        )
+
+        source_assertion = {
+            "event_name": "workflow_dispatch",
+            "actor": bootstrap_issuer["subject"],
+            "authority_repository": authority_repository,
+            "authority_ref": authority_ref,
+            "authority_commit": authority_commit,
+            "authority_basis_commit": authority_basis,
+            "workflow_run_id": "bootstrap-fixture",
+            "approved_decision_ids": [
+                bootstrap_decision["decision_id"],
+                promotion_decision["decision_id"],
+                task_decision["decision_id"],
+                json.loads(
+                    (
+                        self.repository
+                        / manifest["reviewer_qualification_label_decision"]["path"]
+                    ).read_text()
+                )["decision_id"],
+            ],
+            "authorization_receipt_id": None,
+        }
+        authority_state = {
+            "schema_version": "1.0.0",
+            "repository": authority_repository,
+            "ref": authority_ref,
+            "commit": authority_commit,
+            "manifest_commit": authority_commit,
+            "manifest_sha256": authority_manifest_reference["sha256"],
+            "source_assertion": source_assertion,
+            "source_assertion_sha256": sha256_bytes(
+                canonical_json_bytes(source_assertion)
+            ),
+            "ruleset": {
+                "id": 1,
+                "target": "branch",
+                "enforcement": "active",
+                "bypass_actors": [],
+                "conditions": {
+                    "ref_name": {"include": [authority_ref], "exclude": []}
+                },
+                "rules": [
+                    {"type": "deletion"},
+                    {"type": "non_fast_forward"},
+                    {"type": "required_linear_history"},
+                    {
+                        "type": "pull_request",
+                        "parameters": {
+                            "dismiss_stale_reviews_on_push": True,
+                            "require_code_owner_review": False,
+                            "require_last_push_approval": False,
+                            "required_approving_review_count": 0,
+                            "required_review_thread_resolution": True,
+                        },
+                    },
+                ],
+            },
+            "observed_at": "2026-08-26T10:00:02Z",
+        }
+        authority_state_reference = self.raw(
+            "initial-authority-state.json", canonical_json_bytes(authority_state)
         )
 
         def artifact_locator(name: str, reference: dict[str, str]) -> dict[str, str]:
@@ -3553,6 +3629,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             artifact_locator(name, reference)
             for name, reference in (
                 ("authority-manifest", authority_manifest_reference),
+                ("authority-state", authority_state_reference),
                 ("rollback-plan", rollback_plan_reference),
                 ("rollback-task", rollback_task_reference),
                 ("rollback-candidate", rollback_candidate_reference),
@@ -3569,6 +3646,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "authority_commit": authority_commit,
                 "authority_basis_commit": authority_basis,
                 "authority_manifest_sha256": authority_manifest_reference["sha256"],
+                "authority_state_sha256": authority_state_reference["sha256"],
                 "bootstrap_policy_sha256": manifest["effective_policy"]["sha256"],
                 "proposed_policy_sha256": proposed_reference["sha256"],
                 "rollback_plan_id": rollback_plan["rollback_plan_id"],
@@ -3586,7 +3664,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "state": "READY_FOR_HUMAN",
                 "created_at": "2026-08-26T10:00:03Z",
                 "producer_version": "test-authority-bootstrap",
-                "limitations": ["one-off non-reusable initial bootstrap"],
+                "limitations": [],
             },
             "bootstrap_verification_id",
         )
@@ -3633,8 +3711,317 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         self.assertEqual(DispositionState.BLOCK, unverified_state)
         self.assertIn("INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", unverified_reasons)
 
+        limited_plan = content_address(
+            {**rollback_plan, "limitations": ["rollback proof incomplete"]},
+            "rollback_plan_id",
+        )
+        limited_plan_reference = self.raw(
+            "initial-rollback-plan-limited.json",
+            canonical_json_bytes(limited_plan),
+        )
+        limited_plan_locator = artifact_locator(
+            "rollback-plan-limited", limited_plan_reference
+        )
+        limited_plan_verification = content_address(
+            {
+                **verification,
+                "rollback_plan_id": limited_plan["rollback_plan_id"],
+                "rollback_plan_sha256": limited_plan_reference["sha256"],
+                "limitations": ["rollback proof incomplete"],
+            },
+            "bootstrap_verification_id",
+        )
+        limited_plan_verification_reference = self.raw(
+            "initial-bootstrap-verification-limited-plan.json",
+            canonical_json_bytes(limited_plan_verification),
+        )
+        limited_plan_manifest = content_address(
+            {
+                **manifest,
+                "evidence_locators": [
+                    *manifest["evidence_locators"],
+                    limited_plan_locator,
+                ],
+                "initial_bootstrap_verification": (
+                    limited_plan_verification_reference
+                ),
+            },
+            "manifest_id",
+        )
+        limited_plan_state, limited_plan_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=limited_plan_manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest)
+            | {bootstrap_decision["decision_id"]},
+        )
+        self.assertEqual(DispositionState.BLOCK, limited_plan_state)
+        self.assertIn(
+            "INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", limited_plan_reasons
+        )
+
+        def nested_limitation_variant(kind: str) -> tuple[dict, frozenset[str]]:
+            capability = json.loads(
+                (self.repository / capability_reference["path"]).read_text()
+            )
+            if kind == "capability":
+                capability["limitations"] = ["rollback capability incomplete"]
+                capability.pop("capability_id")
+                capability = content_address(capability, "capability_id")
+            capability_variant_reference = self.write(
+                f"initial-limit-{kind}-capability.json",
+                capability,
+                "sandbox-capability",
+            )
+
+            provenance = json.loads(
+                (self.repository / provenance_reference["path"]).read_text()
+            )
+            provenance["predicate"]["environment"][
+                "sandbox_capability_sha256"
+            ] = capability_variant_reference["sha256"]
+            next(
+                item
+                for item in provenance["predicate"]["artifacts"]
+                if item["name"] == "sandbox-capability"
+            )["sha256"] = capability_variant_reference["sha256"]
+            if kind == "provenance":
+                provenance["predicate"]["limitations"] = [
+                    "rollback provenance incomplete"
+                ]
+            provenance.pop("statement_id")
+            provenance = content_address(provenance, "statement_id")
+            provenance_variant_reference = self.write(
+                f"initial-limit-{kind}-provenance.json",
+                provenance,
+                "provenance-statement",
+            )
+
+            gate = json.loads(
+                (self.repository / gate_reference["path"]).read_text()
+            )
+            gate["sandbox_capability_sha256"] = (
+                capability_variant_reference["sha256"]
+            )
+            gate["provenance_statement"] = provenance_variant_reference
+            if kind == "gate":
+                gate["limitations"] = ["rollback gate incomplete"]
+            gate_variant_reference = self.write(
+                f"initial-limit-{kind}-gate.json", gate, "gate-result"
+            )
+
+            rollback_variant = {
+                **rollback,
+                "gate_result": gate_variant_reference,
+                "sandbox_capability": capability_variant_reference,
+                "provenance_statement": provenance_variant_reference,
+            }
+            if kind == "evidence":
+                rollback_variant["limitations"] = [
+                    "rollback summary incomplete"
+                ]
+            rollback_variant.pop("rollback_evidence_id")
+            rollback_variant = content_address(
+                rollback_variant, "rollback_evidence_id"
+            )
+            rollback_variant_reference = self.write(
+                f"initial-limit-{kind}-rollback.json",
+                rollback_variant,
+                "rollback-evidence",
+            )
+
+            promotion_variant = {
+                **promotion_decision,
+                "scope": [
+                    f"promote:{proposed_reference['sha256']}",
+                    f"rollback:{rollback_variant['rollback_evidence_id']}",
+                ],
+            }
+            promotion_variant.pop("decision_id")
+            promotion_variant = content_address(promotion_variant, "decision_id")
+            promotion_variant_reference = self.write(
+                f"initial-limit-{kind}-promotion.json",
+                promotion_variant,
+                "authenticated-decision",
+            )
+
+            source_assertion_variant = {
+                **source_assertion,
+                "approved_decision_ids": [
+                    promotion_variant["decision_id"]
+                    if decision_id == promotion_decision["decision_id"]
+                    else decision_id
+                    for decision_id in source_assertion["approved_decision_ids"]
+                ],
+            }
+            authority_state_variant = {
+                **authority_state,
+                "source_assertion": source_assertion_variant,
+                "source_assertion_sha256": sha256_bytes(
+                    canonical_json_bytes(source_assertion_variant)
+                ),
+            }
+            authority_state_variant_reference = self.raw(
+                f"initial-limit-{kind}-authority-state.json",
+                canonical_json_bytes(authority_state_variant),
+            )
+            authority_state_variant_locator = artifact_locator(
+                f"authority-state-limit-{kind}",
+                authority_state_variant_reference,
+            )
+
+            verification_variant = {
+                **verification,
+                "authority_state_sha256": authority_state_variant_reference[
+                    "sha256"
+                ],
+                "promotion_decision_id": promotion_variant["decision_id"],
+                "rollback_evidence_id": rollback_variant[
+                    "rollback_evidence_id"
+                ],
+                "rollback_gate_result_sha256": gate_variant_reference["sha256"],
+                "rollback_sandbox_capability_sha256": (
+                    capability_variant_reference["sha256"]
+                ),
+                "rollback_provenance_statement_sha256": (
+                    provenance_variant_reference["sha256"]
+                ),
+            }
+            verification_variant.pop("bootstrap_verification_id")
+            verification_variant = content_address(
+                verification_variant, "bootstrap_verification_id"
+            )
+            verification_variant_reference = self.raw(
+                f"initial-limit-{kind}-verification.json",
+                canonical_json_bytes(verification_variant),
+            )
+            variant = {
+                **manifest,
+                "evidence_locators": [
+                    *manifest["evidence_locators"],
+                    authority_state_variant_locator,
+                ],
+                "sandbox_capabilities": [
+                    capability_variant_reference
+                    if item == capability_reference
+                    else item
+                    for item in manifest["sandbox_capabilities"]
+                ],
+                "provenance_statements": [
+                    provenance_variant_reference
+                    if item == provenance_reference
+                    else item
+                    for item in manifest["provenance_statements"]
+                ],
+                "lkg_promotion_decision": promotion_variant_reference,
+                "rollback_evidence": rollback_variant_reference,
+                "initial_bootstrap_verification": verification_variant_reference,
+                "authenticated_decisions": [
+                    promotion_variant_reference
+                    if item == promotion_reference
+                    else item
+                    for item in manifest["authenticated_decisions"]
+                ],
+            }
+            variant = content_address(variant, "manifest_id")
+            verified = (
+                self.verified_decision_ids(variant)
+                | {bootstrap_decision["decision_id"]}
+            )
+            return variant, verified
+
+        for limitation_kind in ("capability", "provenance", "gate", "evidence"):
+            limitation_manifest, limitation_verified = nested_limitation_variant(
+                limitation_kind
+            )
+            limitation_state, limitation_reasons = evaluate_manifest(
+                repository=self.repository,
+                manifest=limitation_manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=limitation_verified,
+            )
+            with self.subTest(bootstrap_limitation=limitation_kind):
+                self.assertEqual(DispositionState.BLOCK, limitation_state)
+                self.assertIn(
+                    "INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", limitation_reasons
+                )
+
+        for state_defect in (
+            "stale-ref",
+            "manifest-commit",
+            "ruleset-bypass",
+            "ruleset-linear-history",
+        ):
+            state_variant = deepcopy(authority_state)
+            if state_defect == "stale-ref":
+                state_variant["commit"] = "d" * 40
+            elif state_defect == "manifest-commit":
+                state_variant["manifest_commit"] = "d" * 40
+            elif state_defect == "ruleset-bypass":
+                state_variant["ruleset"]["bypass_actors"] = [
+                    {"actor_id": 1, "actor_type": "RepositoryRole"}
+                ]
+            else:
+                state_variant["ruleset"]["rules"] = [
+                    item
+                    for item in state_variant["ruleset"]["rules"]
+                    if item["type"] != "required_linear_history"
+                ]
+            state_variant_reference = self.raw(
+                f"initial-authority-state-{state_defect}.json",
+                canonical_json_bytes(state_variant),
+            )
+            state_variant_locator = artifact_locator(
+                f"authority-state-{state_defect}", state_variant_reference
+            )
+            verification_variant = {
+                **verification,
+                "authority_state_sha256": state_variant_reference["sha256"],
+            }
+            verification_variant.pop("bootstrap_verification_id")
+            verification_variant = content_address(
+                verification_variant, "bootstrap_verification_id"
+            )
+            verification_variant_reference = self.raw(
+                f"initial-bootstrap-verification-{state_defect}.json",
+                canonical_json_bytes(verification_variant),
+            )
+            state_manifest = content_address(
+                {
+                    **manifest,
+                    "evidence_locators": [
+                        *manifest["evidence_locators"],
+                        state_variant_locator,
+                    ],
+                    "initial_bootstrap_verification": (
+                        verification_variant_reference
+                    ),
+                },
+                "manifest_id",
+            )
+            state, reasons = evaluate_manifest(
+                repository=self.repository,
+                manifest=state_manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest)
+                | {bootstrap_decision["decision_id"]},
+            )
+            with self.subTest(authority_state=state_defect):
+                self.assertEqual(DispositionState.BLOCK, state)
+                self.assertIn("INITIAL_BOOTSTRAP_NOT_AUTHENTICATED", reasons)
+
         for field in (
             "authority_manifest_sha256",
+            "authority_state_sha256",
             "rollback_plan_id",
             "rollback_plan_sha256",
             "rollback_task_contract_sha256",

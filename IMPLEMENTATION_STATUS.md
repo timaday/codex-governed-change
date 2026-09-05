@@ -763,3 +763,38 @@ protected authority/kernel/broker rebinding, hosted real-isolation and labelled
 qualification evidence, paired governed-versus-ordinary measurement, protected
 admission reconstruction and separate human release approval. Release remains
 blocked.
+
+Immutable candidate `5a7766b` subsequently passed blueprint integrity, 105 unit
+tests, 235 acceptance tests and its then-current 129-entry corpus. Its strict
+fresh ChatGPT-authenticated `gpt-5.6-sol` review returned `BLOCK` with six
+material findings. Preparation and review manufactured a qualification-label
+verification set from policy; initial bootstrap did not bind the exact hosted
+authority ref, active ruleset and commit-resident manifest; initial rollback
+accepted limited plans and capabilities; reviewer runtime isolation trusted
+mutable home environment variables; portable schema validation admitted
+Unicode-divergent shorthand expressions; and operational RST collapsed
+requirement and change update identities into one untyped locator set. All
+evidence for `5a7766b` is non-qualifying.
+
+This working-copy successor moves qualification-label verification to a
+separate adapter-supplied decision boundary; reconstructs the exact dispatch,
+live authority ref and no-bypass protected ruleset, authority commit and
+commit-resident manifest; requires limitation-free initial rollback plan,
+evidence, gate, capability, provenance and verification layers plus empty
+stderr; derives the account home from operating-system identity while treating
+environment homes as additional denied roots; rejects Unicode-divergent regular
+expression shorthands; and derives separate exact requirement and change update
+sets. Eight targeted paired-control operators cover the findings, bringing the
+corpus to 137 entries with content ID
+`sha256:ea08fda439f8345fbc9d3e1bef27c287808d9617b7c501419a478d91cfba1350`
+and protected byte digest
+`sha256:acef9b470bab854b4807ef8f2a7fc5f60f1650fe630f4ce5d653b592944d52b5`.
+Blueprint integrity, 107 unit tests and 237 acceptance tests are green locally;
+all eight new mutants have surviving controls and causal kills. This status
+mutation invalidates those working-copy observations for release admission.
+The immutable successor still requires exact-candidate deterministic and full
+137-entry mutation evidence, a new strict fresh review, protected authority and
+broker rebinding, hosted qualification/admission evidence, the pre-approved
+held-out governed-versus-ordinary measurement decision, and separate human
+release approval. Operational qualification, measured benefit and human
+approval remain `UNKNOWN`; release remains blocked.

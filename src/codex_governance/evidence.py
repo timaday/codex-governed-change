@@ -1125,6 +1125,7 @@ def evaluate_manifest(
                 "authority_commit",
                 "authority_basis_commit",
                 "authority_manifest_sha256",
+                "authority_state_sha256",
                 "bootstrap_policy_sha256",
                 "proposed_policy_sha256",
                 "rollback_plan_id",
@@ -1146,6 +1147,7 @@ def evaluate_manifest(
             }
             digest_fields = {
                 "authority_manifest_sha256",
+                "authority_state_sha256",
                 "bootstrap_policy_sha256",
                 "proposed_policy_sha256",
                 "rollback_plan_id",
@@ -1179,6 +1181,9 @@ def evaluate_manifest(
             )
             authority_manifest_bytes = uniquely_resolved_artifact(
                 bootstrap_verification["authority_manifest_sha256"]
+            )
+            authority_state_bytes = uniquely_resolved_artifact(
+                bootstrap_verification["authority_state_sha256"]
             )
             rollback_plan_bytes = uniquely_resolved_artifact(
                 bootstrap_verification["rollback_plan_sha256"]
@@ -1218,6 +1223,9 @@ def evaluate_manifest(
             authority_manifest = strict_json_object(
                 authority_manifest_bytes, name="authority manifest"
             )
+            authority_state = strict_json_object(
+                authority_state_bytes, name="authority state"
+            )
             rollback_plan = strict_json_object(
                 rollback_plan_bytes, name="rollback plan"
             )
@@ -1235,6 +1243,10 @@ def evaluate_manifest(
             promotion_decision = load(
                 manifest["lkg_promotion_decision"],
                 "authenticated-decision",
+            )
+            qualification_label_decision = load(
+                manifest["reviewer_qualification_label_decision"],
+                "reviewer-qualification-label-decision",
             )
             rollback_evidence = load(
                 manifest["rollback_evidence"], "rollback-evidence"
@@ -1300,6 +1312,165 @@ def evaluate_manifest(
             )
             if observed_materials != base_materials:
                 raise ValueError("bootstrap rollback materials are not exact")
+            issuer = bootstrap_decision.get("issuer")
+            protected_source = (
+                issuer.get("protected_source")
+                if isinstance(issuer, Mapping)
+                else None
+            )
+            if (
+                not isinstance(protected_source, str)
+                or "@" not in protected_source
+            ):
+                raise ValueError("bootstrap protected source is invalid")
+            authority_repository, authority_ref = protected_source.rsplit("@", 1)
+            source_assertion = authority_state.get("source_assertion")
+            approved_decision_ids = (
+                source_assertion.get("approved_decision_ids")
+                if isinstance(source_assertion, Mapping)
+                else None
+            )
+            expected_approved_decision_ids = {
+                bootstrap_decision.get("decision_id"),
+                qualification_label_decision.get("decision_id"),
+                *(decision.get("decision_id") for decision in valid_decisions),
+            }
+            ruleset = authority_state.get("ruleset")
+            rules = ruleset.get("rules") if isinstance(ruleset, Mapping) else None
+            rules_by_type = {
+                item.get("type"): item
+                for item in rules
+                if isinstance(item, Mapping)
+            } if isinstance(rules, Sequence) and not isinstance(rules, (str, bytes)) else {}
+            pull_request_rule = rules_by_type.get("pull_request", {})
+            pull_request_parameters = (
+                pull_request_rule.get("parameters")
+                if isinstance(pull_request_rule, Mapping)
+                else None
+            )
+            approval_count = (
+                pull_request_parameters.get("required_approving_review_count")
+                if isinstance(pull_request_parameters, Mapping)
+                else None
+            )
+            authority_state_valid = bool(
+                set(authority_state)
+                == {
+                    "schema_version",
+                    "repository",
+                    "ref",
+                    "commit",
+                    "manifest_commit",
+                    "manifest_sha256",
+                    "source_assertion",
+                    "source_assertion_sha256",
+                    "ruleset",
+                    "observed_at",
+                }
+                and authority_state.get("schema_version") == "1.0.0"
+                and authority_state.get("repository") == authority_repository
+                and authority_state.get("ref") == authority_ref
+                and authority_ref == "refs/heads/governance-authority"
+                and authority_state.get("commit") == authority_commit
+                and authority_state.get("manifest_commit") == authority_commit
+                and authority_state.get("manifest_sha256")
+                == sha256_bytes(authority_manifest_bytes)
+                and isinstance(source_assertion, Mapping)
+                and set(source_assertion)
+                == {
+                    "event_name",
+                    "actor",
+                    "authority_repository",
+                    "authority_ref",
+                    "authority_commit",
+                    "authority_basis_commit",
+                    "workflow_run_id",
+                    "approved_decision_ids",
+                    "authorization_receipt_id",
+                }
+                and source_assertion.get("event_name") == "workflow_dispatch"
+                and source_assertion.get("actor") == issuer.get("subject")
+                and issuer.get("authentication_method")
+                == "github-actions-workflow-dispatch"
+                and source_assertion.get("authority_repository")
+                == authority_repository
+                and source_assertion.get("authority_ref") == authority_ref
+                and source_assertion.get("authority_commit") == authority_commit
+                and source_assertion.get("authority_basis_commit")
+                == authority_basis
+                and isinstance(source_assertion.get("workflow_run_id"), str)
+                and bool(source_assertion.get("workflow_run_id"))
+                and isinstance(approved_decision_ids, Sequence)
+                and not isinstance(approved_decision_ids, (str, bytes))
+                and len(approved_decision_ids) == len(set(approved_decision_ids))
+                and set(approved_decision_ids) == expected_approved_decision_ids
+                and set(approved_decision_ids).issubset(verified_decision_ids)
+                and source_assertion.get("authorization_receipt_id") is None
+                and authority_state.get("source_assertion_sha256")
+                == sha256_canonical(source_assertion)
+                and isinstance(ruleset, Mapping)
+                and set(ruleset)
+                == {
+                    "id",
+                    "target",
+                    "enforcement",
+                    "bypass_actors",
+                    "conditions",
+                    "rules",
+                }
+                and isinstance(ruleset.get("id"), int)
+                and not isinstance(ruleset.get("id"), bool)
+                and ruleset.get("id") >= 1
+                and ruleset.get("target") == "branch"
+                and ruleset.get("enforcement") == "active"
+                and ruleset.get("bypass_actors") == []
+                and ruleset.get("conditions")
+                == {
+                    "ref_name": {
+                        "include": [authority_ref],
+                        "exclude": [],
+                    }
+                }
+                and isinstance(rules, Sequence)
+                and not isinstance(rules, (str, bytes))
+                and len(rules) == 4
+                and len(rules_by_type) == len(rules)
+                and set(rules_by_type)
+                == {
+                    "deletion",
+                    "non_fast_forward",
+                    "required_linear_history",
+                    "pull_request",
+                }
+                and all(
+                    rules_by_type[kind] == {"type": kind}
+                    for kind in (
+                        "deletion",
+                        "non_fast_forward",
+                        "required_linear_history",
+                    )
+                )
+                and set(pull_request_rule) == {"type", "parameters"}
+                and isinstance(pull_request_parameters, Mapping)
+                and set(pull_request_parameters)
+                == {
+                    "dismiss_stale_reviews_on_push",
+                    "require_code_owner_review",
+                    "require_last_push_approval",
+                    "required_approving_review_count",
+                    "required_review_thread_resolution",
+                }
+                and pull_request_parameters.get("dismiss_stale_reviews_on_push")
+                is True
+                and pull_request_parameters.get("require_code_owner_review")
+                is False
+                and pull_request_parameters.get(
+                    "required_review_thread_resolution"
+                ) is True
+                and approval_count in {0, 1}
+                and pull_request_parameters.get("require_last_push_approval")
+                == (approval_count == 1)
+            )
             bootstrap_scope = [
                 f"initial-lkg:{bootstrap_basis}",
                 f"authority-basis:{authority_basis}",
@@ -1409,11 +1580,7 @@ def evaluate_manifest(
                 and isinstance(max_age_seconds, int)
                 and not isinstance(max_age_seconds, bool)
                 and 1 <= max_age_seconds <= 86_400
-                and isinstance(plan_limitations, list)
-                and all(
-                    isinstance(item, str) and bool(item)
-                    for item in plan_limitations
-                )
+                and plan_limitations == []
             )
             rollback_task_valid = bool(
                 rollback_task.get("repository_id") == repository_id
@@ -1468,8 +1635,7 @@ def evaluate_manifest(
                 == rollback_evidence["provenance_statement"]
                 and rollback_evidence.get("limitations") == []
                 and rollback_gate.get("limitations") == []
-                and rollback_capability.get("limitations")
-                in ([], ["unsigned local capability report"])
+                and rollback_capability.get("limitations") == []
                 and rollback_provenance.get("predicate", {}).get("limitations")
                 == []
                 and rollback_definition.get("shell") is False
@@ -1515,6 +1681,7 @@ def evaluate_manifest(
                     expected_task_contract_sha256=rollback_task_sha,
                     expected_repository_digest=rollback_source,
                 )
+                and stream_bytes["stderr"] == b""
             )
             promotion_state = evaluate_lkg_promotion(
                 repository_id=repository_id,
@@ -1532,6 +1699,9 @@ def evaluate_manifest(
             )
             verification_created = parse_rfc3339(
                 str(bootstrap_verification["created_at"])
+            )
+            authority_state_created = parse_rfc3339(
+                str(authority_state["observed_at"])
             )
             rollback_created = parse_rfc3339(
                 str(rollback_evidence["created_at"])
@@ -1556,6 +1726,7 @@ def evaluate_manifest(
                 <= rollback_ended
                 <= rollback_created
                 <= promotion_issued
+                <= authority_state_created
                 <= verification_created
                 <= now
                 and (now - rollback_created).total_seconds()
@@ -1584,6 +1755,9 @@ def evaluate_manifest(
                 == rollback_plan.get("rollback_target_commit")
                 and bootstrap_verification.get("authority_manifest_sha256")
                 == sha256_bytes(authority_manifest_bytes)
+                and bootstrap_verification.get("authority_state_sha256")
+                == sha256_bytes(authority_state_bytes)
+                and authority_state_valid
                 and policy.get("lkg_governance_commit")
                 == current_candidate.get("base_commit")
                 and proposed_policy.get("repository_id") == repository_id
@@ -1631,7 +1805,7 @@ def evaluate_manifest(
                 and rollback_chronology_valid
                 and isinstance(bootstrap_verification.get("producer_version"), str)
                 and bool(bootstrap_verification.get("producer_version"))
-                and bootstrap_verification.get("limitations") == plan_limitations
+                and bootstrap_verification.get("limitations") == []
                 and bootstrap_decision_valid
                 and promotion_state is DispositionState.READY_FOR_HUMAN
             )
@@ -2778,6 +2952,16 @@ def evaluate_manifest(
                     follow_ups=follow_ups,
                     risk_disposition=risk_disposition,
                     evidence_index=evidence_index,
+                    requirement_sources=frozenset(
+                        normalize_repo_path(str(source.get("path")))
+                        for source in task.get("authoritative_sources", ())
+                        if isinstance(source, Mapping)
+                        and source.get("kind") == "requirement"
+                    ),
+                    change_sources=frozenset(
+                        normalize_repo_path(str(path))
+                        for path in current_candidate.get("changed_paths", ())
+                    ),
                     charter_digests=charter_sha_by_id,
                     debrief_digest=manifest["rapid_review_debrief"]["sha256"],
                     mutation_records=mutation_records,

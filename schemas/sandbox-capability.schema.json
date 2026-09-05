@@ -10,7 +10,7 @@
     "capability_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "provider": { "enum": ["docker", "podman"] },
     "provider_version": { "type": "string", "minLength": 1 },
-    "image": { "type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-f]{64}$" },
+    "image": { "type": "string", "pattern": "^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$" },
     "command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "implementation_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "source_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
