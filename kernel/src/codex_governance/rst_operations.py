@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from codex_governance.canonical import require_sha256, verify_content_address
@@ -30,10 +30,12 @@ def validate_rst_lineage(
     follow_ups: Sequence[Mapping[str, Any]] = (),
     risk_disposition: Mapping[str, Any] | None = None,
     evidence_index: Mapping[str, str] | None = None,
+    requirement_sources: Sequence[str] = (),
+    change_sources: Sequence[str] = (),
     charter_digests: Mapping[str, str] | None = None,
     debrief_digest: str | None = None,
-    mutant_ids: Set[str] = frozenset(),
-    reviewer_finding_ids: Set[str] = frozenset(),
+    mutation_records: Sequence[Mapping[str, Any]] = (),
+    reviewer_findings: Sequence[Mapping[str, Any]] = (),
 ) -> DispositionState:
     """Resolve the complete protected RST relationship graph."""
     if artifacts is not None:
@@ -75,6 +77,10 @@ def validate_rst_lineage(
             for charter_id, digest in (charter_digests or {}).items()
         }
         expected_debrief_digest = require_sha256(debrief_digest)
+        protected_requirement_sources = {
+            str(identity) for identity in requirement_sources
+        }
+        protected_change_sources = {str(identity) for identity in change_sources}
     except (TypeError, ValueError):
         return DispositionState.UNKNOWN
 
@@ -173,6 +179,8 @@ def validate_rst_lineage(
             or index.get(oracle.get("source")) != oracle.get("source_sha256")
         ):
             return DispositionState.UNKNOWN
+    coverage_session_sequence: list[str] = []
+    coverage_oracle_sequence: list[str] = []
     for coverage_id, note in coverage_by_id.items():
         oracle_refs = note.get("oracle_refs")
         if (
@@ -186,6 +194,15 @@ def validate_rst_lineage(
             or not set(oracle_refs).issubset(oracle_by_id)
         ):
             return DispositionState.UNKNOWN
+        coverage_session_sequence.append(str(note["session_id"]))
+        coverage_oracle_sequence.extend(str(reference) for reference in oracle_refs)
+    if (
+        len(coverage_session_sequence) != len(set(coverage_session_sequence))
+        or set(coverage_session_sequence) != set(session_by_id)
+        or len(coverage_oracle_sequence) != len(set(coverage_oracle_sequence))
+        or set(coverage_oracle_sequence) != set(oracle_by_id)
+    ):
+        return DispositionState.UNKNOWN
 
     risk_ids: set[str] = set()
     for risk in risk_register.get("risks", ()):
@@ -199,6 +216,8 @@ def validate_rst_lineage(
             or not isinstance(charter_refs, Sequence)
             or isinstance(charter_refs, (str, bytes))
             or not charter_refs
+            or any(not isinstance(reference, str) for reference in charter_refs)
+            or len(charter_refs) != len(set(charter_refs))
             or not set(charter_refs).issubset(charter_by_id)
         ):
             return DispositionState.UNKNOWN
@@ -206,20 +225,36 @@ def validate_rst_lineage(
     if not risk_ids or not verify_content_address(risk_register, "risk_register_id"):
         return DispositionState.UNKNOWN
 
+    mutant_ids = {
+        str(record.get("mutant_id"))
+        for record in mutation_records
+        if isinstance(record, Mapping) and isinstance(record.get("mutant_id"), str)
+    }
+    reviewer_finding_ids = {
+        str(finding.get("finding_id"))
+        for finding in reviewer_findings
+        if isinstance(finding, Mapping)
+        and isinstance(finding.get("finding_id"), str)
+    }
+    if len(mutant_ids) != len(mutation_records) or len(reviewer_finding_ids) != len(
+        reviewer_findings
+    ) or reviewer_finding_ids & finding_ids:
+        return DispositionState.UNKNOWN
     typed_sources: dict[str, set[str]] = {
         "session": set(session_by_id),
         "observation": experiment_ids,
         "mutant": set(mutant_ids),
         "reviewer_finding": set(reviewer_finding_ids) | finding_ids,
         "debrief": {str(debrief.get("debrief_id"))},
-        "requirement": set(index),
-        "change": set(index),
+        "requirement": protected_requirement_sources,
+        "change": protected_change_sources,
     }
     updated_from = risk_register.get("updated_from", ())
     if (
         not isinstance(updated_from, Sequence)
         or isinstance(updated_from, (str, bytes))
         or not updated_from
+        or len(updated_from) != len(set(updated_from))
     ):
         return DispositionState.UNKNOWN
     for reference in updated_from:
@@ -228,16 +263,42 @@ def validate_rst_lineage(
         kind, identity = reference.split(":", 1)
         if identity not in typed_sources.get(kind, set()):
             return DispositionState.UNKNOWN
+    expected_updates = {
+        *(f"requirement:{identity}" for identity in protected_requirement_sources),
+        *(f"change:{identity}" for identity in protected_change_sources),
+        *(f"observation:{identity}" for identity in experiment_ids),
+        *(
+            f"mutant:{record['mutant_id']}"
+            for record in mutation_records
+            if record.get("outcome") == "SURVIVED"
+        ),
+        *(
+            f"reviewer_finding:{identity}"
+            for identity in reviewer_finding_ids | finding_ids
+        ),
+    }
+    if set(updated_from) != expected_updates:
+        return DispositionState.UNKNOWN
 
-    if set(debrief.get("session_refs", ())) != set(session_by_id):
+    session_refs = debrief.get("session_refs", ())
+    actionable_findings = debrief.get("actionable_findings", ())
+    residual_risks = debrief.get("residual_risks", ())
+    if any(
+        not isinstance(values, Sequence)
+        or isinstance(values, (str, bytes))
+        or len(values) != len(set(values))
+        for values in (session_refs, actionable_findings, residual_risks)
+    ):
+        return DispositionState.UNKNOWN
+    if set(session_refs) != set(session_by_id):
         return DispositionState.UNKNOWN
     for field in ("product_story", "testing_story", "quality_of_testing_story"):
         story = debrief.get(field)
         if not isinstance(story, Mapping) or not refs_resolve(story.get("evidence_refs")):
             return DispositionState.UNKNOWN
-    if set(debrief.get("actionable_findings", ())) != finding_ids:
+    if set(actionable_findings) != finding_ids:
         return DispositionState.UNKNOWN
-    if set(debrief.get("residual_risks", ())) != residual_ids:
+    if set(residual_risks) != residual_ids:
         return DispositionState.UNKNOWN
 
     for follow_up_id, follow_up in follow_up_by_id.items():
@@ -248,6 +309,43 @@ def validate_rst_lineage(
             not in typed_sources.get(str(follow_up.get("source_kind")), set())
         ):
             return DispositionState.UNKNOWN
+
+    observations = [
+        experiment
+        for session in sessions
+        for experiment in session.get("experiments", ())
+        if isinstance(experiment, Mapping)
+    ]
+    expected_feedback = derive_follow_ups(
+        observations=observations,
+        mutants=mutation_records,
+        reviewer_findings=[
+            *reviewer_findings,
+            *(
+                finding
+                for session in sessions
+                for finding in session.get("findings", ())
+                if isinstance(finding, Mapping)
+            ),
+        ],
+    )
+    expected_edges = {
+        (item["source_kind"], item["source_id"], item["required"])
+        for item in expected_feedback
+    }
+    observed_edge_list = [
+        (
+            item.get("source_kind"),
+            item.get("source_id"),
+            item.get("required"),
+        )
+        for item in follow_ups
+    ]
+    if (
+        len(observed_edge_list) != len(set(observed_edge_list))
+        or set(observed_edge_list) != expected_edges
+    ):
+        return DispositionState.UNKNOWN
 
     if risk_disposition.get("debrief_sha256") != expected_debrief_digest:
         return DispositionState.UNKNOWN
@@ -282,10 +380,10 @@ def derive_follow_ups(
             result.append({"source_kind": "observation", "source_id": item.get("id"), "required": False})
     for item in mutants:
         if item.get("outcome") == "SURVIVED":
-            result.append({"source_kind": "mutant", "source_id": item.get("id"), "required": True})
+            result.append({"source_kind": "mutant", "source_id": item.get("mutant_id", item.get("id")), "required": True})
     for item in reviewer_findings:
         if item.get("severity") in {"critical", "high", "medium", "low"}:
-            result.append({"source_kind": "reviewer_finding", "source_id": item.get("id"), "required": item.get("severity") in {"critical", "high"}})
+            result.append({"source_kind": "reviewer_finding", "source_id": item.get("finding_id", item.get("id")), "required": item.get("severity") in {"critical", "high"}})
     return result
 
 

@@ -18,7 +18,10 @@ from codex_governance.canonical import (
     verify_content_address,
 )
 from codex_governance.lifecycle import parse_rfc3339
-from codex_governance.qualification import context_variant_qualified
+from codex_governance.qualification import (
+    context_qualification_evidence_valid,
+    context_variant_qualified,
+)
 
 
 CONTEXT_PROFILES = ("COMPACT", "STANDARD", "DEEP")
@@ -90,6 +93,7 @@ def build_repository_inventory(
     *,
     affected_closure: Sequence[str],
     changed_paths: Sequence[str],
+    deadline: float | None = None,
 ) -> list[dict[str, str]]:
     """Hash the complete protected closure without following repository links."""
     changed = set(changed_paths)
@@ -97,7 +101,9 @@ def build_repository_inventory(
     for raw_path in affected_closure:
         path = normalize_repo_path(raw_path)
         try:
-            data = read_bounded_repository_file(repository, path, max_bytes=8_000_000)
+            data = read_bounded_repository_file(
+                repository, path, max_bytes=8_000_000, deadline=deadline
+            )
         except ArtifactSafetyError as exc:
             absolute = repository.joinpath(*path.split("/"))
             try:
@@ -363,13 +369,20 @@ def context_qualification_valid(
     profile: str,
     protected_id: str,
     allow_synthetic_bootstrap: bool = False,
+    artifact_reader: Callable[[Mapping[str, Any]], bytes] | None = None,
+    schema_root: Path | None = None,
+    protected_repository_id: str | None = None,
+    verified_decision_ids: frozenset[str] = frozenset(),
+    evaluated_at: str | None = None,
+    prompt_bytes: bytes | None = None,
+    deadline: float | None = None,
 ) -> bool:
     """Recompute one protected projection-profile qualification decision."""
     try:
         identity_valid = bool(
             verify_content_address(record, "qualification_id")
             and record.get("qualification_id") == require_sha256(protected_id)
-            and record.get("schema_version") == "2.0.0"
+            and record.get("schema_version") == "3.0.0"
             and record.get("projection_version") == CONTEXT_PROJECTION_VERSION
             and record.get("profile") == profile
         )
@@ -381,12 +394,31 @@ def context_qualification_valid(
                 and context_variant_qualified(
                     record["baseline"], record["candidate"]
                 )
+                and callable(artifact_reader)
+                and isinstance(schema_root, Path)
+                and isinstance(protected_repository_id, str)
+                and isinstance(evaluated_at, str)
+                and isinstance(prompt_bytes, bytes)
+                and context_qualification_evidence_valid(
+                    record=record,
+                    artifact_reader=artifact_reader,
+                    schema_root=schema_root,
+                    protected_repository_id=protected_repository_id,
+                    verified_decision_ids=verified_decision_ids,
+                    evaluated_at=evaluated_at,
+                    prompt_bytes=prompt_bytes,
+                    deadline=deadline,
+                )
             )
         return bool(
             allow_synthetic_bootstrap
             and record.get("evidence_class") == "synthetic_bootstrap"
             and record.get("qualified") is False
             and record.get("limitations")
+            and not {
+                "corpus_sha256", "label_decision_id", "measurement_evidence"
+            }
+            & set(record)
         )
     except (KeyError, TypeError, ValueError):
         return False
@@ -444,6 +476,13 @@ def compile_context(
     protected_token_budgets: Mapping[str, int] | None = None,
     minimum_profile: str | None = None,
     allow_synthetic_bootstrap: bool = False,
+    qualification_artifact_reader: Callable[[Mapping[str, Any]], bytes] | None = None,
+    qualification_schema_root: Path | None = None,
+    qualification_repository_id: str | None = None,
+    qualification_verified_decision_ids: frozenset[str] = frozenset(),
+    qualification_evaluated_at: str | None = None,
+    qualification_prompt_bytes: bytes | None = None,
+    qualification_deadline: float | None = None,
 ) -> dict[str, Any]:
     if (
         not verify_candidate_identity(candidate)
@@ -523,6 +562,13 @@ def compile_context(
         profile=profile,
         protected_id=protected_qualification_id,
         allow_synthetic_bootstrap=allow_synthetic_bootstrap,
+        artifact_reader=qualification_artifact_reader,
+        schema_root=qualification_schema_root,
+        protected_repository_id=qualification_repository_id,
+        verified_decision_ids=qualification_verified_decision_ids,
+        evaluated_at=qualification_evaluated_at,
+        prompt_bytes=qualification_prompt_bytes,
+        deadline=qualification_deadline,
     ):
         raise ValueError("context profile/version qualification is unavailable")
     artifacts = sources.get("artifacts", ())

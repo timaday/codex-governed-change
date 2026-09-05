@@ -10,6 +10,7 @@ from pathlib import Path
 from bootstrap import validate_initial_bootstrap
 from common import (
     content_address,
+    copy_json_once,
     ensure_within,
     load_and_validate_once,
     load_json,
@@ -44,6 +45,10 @@ def main() -> None:
     repository = args.candidate.resolve()
     evidence = ensure_within(repository, args.evidence)
     authority_root = Path(__file__).resolve().parents[2]
+    authority_manifest_path = evidence / "authority-manifest.json"
+    copy_json_once(authority_root / "MANIFEST.json", authority_manifest_path)
+    authority_state_path = evidence / "authority-state.json"
+    authority_state = load_json(authority_state_path)
     schema_root = authority_root / "kernel" / "schemas"
     candidate = load_json(evidence / "candidate.json")
     task_sha = sha256_bytes(read_bytes_once(evidence / "task-contract.json"))
@@ -201,12 +206,14 @@ def main() -> None:
         rollback_capability_sha256=rollback_capability_sha,
         rollback_provenance=rollback_provenance,
         rollback_provenance_sha256=rollback_provenance_sha,
+        authority_state=authority_state,
+        authority_state_sha256=sha256_bytes(read_bytes_once(authority_state_path)),
+        authority_manifest_sha256=sha256_bytes(
+            read_bytes_once(authority_manifest_path)
+        ),
         observation=observation,
         decisions=[bootstrap_decision, *decisions],
-        verified_decision_ids={
-            bootstrap_decision["decision_id"],
-            *(item["decision_id"] for item in decisions),
-        },
+        verified_decision_ids=authenticated_ids,
         evaluated_at=datetime.fromisoformat(args.created_at.replace("Z", "+00:00")),
     )
     write_once(evidence / "promotion-verification.json", promotion_verification)
@@ -439,7 +446,7 @@ def main() -> None:
         "task_contract_sha256": task_sha,
         "candidate_id": candidate["candidate_id"],
         "risks": register_risks,
-        "updated_from": session_ids,
+        "updated_from": [f"session:{session_id}" for session_id in session_ids],
         "created_at": args.created_at,
         "producer_version": "0.1.0-authority-bootstrap",
     }
@@ -475,7 +482,10 @@ def main() -> None:
         "context_complete": locator("context-complete", evidence / "context-execution-receipt.json"),
     }
     for name, path in (
+        ("authority-manifest", authority_manifest_path),
+        ("authority-state", authority_state_path),
         ("rollback-plan", rollback_plan_path),
+        ("rollback-task", rollback_task_path),
         ("proposed-policy", proposed_path),
         ("rollback-evidence", rollback_path),
         ("rollback-candidate", rollback_candidate_path),

@@ -27,20 +27,14 @@ from qualification_verifier import validate_qualification_bundle
 from codex_governance.canonical import require_sha256, sha256_canonical
 from codex_governance.context import (
     CONTEXT_PROFILES,
-    KERNEL_FIELDS,
-    build_protected_context_sources,
-    compile_context,
-    derive_context_signals,
-    finalize_context_receipt,
-    select_context_profile,
 )
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.qualification import (
-    QUALIFICATION_CREATED_AT,
     bootstrap_qualification_record,
     qualification_case_classes_complete,
     qualification_candidate_document,
     qualification_charter_document,
+    context_qualification_evidence_valid,
     qualification_context_documents,
     qualification_evidence_locators,
     qualification_expected_finding_detected,
@@ -198,140 +192,6 @@ def classify_observed_disposition(
     return "UNKNOWN"
 
 
-def _qualification_context_documents(
-    *,
-    requested_profile: str,
-    mode: str,
-    case: Mapping[str, Any],
-    task: Mapping[str, Any],
-    policy: Mapping[str, Any],
-    candidate: Mapping[str, Any],
-    reviewer_output_sha256: str,
-    execution: Mapping[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Build one profile variant using bootstrap context only inside its case."""
-    if requested_profile not in CONTEXT_PROFILES:
-        raise ValueError("qualification context profile is invalid")
-    entries = candidate.get("untracked_entries")
-    if not isinstance(entries, list):
-        raise ValueError("qualification candidate inventory is unavailable")
-    inventory = [
-        {"path": item["path"], "state": "present", "sha256": item["sha256"]}
-        for item in entries
-    ]
-    changed_paths = list(candidate.get("changed_paths", ()))
-    if [item["path"] for item in inventory] != changed_paths:
-        raise ValueError("qualification candidate inventory is not exact")
-    gate, _gate_manifest = qualification_gate_documents(
-        repository_id=str(candidate["repository_id"]),
-        task_contract_sha256=sha256_canonical(task),
-        candidate_id=str(candidate["candidate_id"]),
-    )
-    locators = qualification_evidence_locators(
-        repository_id=str(candidate["repository_id"]),
-        task_contract_sha256=sha256_canonical(task),
-        candidate=candidate,
-    )
-    sources = build_protected_context_sources(
-        candidate=candidate,
-        task=task,
-        policy=policy,
-        repository_inventory=inventory,
-        affected_closure=changed_paths,
-        gate_results=[gate],
-        mutation_records=[],
-        created_at=QUALIFICATION_CREATED_AT,
-        artifacts=[
-            {
-                "reference": locator["path"],
-                "sha256": locator["artifact_sha256"],
-                "relevant": True,
-                "summary": {
-                    "kind": locator["kind"],
-                    "locator_id": locator["locator_id"],
-                },
-            }
-            for locator in locators
-        ],
-    )
-    profile = select_context_profile(
-        requested_profile=requested_profile,
-        changed_paths=changed_paths,
-        **derive_context_signals(sources),
-    )
-    estimated_kernel_tokens = (
-        len(canonical_bytes({field: sources[field] for field in KERNEL_FIELDS})) + 3
-    ) // 4
-    if profile != "DEEP" and estimated_kernel_tokens > CONTEXT_TOKEN_BUDGETS[profile]:
-        profile = "DEEP"
-    context_qualification = content_address(
-        {
-            "schema_version": "2.0.0",
-            "projection_version": "1.0.0",
-            "profile": profile,
-            "evidence_class": "synthetic_bootstrap",
-            "baseline": {
-                "critical_recall": 0.0,
-                "false_passes": 0,
-                "traceability": 0.0,
-                "disposition_correct": False,
-                "tokens": CONTEXT_TOKEN_BUDGETS[profile],
-            },
-            "candidate": {
-                "critical_recall": 0.0,
-                "false_passes": 0,
-                "traceability": 0.0,
-                "disposition_correct": False,
-                "tokens": CONTEXT_TOKEN_BUDGETS[profile],
-            },
-            "qualified": False,
-            "created_at": QUALIFICATION_CREATED_AT,
-            "limitations": [
-                "Synthetic bootstrap context is not empirical qualification evidence."
-            ],
-        },
-        "qualification_id",
-    )
-    compiled = compile_context(
-        sources=sources,
-        candidate=candidate,
-        requested_profile=requested_profile,
-        token_budget=CONTEXT_TOKEN_BUDGETS[profile],
-        changed_paths=changed_paths,
-        affected_closure=changed_paths,
-        model=str(execution.get("model")),
-        reasoning_effort=str(execution.get("reasoning_effort")),
-        context_qualification=context_qualification,
-        protected_qualification_ids={profile: context_qualification["qualification_id"]},
-        protected_token_budgets=CONTEXT_TOKEN_BUDGETS,
-        allow_synthetic_bootstrap=True,
-    )
-    prepared = compiled["receipt"]
-    post_run = finalize_context_receipt(
-        prepared,
-        review_mode=mode,
-        reviewer_output_sha256=require_sha256(reviewer_output_sha256),
-        retrieval_expansions=[],
-        retrieval_index=compiled["retrieval_index"],
-        artifact_reader=None,
-        usage_observed=execution.get("usage_observed") is True,
-        actual_input_tokens=int(execution.get("input_tokens", 0)),
-        actual_output_tokens=int(execution.get("output_tokens", 0)),
-        cached_input_tokens=int(execution.get("cached_input_tokens", 0)),
-        reasoning_output_tokens=int(execution.get("reasoning_output_tokens", 0)),
-        latency_ms=int(execution.get("latency_ms", 0)),
-        cost="unavailable",
-        created_at=str(execution.get("ended_at")),
-        limitations=list(execution.get("limitations", ())),
-    )
-    return {
-        "context_sources": compiled["source_bundle"],
-        "context_projection": compiled["projection"],
-        "context_qualification": context_qualification,
-        "context_receipt": prepared,
-        "context_execution_receipt": post_run,
-    }
-
 
 def _prepare_case(
     *,
@@ -400,12 +260,8 @@ def _prepare_case(
             "limitations": [],
         },
     }
-    preliminary_context = (
-        qualification_context_documents(**context_arguments)
-        if requested_profile is None
-        else _qualification_context_documents(
-            requested_profile=requested_profile, **context_arguments
-        )
+    preliminary_context = qualification_context_documents(
+        requested_profile=requested_profile, **context_arguments
     )
     risk = {"case_id": case["case_id"], "kind": "qualification-risk"}
     charter = qualification_charter_document(
@@ -636,6 +492,8 @@ def _run_mode(
                 model=MODEL, reasoning_effort=REASONING_EFFORT
             )
             observed_usage: dict[str, int] = {}
+            if launched.get("usage_observed") is not True:
+                raise ValueError("qualification token usage was not observed")
             for name in (
                 "input_tokens",
                 "cached_input_tokens",
@@ -656,12 +514,8 @@ def _run_mode(
                 "reviewer_output_sha256": launched["output_sha256"],
                 "execution": launched,
             }
-            context_documents = (
-                qualification_context_documents(**context_arguments)
-                if requested_profile is None
-                else _qualification_context_documents(
-                    requested_profile=requested_profile, **context_arguments
-                )
+            context_documents = qualification_context_documents(
+                requested_profile=requested_profile, **context_arguments
             )
             if (
                 context_documents["context_receipt"]
@@ -903,6 +757,9 @@ def _context_qualification_record(
     baseline: Mapping[str, Any],
     candidate: Mapping[str, Any],
     created_at: str,
+    corpus_sha256: str,
+    label_decision_id: str,
+    measurement_evidence: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Create an empirical profile record; assurance parity is mandatory."""
     if profile not in CONTEXT_PROFILES:
@@ -918,10 +775,13 @@ def _context_qualification_record(
     )
     return content_address(
         {
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "projection_version": "1.0.0",
             "profile": profile,
             "evidence_class": "empirical",
+            "corpus_sha256": require_sha256(corpus_sha256),
+            "label_decision_id": require_sha256(label_decision_id),
+            "measurement_evidence": dict(measurement_evidence),
             "baseline": baseline_value,
             "candidate": candidate_value,
             "qualified": assurance_parity,
@@ -1020,11 +880,15 @@ def main() -> None:
         artifact_root=args.output / "raw",
     )
     profile_metrics: dict[str, dict[str, dict[str, Any]]] = {}
+    records_by_profile: dict[str, dict[str, dict[str, Any]]] = {}
+    cases_by_profile: dict[str, dict[str, dict[str, Any]]] = {}
     for profile in CONTEXT_PROFILES:
         profile_metrics[profile] = {}
+        records_by_profile[profile] = {}
+        cases_by_profile[profile] = {}
         profile_output = args.output / "context-variants" / profile
         for mode, schema in schemas.items():
-            _variant_record, metrics = _run_mode(
+            variant_record, metrics = _run_mode(
                 mode=mode,
                 corpus=corpus,
                 label_decision=decision,
@@ -1041,6 +905,15 @@ def main() -> None:
                 requested_profile=profile,
             )
             profile_metrics[profile][mode] = metrics
+            records_by_profile[profile][mode] = variant_record
+            cases_by_profile[profile][mode] = load_json(
+                profile_output
+                / (
+                    "conformance-cases.json"
+                    if mode == "conformance"
+                    else "rapid-review-cases.json"
+                )
+            )
     combined_metrics = {
         profile: _combine_context_metrics(profile_metrics[profile])
         for profile in CONTEXT_PROFILES
@@ -1052,17 +925,122 @@ def main() -> None:
             baseline=combined_metrics["DEEP"],
             candidate=combined_metrics[profile],
             created_at=created_at,
+            corpus_sha256=sha256_bytes(read_bytes_once(args.corpus)),
+            label_decision_id=decision["decision_id"],
+            measurement_evidence={
+                "corpus": {
+                    "path": ".governance/releases/v0.1.0/qualification/corpus.json",
+                    "sha256": sha256_bytes(read_bytes_once(args.corpus)),
+                },
+                "label_decision": {
+                    "path": ".governance/releases/v0.1.0/qualification/human-label-decision.json",
+                    "sha256": sha256_bytes(
+                        read_bytes_once(args.human_label_decision)
+                    ),
+                },
+                "baseline": {
+                    "profile": "DEEP",
+                    "conformance": {
+                        "record": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/conformance.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile["DEEP"]["conformance"]
+                            )),
+                        },
+                        "cases": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/conformance-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile["DEEP"]["conformance"]
+                            )),
+                        },
+                    },
+                    "rapid_review": {
+                        "record": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/rapid-review.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile["DEEP"]["rapid_review"]
+                            )),
+                        },
+                        "cases": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/rapid-review-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile["DEEP"]["rapid_review"]
+                            )),
+                        },
+                    },
+                },
+                "candidate": {
+                    "profile": profile,
+                    "conformance": {
+                        "record": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/conformance.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile[profile]["conformance"]
+                            )),
+                        },
+                        "cases": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/conformance-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile[profile]["conformance"]
+                            )),
+                        },
+                    },
+                    "rapid_review": {
+                        "record": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/rapid-review.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile[profile]["rapid_review"]
+                            )),
+                        },
+                        "cases": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/rapid-review-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile[profile]["rapid_review"]
+                            )),
+                        },
+                    },
+                },
+            },
         )
         for profile in CONTEXT_PROFILES
     }
     context_output = args.output / "context-qualifications"
     context_output.mkdir(parents=True, exist_ok=True)
+
+    def context_artifact_reader(reference: Mapping[str, Any]) -> bytes:
+        path = _safe_relative(reference.get("path"))
+        expected = require_sha256(reference.get("sha256"))
+        fixed = {
+            ".governance/releases/v0.1.0/qualification/corpus.json": args.corpus,
+            ".governance/releases/v0.1.0/qualification/human-label-decision.json": args.human_label_decision,
+        }
+        source = fixed.get(path)
+        if source is None:
+            prefix = ".governance/releases/v0.1.0/qualification/evidence/"
+            if not path.startswith(prefix):
+                raise ValueError("context measurement reference is outside its package")
+            source = args.output.joinpath(*path[len(prefix):].split("/"))
+        data = read_bytes_once(source)
+        if sha256_bytes(data) != expected:
+            raise ValueError("context measurement reference digest mismatch")
+        return data
+
     for profile, record in context_records.items():
         write_once(context_output / f"{profile}.json", record)
         load_and_validate_once(
             context_output / f"{profile}.json",
             args.schema_root / "context-qualification.schema.json",
         )
+        if not context_qualification_evidence_valid(
+            record=record,
+            artifact_reader=context_artifact_reader,
+            schema_root=args.schema_root,
+            protected_repository_id="repo:timaday/codex-governed-change",
+            verified_decision_ids=frozenset({decision["decision_id"]}),
+            evaluated_at=created_at,
+            prompt_bytes=read_bytes_once(args.prompt),
+        ):
+            raise ValueError("context qualification evidence does not reconstruct")
     write_once(
         args.output / "summary.json",
         {

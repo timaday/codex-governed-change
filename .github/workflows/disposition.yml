@@ -32,7 +32,7 @@ env:
   AUTHENTICATED_ACTOR: ${{ github.actor }}
   APPROVED_DECISION_IDS: ${{ inputs.approved_decision_ids }}
   INITIAL_TARGET_REPOSITORY: timaday/codex-governed-change
-  INITIAL_TARGET_HEAD: 9bfc318d0b9c3436bd79837b18b818f81beb6440
+  INITIAL_TARGET_HEAD: deebb31ee262712bd46912b2ac5de1d2cb92faf1
   PYTHONUTF8: "1"
   PYTHONDONTWRITEBYTECODE: "1"
 
@@ -321,7 +321,17 @@ jobs:
           python-version: "3.12"
 
       - name: Materialize exact protected inputs
+        env:
+          GH_API_TOKEN: ${{ github.token }}
         run: |
+          AUTHORITY_OBSERVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 authority/.governance/ci/verify-live-authority-ref.py \
+            --repository "$AUTHORITY_REPOSITORY" \
+            --ref "$AUTHORITY_REF" \
+            --expected-sha "${{ job.workflow_sha }}" \
+            --authority-root authority \
+            --observed-at "$AUTHORITY_OBSERVED_AT" \
+            --output live-authority-observation.json
           python3 authority/.governance/ci/resolve-target.py \
             --targets authority/.governance/targets.json \
             --target-id "$TARGET_ID" \
@@ -336,6 +346,7 @@ jobs:
             --authority-ref "$AUTHORITY_REF" \
             --workflow-run-id "$GITHUB_RUN_ID" \
             --approved-decision-ids "$APPROVED_DECISION_IDS" \
+            --authority-observation live-authority-observation.json \
             --output candidate/artifacts/governance/completion/evidence
 
       - name: Validate scope and exact candidate identity
@@ -418,6 +429,24 @@ jobs:
           PYTHONPATH: authority/kernel/src
         run: |
           CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          VERIFIED_LABEL_DECISION_ID="$(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "authority/.governance/ci")
+          from common import load_json, require_digest
+
+          observation = load_json(
+              Path("candidate/artifacts/governance/completion/evidence/decision-source-observation.json")
+          )
+          print(
+              require_digest(
+                  observation.get("authenticated_label_decision_id"),
+                  "authenticated label decision",
+              )
+          )
+          PY
+          )"
           python3 authority/.governance/ci/prepare-context-sources.py \
             --candidate candidate \
             --evidence candidate/artifacts/governance/completion/evidence \
@@ -432,11 +461,14 @@ jobs:
             --gate-summary candidate/artifacts/governance/completion/evidence/gate-summary.json \
             --mutation-summary candidate/artifacts/governance/completion/evidence/mutation-summary.json \
             --context-qualification candidate/artifacts/governance/completion/evidence/context-qualification.json \
+            --qualification-repository candidate/artifacts/governance/completion/evidence/context-qualification-authority \
+            --qualification-prompt authority/kernel/.codex/review/reviewer.prompt.md \
             --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
             --profile DEEP \
             --token-budget 64000 \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$VERIFIED_LABEL_DECISION_ID" \
             --observed-at "$CREATED_AT" \
             --sources-output artifacts/governance/completion/evidence/context-sources.json \
             --projection-output artifacts/governance/completion/evidence/context-projection.json \
@@ -533,6 +565,24 @@ jobs:
         env:
           PYTHONPATH: authority/kernel/src
         run: |
+          VERIFIED_LABEL_DECISION_ID="$(python3 - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "authority/.governance/ci")
+          from common import load_json, require_digest
+
+          observation = load_json(
+              Path("candidate/artifacts/governance/completion/evidence/decision-source-observation.json")
+          )
+          print(
+              require_digest(
+                  observation.get("authenticated_label_decision_id"),
+                  "authenticated label decision",
+              )
+          )
+          PY
+          )"
           set +e
           python3 -m codex_governance \
             --schema-root kernel/schemas \
@@ -554,6 +604,7 @@ jobs:
             --attempt "${GITHUB_RUN_ATTEMPT}" \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$VERIFIED_LABEL_DECISION_ID" \
             --timeout-seconds 1800 \
             --max-output-bytes 4000000
           CONFORMANCE_STATUS=$?
@@ -582,6 +633,7 @@ jobs:
             --attempt "${GITHUB_RUN_ATTEMPT}" \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$VERIFIED_LABEL_DECISION_ID" \
             --timeout-seconds 1800 \
             --max-output-bytes 4000000
           AUTHORITY_STATUS=$?
@@ -606,6 +658,7 @@ jobs:
             --attempt "${GITHUB_RUN_ATTEMPT}" \
             --model gpt-5.6-sol \
             --reasoning-effort xhigh \
+            --verified-decision-id "$VERIFIED_LABEL_DECISION_ID" \
             --timeout-seconds 1800 \
             --max-output-bytes 4000000
           RUNTIME_STATUS=$?

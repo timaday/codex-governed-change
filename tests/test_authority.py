@@ -39,6 +39,14 @@ from common import (  # noqa: E402
 )
 from bootstrap import validate_initial_bootstrap  # noqa: E402
 from qualification_verifier import validate_qualification_bundle  # noqa: E402
+from paired_comparison import (  # noqa: E402
+    build_comparison_document,
+    comparison_document_valid,
+    human_effort_record_valid,
+    reconstruct_task,
+    score_task,
+    validate_comparison_inputs,
+)
 from codex_governance import gate as gate_module  # noqa: E402
 from codex_governance import qualification as qualification_module  # noqa: E402
 from codex_governance import reviewer as reviewer_module  # noqa: E402
@@ -118,7 +126,10 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
     evidence = repository / "artifacts/governance/completion/evidence"
     rollback_root = evidence / "rollback"
     rollback_root.mkdir(parents=True)
-    stdout = b"blueprint validation passed\n"
+    stdout = (
+        b"ROLLBACK_REHEARSAL=PASS "
+        b"target=a0a0b01a19e87f2591c7e97e892cd040ce9c6e58\n"
+    )
     stderr = b""
     (rollback_root / "stdout.bin").write_bytes(stdout)
     (rollback_root / "stderr.bin").write_bytes(stderr)
@@ -191,7 +202,7 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
             "timeout_seconds": plan["gate_definition"]["timeout_seconds"],
             "output_bytes": plan["gate_definition"]["max_output_bytes"],
             "verified_at": "2026-08-27T10:59:00Z",
-            "limitations": ["unsigned local capability report"],
+            "limitations": [],
         },
         "capability_id",
     )
@@ -377,6 +388,59 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
         decision_base=lkg_commit,
     )
     decisions = [bootstrap_decision, promotion_decision]
+    source_assertion = {
+        "event_name": "workflow_dispatch",
+        "actor": "github:timaday",
+        "authority_repository": "timaday/codex-governed-change",
+        "authority_ref": "refs/heads/governance-authority",
+        "authority_commit": authority_commit,
+        "authority_basis_commit": authority_basis_commit,
+        "workflow_run_id": "bootstrap-fixture",
+        "approved_decision_ids": [item["decision_id"] for item in decisions],
+        "authorization_receipt_id": None,
+    }
+    authority_manifest_sha = sha256_bytes((ROOT / "MANIFEST.json").read_bytes())
+    authority_state = {
+        "schema_version": "1.0.0",
+        "repository": "timaday/codex-governed-change",
+        "ref": "refs/heads/governance-authority",
+        "commit": authority_commit,
+        "manifest_commit": authority_commit,
+        "manifest_sha256": authority_manifest_sha,
+        "source_assertion": source_assertion,
+        "source_assertion_sha256": sha256_bytes(canonical_bytes(source_assertion)),
+        "ruleset": {
+            "id": 1,
+            "target": "branch",
+            "enforcement": "active",
+            "bypass_actors": [],
+            "conditions": {
+                "ref_name": {
+                    "include": ["refs/heads/governance-authority"],
+                    "exclude": [],
+                }
+            },
+            "rules": [
+                {"type": "deletion"},
+                {"type": "non_fast_forward"},
+                {"type": "required_linear_history"},
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "allowed_merge_methods": ["squash", "rebase"],
+                        "dismiss_stale_reviews_on_push": True,
+                        "require_code_owner_review": False,
+                        "require_extra_approval_for_unattributed_changes": True,
+                        "require_last_push_approval": False,
+                        "required_approving_review_count": 0,
+                        "required_review_thread_resolution": True,
+                        "required_reviewers": [],
+                    },
+                },
+            ],
+        },
+        "observed_at": "2026-08-27T11:59:00Z",
+    }
     observation = {
         "authority_commit": authority_commit,
         "authority_basis_commit": authority_basis_commit,
@@ -391,6 +455,7 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
         },
         "rollback_plan_id": plan["rollback_plan_id"],
         "rollback_plan_sha256": plan_sha,
+        "decision_source_assertion": source_assertion,
     }
     return {
         "repository": repository,
@@ -414,10 +479,32 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
         "rollback_capability_sha256": capability_sha,
         "rollback_provenance": provenance,
         "rollback_provenance_sha256": provenance_sha,
+        "authority_state": authority_state,
+        "authority_state_sha256": sha256_bytes(canonical_bytes(authority_state)),
+        "authority_manifest_sha256": authority_manifest_sha,
         "observation": observation,
         "decisions": decisions,
         "verified_decision_ids": {item["decision_id"] for item in decisions},
         "evaluated_at": datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc),
+    }
+
+
+def rebind_bootstrap_dispatch(arguments: dict[str, object]) -> None:
+    """Re-address a fixture after intentionally replacing a protected decision."""
+    decisions = arguments["decisions"]
+    assert isinstance(decisions, list)
+    state = deepcopy(arguments["authority_state"])
+    assertion = deepcopy(state["source_assertion"])
+    assertion["approved_decision_ids"] = [item["decision_id"] for item in decisions]
+    state["source_assertion"] = assertion
+    state["source_assertion_sha256"] = sha256_bytes(canonical_bytes(assertion))
+    arguments["authority_state"] = state
+    arguments["authority_state_sha256"] = sha256_bytes(canonical_bytes(state))
+    observation = deepcopy(arguments["observation"])
+    observation["decision_source_assertion"] = assertion
+    arguments["observation"] = observation
+    arguments["verified_decision_ids"] = {
+        item["decision_id"] for item in decisions
     }
 
 
@@ -502,14 +589,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("9bfc318d0b9c3436bd79837b18b818f81beb6440", target["head_sha"])
+        self.assertEqual("deebb31ee262712bd46912b2ac5de1d2cb92faf1", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "9bfc318d0b9c3436bd79837b18b818f81beb6440",
+            "deebb31ee262712bd46912b2ac5de1d2cb92faf1",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -605,6 +692,25 @@ class AuthorityContractTests(unittest.TestCase):
             ),
             3,
         )
+        self.assertIn(
+            "--qualification-repository candidate/artifacts/governance/completion/evidence/context-qualification-authority",
+            workflow,
+        )
+        self.assertIn(
+            "--qualification-prompt authority/kernel/.codex/review/reviewer.prompt.md",
+            workflow,
+        )
+        self.assertIn(
+            "--authority-observation live-authority-observation.json",
+            workflow,
+        )
+        self.assertIn("--authority-root authority", workflow)
+        self.assertEqual(
+            4,
+            workflow.count(
+                '--verified-decision-id "$VERIFIED_LABEL_DECISION_ID"'
+            ),
+        )
 
     def test_qualification_workflow_is_reusable_chatgpt_only_and_read_only(self) -> None:
         workflow = (ROOT / ".github/workflows/qualify-reviewer.yml").read_text(
@@ -651,6 +757,15 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertIn("reviewer and context-profile corpus", workflow)
         self.assertIn('--actor "$GITHUB_ACTOR"', workflow)
         self.assertIn("qualification-results", workflow)
+        self.assertIn("run-comparison.py", workflow)
+        self.assertIn("paired-comparison-label-decision.schema.json", workflow)
+        self.assertIn("--model gpt-5.6-sol", workflow)
+        self.assertIn("--reasoning-effort xhigh", workflow)
+        self.assertIn("continue-on-error: true", workflow)
+        self.assertIn("QUALIFICATION_OUTCOME", workflow)
+        self.assertIn("COMPARISON_OUTCOME", workflow)
+        self.assertEqual(1, workflow.count('--authority-sha "${{ job.workflow_sha }}"'))
+        self.assertLess(workflow.index("Upload content-addressed qualification results"), workflow.index("Preserve fail-closed job result"))
 
     def test_reviewer_authentication_accepts_exact_combined_status(self) -> None:
         for output in (b"Logged in using ChatGPT\n", b"Logged in using ChatGPT\r\n"):
@@ -721,6 +836,17 @@ class AuthorityContractTests(unittest.TestCase):
             self.assertNotIn(
                 'repository / ".codex/review/reviewer.prompt.md"', source
             )
+        deterministic = (CI / "prepare-deterministic-inputs.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'authority / "kernel/.codex/review/reviewer.prompt.md"',
+            deterministic,
+        )
+        self.assertIn('schema_root=authority / "kernel/schemas"', deterministic)
+        self.assertNotIn(
+            'candidate / ".codex/review/reviewer.prompt.md"', deterministic
+        )
 
     def test_initial_lkg_bootstrap_is_explicit_and_rollback_is_reconstructed(self) -> None:
         closeout = (CI / "prepare-closeout-inputs.py").read_text(encoding="utf-8")
@@ -736,8 +862,28 @@ class AuthorityContractTests(unittest.TestCase):
         ):
             self.assertIn(required, source)
         self.assertIn("validate_initial_bootstrap(", closeout)
+        self.assertIn('f"session:{session_id}"', closeout)
         self.assertIn(
             'locator("governance-integrity", evidence / "promotion-verification.json")',
+            closeout,
+        )
+        self.assertIn(
+            'copy_json_once(authority_root / "MANIFEST.json", authority_manifest_path)',
+            closeout,
+        )
+        self.assertIn(
+            '("authority-manifest", authority_manifest_path)',
+            closeout,
+        )
+        self.assertIn(
+            '("authority-state", authority_state_path)',
+            closeout,
+        )
+        self.assertIn("authority_state=authority_state", closeout)
+        self.assertIn("authority_state_sha256=", closeout)
+        self.assertIn("authority_state_sha256", source)
+        self.assertIn(
+            '("rollback-task", rollback_task_path)',
             closeout,
         )
         target = load_json(ROOT / ".governance/targets.json")["targets"][0]
@@ -745,6 +891,16 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertFalse(target["governance_transition"]["reusable"])
         self.assertIn("authority-basis:", source)
         self.assertNotIn('f"authority:{authority_commit}"', source)
+        rollback_gate = next(
+            gate
+            for gate in load_json(ROOT / ".governance/effective-policy.json")["gates"]
+            if gate["gate_id"] == "initial-lkg-rollback-quality"
+        )
+        self.assertIn(
+            "pycache_prefix=/tmp/rollback-pycache",
+            " ".join(rollback_gate["command"]),
+        )
+        self.assertEqual(target["lkg_governance_commit"], rollback_gate["command"][-1])
 
     def test_production_manifest_adapter_reaches_assembler_and_evaluator(self) -> None:
         source = (CI / "prepare-manifest-input.py").read_text(encoding="utf-8")
@@ -966,7 +1122,7 @@ class AuthorityContractTests(unittest.TestCase):
                 policy["context"]["qualification_ids"][profile],
                 record["qualification_id"],
             )
-            self.assertEqual("2.0.0", record["schema_version"])
+            self.assertEqual("3.0.0", record["schema_version"])
             self.assertEqual("synthetic_bootstrap", record["evidence_class"])
             self.assertFalse(record["qualified"])
             self.assertFalse(record["candidate"]["disposition_correct"])
@@ -995,6 +1151,39 @@ class AuthorityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             content_address(decision, "decision_id"), decision
+        )
+
+    def test_paired_comparison_inputs_are_protected_and_human_approved(self) -> None:
+        comparison = ROOT / ".governance/releases/v0.1.0/comparison"
+        corpus = load_json(comparison / "corpus.json")
+        decision = load_json(comparison / "human-label-decision.json")
+        self.assertEqual(
+            [],
+            validate_instance(
+                corpus,
+                load_json(
+                    ROOT / "kernel/schemas/reviewer-qualification-corpus.schema.json"
+                ),
+            ),
+        )
+        self.assertEqual(
+            [],
+            validate_instance(
+                decision,
+                load_json(
+                    ROOT
+                    / ".governance/schemas/paired-comparison-label-decision.schema.json"
+                ),
+            ),
+        )
+        actor = str(decision["issuer"]["subject"]).removeprefix("github:")
+        validate_comparison_inputs(
+            corpus,
+            decision,
+            actor=actor,
+            authority_repository="timaday/codex-governed-change",
+            authority_ref="refs/heads/governance-authority",
+            evaluated_at=str(decision["issued_at"]),
         )
 
     def test_qualification_adapter_scores_fail_closed(self) -> None:
@@ -1072,6 +1261,9 @@ class AuthorityContractTests(unittest.TestCase):
             baseline=combined,
             candidate=combined,
             created_at="2026-09-05T00:00:00Z",
+            corpus_sha256="sha256:" + "1" * 64,
+            label_decision_id="sha256:" + "2" * 64,
+            measurement_evidence={"fixture": "typed references"},
         )
         self.assertEqual("empirical", qualified["evidence_class"])
         self.assertTrue(qualified["qualified"])
@@ -1083,6 +1275,9 @@ class AuthorityContractTests(unittest.TestCase):
             baseline=combined,
             candidate=degraded,
             created_at="2026-09-05T00:00:00Z",
+            corpus_sha256="sha256:" + "1" * 64,
+            label_decision_id="sha256:" + "2" * 64,
+            measurement_evidence={"fixture": "typed references"},
         )
         self.assertFalse(blocked["qualified"])
 
@@ -1348,6 +1543,600 @@ class AuthorityContractTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def _comparison_fixture(self) -> tuple[dict[str, object], dict[str, object]]:
+        cases: list[dict[str, object]] = []
+        labels: dict[str, str] = {}
+        for index, (classes, disposition) in enumerate(
+            (
+                (["seeded_defect"], "BLOCK"),
+                (["seeded_defect", "prompt_injection"], "BLOCK"),
+                (["clean_control"], "NO_BLOCKING_FINDING_OBSERVED"),
+                (["clean_control"], "NO_BLOCKING_FINDING_OBSERVED"),
+            ),
+            start=1,
+        ):
+            case_id = f"C-{index}"
+            expected = (
+                {
+                    "defect_id": f"DEFECT-{index}",
+                    "path": "src/example.py",
+                    "line": index,
+                }
+                if disposition == "BLOCK"
+                else None
+            )
+            cases.append(
+                {
+                    "case_id": case_id,
+                    "case_classes": classes,
+                    "severity": "critical" if expected else "control",
+                    "requirement_id": "GOV-001",
+                    "expected_finding": expected,
+                    "expected_disposition": disposition,
+                    "risk": "bounded risk",
+                    "charter": "review the bounded candidate",
+                    "files": {"src/example.py": "pass\n"},
+                }
+            )
+            labels[case_id] = disposition
+        corpus = content_address(
+            {
+                "schema_version": "3.0.0",
+                "corpus_name": "held-out paired comparison",
+                "human_labelled": True,
+                "cases": cases,
+            },
+            "corpus_id",
+        )
+        issuer = {
+            "subject": "github:reviewer",
+            "authentication_method": "github-actions-workflow-dispatch",
+            "protected_source": (
+                "timaday/codex-governed-change@refs/heads/governance-authority"
+            ),
+        }
+        decision = content_address(
+            {
+                "schema_version": "1.0.0",
+                "repository_id": "repo:timaday/codex-governed-change",
+                "decision_type": "paired_comparison_labels",
+                "approved_corpus_id": corpus["corpus_id"],
+                "approved_case_ids": [item["case_id"] for item in cases],
+                "approved_labels": labels,
+                "approved_arms": ["governed", "ordinary"],
+                "issuer": issuer
+                | {"assertion_sha256": sha256_bytes(canonical_bytes(issuer))},
+                "issued_at": "2026-09-05T10:00:00Z",
+                "expires_at": "2026-09-06T10:00:00Z",
+            },
+            "decision_id",
+        )
+        return corpus, decision
+
+    def _comparison_artifacts(
+        self, case: dict[str, object], arm: str
+    ) -> tuple[dict[str, dict[str, str]], dict[str, bytes]]:
+        disposition = str(case["expected_disposition"])
+        expected = case["expected_finding"]
+        findings = (
+            [
+                {
+                    "requirement_id": case["requirement_id"],
+                    "path": expected["path"],
+                    "line": expected["line"],
+                }
+            ]
+            if isinstance(expected, dict)
+            else []
+        )
+        result = {
+            "findings": findings,
+            "verdict" if arm == "governed" else "disposition": disposition,
+        }
+        result_bytes = canonical_bytes(result)
+        event = canonical_bytes(
+            {"type": "thread.started", "thread_id": "comparison-thread"}
+        ) + b"\n" + canonical_bytes(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": result_bytes.decode()},
+            }
+        ) + b"\n" + canonical_bytes(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 2,
+                    "output_tokens": 3,
+                    "reasoning_output_tokens": 1,
+                },
+            }
+        ) + b"\n"
+        prefix = f"comparison/{arm}/{case['case_id']}"
+        raw = {
+            "result": result_bytes,
+            "stdout": event,
+            "stderr": b"",
+        }
+        refs = {
+            name: {
+                "path": f"{prefix}/{name}.bin",
+                "sha256": sha256_bytes(data),
+            }
+            for name, data in raw.items()
+        }
+        primitive: dict[str, object]
+        if arm == "governed":
+            source_execution = content_address(
+                {
+                    "reviewer_output_sha256": refs["result"]["sha256"],
+                    "stdout_sha256": refs["stdout"]["sha256"],
+                    "stderr_sha256": refs["stderr"]["sha256"],
+                    "execution_valid": True,
+                    "input_tokens": 10,
+                    "cached_input_tokens": 2,
+                    "output_tokens": 3,
+                    "reasoning_output_tokens": 1,
+                    "latency_ms": 25,
+                },
+                "execution_id",
+            )
+            primitive = {"reviewer_execution": source_execution}
+        else:
+            primitive = {
+                "return_code": 0,
+                "timed_out": False,
+                "stdin_complete": True,
+                "output_present": True,
+                "output_valid": True,
+                "stdout_complete": True,
+                "stderr_complete": True,
+                "process_cleanup_complete": True,
+                "output_truncated": False,
+                "ambiguous_redaction": False,
+                "candidate_unchanged": True,
+            }
+        execution = content_address(
+            {
+                "schema_version": "1.0.0",
+                "case_id": case["case_id"],
+                "case_sha256": sha256_bytes(canonical_bytes(case)),
+                "arm": arm,
+                "result_sha256": refs["result"]["sha256"],
+                "stdout_sha256": refs["stdout"]["sha256"],
+                "stderr_sha256": refs["stderr"]["sha256"],
+                "execution_valid": True,
+                "usage_observed": True,
+                "input_tokens": 10,
+                "cached_input_tokens": 2,
+                "output_tokens": 3,
+                "reasoning_output_tokens": 1,
+                "elapsed_ms": 25,
+                "primitive": primitive,
+            },
+            "execution_id",
+        )
+        raw["execution"] = canonical_bytes(execution)
+        refs["execution"] = {
+            "path": f"{prefix}/execution.json",
+            "sha256": sha256_bytes(raw["execution"]),
+        }
+        return refs, {refs[name]["path"]: data for name, data in raw.items()}
+
+    def test_paired_comparison_reconstructs_metrics_and_is_non_authorizing(self) -> None:
+        corpus, decision = self._comparison_fixture()
+        validate_comparison_inputs(
+            corpus,
+            decision,
+            actor="reviewer",
+            authority_repository="timaday/codex-governed-change",
+            authority_ref="refs/heads/governance-authority",
+            evaluated_at="2026-09-05T12:00:00Z",
+        )
+        stored: dict[str, bytes] = {}
+        arms: dict[str, list[dict[str, object]]] = {"governed": [], "ordinary": []}
+        for arm in arms:
+            for case in corpus["cases"]:
+                refs, artifacts = self._comparison_artifacts(case, arm)
+                stored.update(artifacts)
+                arms[arm].append(
+                    reconstruct_task(
+                        arm=arm,
+                        case=case,
+                        artifacts=refs,
+                        artifact_reader=lambda ref: stored[ref["path"]],
+                    )
+                )
+        document = build_comparison_document(
+            corpus=corpus,
+            decision=decision,
+            identity={
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "xhigh",
+                "governed_profile": "STANDARD",
+                "codex_cli_version": "codex-cli 0.149.1",
+                "authentication": "chatgpt",
+                "governed_prompt_sha256": "sha256:" + "1" * 64,
+                "governed_schema_sha256": "sha256:" + "2" * 64,
+                "ordinary_schema_sha256": "sha256:" + "3" * 64,
+                "ordinary_prompt_version": "1.0.0",
+                "same_case_bytes": True,
+                "labels_excluded_from_prompts": True,
+                "execution_controls": "matched_sanitized_read_only",
+                "authority_repository": "timaday/codex-governed-change",
+                "authority_ref": "refs/heads/governance-authority",
+                "authority_sha": "a" * 40,
+                "workflow_run_id": "123",
+                "workflow_attempt": 1,
+            },
+            governed_tasks=arms["governed"],
+            ordinary_tasks=arms["ordinary"],
+            created_at="2026-09-05T12:10:00Z",
+        )
+        self.assertFalse(document["admission_authority"])
+        self.assertEqual(4, document["arms"]["governed"]["aggregate"]["correct_completions"])
+        self.assertEqual(
+            [],
+            validate_instance(
+                document,
+                load_json(ROOT / ".governance/schemas/paired-comparison.schema.json"),
+            ),
+        )
+        self.assertTrue(
+            comparison_document_valid(
+                document,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=document["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+        effort = content_address(
+            {
+                "schema_version": "1.0.0",
+                "comparison_id": document["comparison_id"],
+                "recorded_by": "github:reviewer",
+                "issuer": {
+                    "subject": "github:reviewer",
+                    "authentication_method": "github-actions-workflow-dispatch",
+                    "protected_source": "timaday/codex-governed-change@refs/heads/governance-authority",
+                    "assertion_sha256": "sha256:598222f8f154d947dd8bad2dc1f31a595d1dde784223a6490731b6551de7328e",
+                },
+                "measurement_method": "human_self_report",
+                "governed": {"review_minutes": 3.5, "operation_minutes": 2},
+                "ordinary": {"review_minutes": 4, "operation_minutes": 1},
+                "recorded_at": "2026-09-05T12:15:00Z",
+                "limitations": ["single human self-report"],
+                "admission_authority": False,
+            },
+            "effort_id",
+        )
+        self.assertTrue(
+            human_effort_record_valid(effort, comparison=document, actor="reviewer")
+        )
+        self.assertEqual(
+            [],
+            validate_instance(
+                effort,
+                load_json(
+                    ROOT
+                    / ".governance/schemas/paired-comparison-human-effort.schema.json"
+                ),
+            ),
+        )
+        tampered = deepcopy(document)
+        tampered["arms"]["ordinary"]["tasks"][0]["correct_completion"] = False
+        tampered = content_address(tampered, "comparison_id")
+        self.assertFalse(
+            comparison_document_valid(
+                tampered,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=document["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+
+    def test_paired_comparison_wrong_finding_is_not_correct(self) -> None:
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        task = score_task(
+            arm="ordinary",
+            case=case,
+            observed_disposition="BLOCK",
+            findings=[
+                {
+                    "requirement_id": case["requirement_id"],
+                    "path": case["expected_finding"]["path"],
+                    "line": case["expected_finding"]["line"] + 1,
+                }
+            ],
+            usage={name: 0 for name in (
+                "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"
+            )},
+            usage_complete=True,
+            elapsed_ms=0,
+            artifacts={
+                name: {"path": f"comparison/ordinary/C-1/{name}.bin", "sha256": "sha256:" + "0" * 64}
+                for name in ("result", "execution", "stdout", "stderr")
+            },
+        )
+        self.assertFalse(task["correct_completion"])
+
+    def test_paired_comparison_rejects_double_countable_reasoning_usage(self) -> None:
+        corpus, _decision = self._comparison_fixture()
+        with self.assertRaisesRegex(ValueError, "reasoning output exceeds"):
+            score_task(
+                arm="ordinary",
+                case=corpus["cases"][0],
+                observed_disposition="BLOCK",
+                findings=[
+                    {
+                        "requirement_id": "GOV-001",
+                        "path": "src/example.py",
+                        "line": 1,
+                    }
+                ],
+                usage={
+                    "input_tokens": 4,
+                    "cached_input_tokens": 1,
+                    "output_tokens": 1,
+                    "reasoning_output_tokens": 2,
+                },
+                usage_complete=True,
+                elapsed_ms=1,
+                artifacts={
+                    name: {
+                        "path": f"comparison/ordinary/H-TASK-001/{name}.bin",
+                        "sha256": "sha256:" + "1" * 64,
+                    }
+                    for name in ("result", "execution", "stdout", "stderr")
+                },
+            )
+
+    def test_paired_comparison_rejects_readdressed_primitive_and_machine_value(self) -> None:
+        corpus, decision = self._comparison_fixture()
+        stored: dict[str, bytes] = {}
+        arms: dict[str, list[dict[str, object]]] = {"governed": [], "ordinary": []}
+        refs_by_arm: dict[str, list[dict[str, dict[str, str]]]] = {
+            "governed": [],
+            "ordinary": [],
+        }
+        for arm in arms:
+            for case in corpus["cases"]:
+                refs, artifacts = self._comparison_artifacts(case, arm)
+                refs_by_arm[arm].append(refs)
+                stored.update(artifacts)
+                arms[arm].append(
+                    reconstruct_task(
+                        arm=arm,
+                        case=case,
+                        artifacts=refs,
+                        artifact_reader=lambda ref: stored[ref["path"]],
+                    )
+                )
+        document = build_comparison_document(
+            corpus=corpus,
+            decision=decision,
+            identity={"model": "gpt-5.6-sol"},
+            governed_tasks=arms["governed"],
+            ordinary_tasks=arms["ordinary"],
+            created_at="2026-09-05T12:10:00Z",
+        )
+        execution_ref = refs_by_arm["ordinary"][0]["execution"]
+        execution = json.loads(stored[execution_ref["path"]])
+        execution["primitive"]["return_code"] = 9
+        execution["execution_id"] = content_address(execution, "execution_id")["execution_id"]
+        stored[execution_ref["path"]] = canonical_bytes(execution)
+        execution_ref["sha256"] = sha256_bytes(stored[execution_ref["path"]])
+        document["arms"]["ordinary"]["tasks"][0]["artifacts"]["execution"] = execution_ref
+        document = content_address(document, "comparison_id")
+        self.assertFalse(
+            comparison_document_valid(
+                document,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=document["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+        fresh_refs, fresh_artifacts = self._comparison_artifacts(
+            corpus["cases"][0], "ordinary"
+        )
+        stored.update(fresh_artifacts)
+        document["arms"]["ordinary"]["tasks"][0]["artifacts"] = fresh_refs
+        shaped_ref = document["arms"]["ordinary"]["tasks"][1]["artifacts"]["stderr"]
+        stored[shaped_ref["path"]] = b"/" + b"home" + b"/specific-user/private\n"
+        shaped_ref["sha256"] = sha256_bytes(stored[shaped_ref["path"]])
+        document = content_address(document, "comparison_id")
+        self.assertFalse(
+            comparison_document_valid(
+                document,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=document["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+
+    def test_ordinary_comparison_prompt_is_label_blind_and_identity_fixed(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_comparison", CI / "run-comparison.py"
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        prompt = module._ordinary_prompt(case)
+        self.assertNotIn(str(case["expected_disposition"]), prompt)
+        self.assertNotIn(str(case["expected_finding"]["defect_id"]), prompt)
+        self.assertIn(str(case["requirement_id"]), prompt)
+        command = module._ordinary_command(
+            codex="codex",
+            candidate=Path("candidate"),
+            schema=Path("schema.json"),
+            result=Path("result.json"),
+            permission_profile="permissions-for-bounded-workspace",
+        )
+        self.assertIn("gpt-5.6-sol", command)
+        self.assertIn('model_reasoning_effort="xhigh"', command)
+        self.assertIn("read-only", command)
+        self.assertIn('default_permissions="governed_reviewer"', command)
+        self.assertIn("permissions-for-bounded-workspace", command)
+
+    def test_ordinary_comparison_adapter_retains_reconstructable_evidence(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_comparison_adapter", CI / "run-comparison.py"
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "fake-codex"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "if args == ['login', 'status']:\n"
+                "    print('Logged in using ChatGPT')\n"
+                "    raise SystemExit(0)\n"
+                "output = pathlib.Path(args[args.index('--output-last-message') + 1])\n"
+                "payload = {'disposition': 'BLOCK', 'findings': [{"
+                "'requirement_id': 'GOV-001', 'path': 'src/example.py', 'line': 1}]}\n"
+                "text = json.dumps(payload, sort_keys=True, separators=(',', ':'))\n"
+                "output.write_text(text)\n"
+                "events = ["
+                "{'type': 'thread.started', 'thread_id': 'ordinary-thread'},"
+                "{'type': 'item.completed', 'item': {'type': 'agent_message', 'text': text}},"
+                "{'type': 'turn.completed', 'usage': {'input_tokens': 7, "
+                "'cached_input_tokens': 1, 'output_tokens': 2, "
+                "'reasoning_output_tokens': 1}}]\n"
+                "for event in events: print(json.dumps(event, sort_keys=True, separators=(',', ':')))\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            with mock.patch.object(
+                module,
+                "resolve_reviewer_runtime_read_roots",
+                return_value=(Path("/opt/codex-runtime"),),
+            ):
+                task = module._run_ordinary_case(
+                    case=case,
+                    codex=str(executable),
+                    authentication="chatgpt",
+                    schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+                    timeout_seconds=5,
+                    max_output_bytes=100_000,
+                    output=root / "evidence",
+                )
+            self.assertTrue(task["correct_completion"])
+            self.assertFalse(task["accepted_defect"])
+            self.assertFalse(task["unknown"])
+            self.assertEqual(9, task["total_tokens"])
+
+    def test_ordinary_comparison_timeout_is_retained_unknown(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_comparison_timeout", CI / "run-comparison.py"
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        corpus, _decision = self._comparison_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "slow-codex"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import sys, time\n"
+                "if sys.argv[1:] == ['login', 'status']:\n"
+                "    print('Logged in using ChatGPT')\n"
+                "    raise SystemExit(0)\n"
+                "time.sleep(60)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            with mock.patch.object(
+                module,
+                "resolve_reviewer_runtime_read_roots",
+                return_value=(Path("/opt/codex-runtime"),),
+            ):
+                task = module._run_ordinary_case(
+                    case=corpus["cases"][0],
+                    codex=str(executable),
+                    authentication="chatgpt",
+                    schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+                    timeout_seconds=0.05,
+                    max_output_bytes=100_000,
+                    output=root / "evidence",
+                )
+            self.assertEqual("UNKNOWN", task["observed_disposition"])
+            self.assertTrue(task["unknown"])
+            self.assertFalse(task["correct_completion"])
+
+    def test_ordinary_comparison_bounds_streams_while_the_process_runs(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_comparison_bounded", CI / "run-comparison.py"
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertNotIn(".communicate(", inspect.getsource(module._run_ordinary_case))
+        corpus, _decision = self._comparison_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "noisy-codex"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "if args == ['login', 'status']:\n"
+                "    print('Logged in using ChatGPT')\n"
+                "    raise SystemExit(0)\n"
+                "output = pathlib.Path(args[args.index('--output-last-message') + 1])\n"
+                "payload = {'disposition': 'BLOCK', 'findings': [{"
+                "'requirement_id': 'GOV-001', 'path': 'src/example.py', 'line': 1}]}\n"
+                "text = json.dumps(payload, sort_keys=True, separators=(',', ':'))\n"
+                "output.write_text(text)\n"
+                "print(json.dumps({'type': 'thread.started', 'thread_id': 'ordinary-thread'}))\n"
+                "print(json.dumps({'type': 'item.completed', 'item': {"
+                "'type': 'agent_message', 'text': text}}))\n"
+                "print(json.dumps({'type': 'turn.completed', 'usage': {"
+                "'input_tokens': 7, 'cached_input_tokens': 1, 'output_tokens': 2, "
+                "'reasoning_output_tokens': 1}}))\n"
+                "sys.stdout.write('x' * 100000)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            evidence = root / "evidence"
+            with mock.patch.object(
+                module,
+                "resolve_reviewer_runtime_read_roots",
+                return_value=(Path("/opt/codex-runtime"),),
+            ):
+                task = module._run_ordinary_case(
+                    case=corpus["cases"][0],
+                    codex=str(executable),
+                    authentication="chatgpt",
+                    schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+                    timeout_seconds=5,
+                    max_output_bytes=1024,
+                    output=evidence,
+                )
+            retained_stdout = evidence.joinpath(
+                *task["artifacts"]["stdout"]["path"].split("/")
+            ).read_bytes()
+            self.assertLessEqual(len(retained_stdout), 1024)
+            self.assertEqual("UNKNOWN", task["observed_disposition"])
+            self.assertTrue(task["unknown"])
+
     def _assert_real_lingering_reviewer_stream_is_unknown(self, held: str) -> None:
         candidate_id = "sha256:" + "a" * 64
         digest = "sha256:" + "b" * 64
@@ -1580,6 +2369,157 @@ class AdapterTests(unittest.TestCase):
                     token="x",
                     api_url="https://api.github.com",
                 )
+
+    def test_live_authority_state_binds_ruleset_and_commit_manifest(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "verify_live_authority_state", CI / "verify-live-authority-ref.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        ref = "refs/heads/governance-authority"
+        commit = "a" * 40
+        ruleset = {
+            "id": 7,
+            "target": "branch",
+            "enforcement": "active",
+            "bypass_actors": [],
+            "conditions": {"ref_name": {"include": [ref], "exclude": []}},
+            "rules": [
+                {"type": "deletion"},
+                {"type": "non_fast_forward"},
+                {"type": "required_linear_history"},
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "allowed_merge_methods": ["squash", "rebase"],
+                        "dismiss_stale_reviews_on_push": True,
+                        "require_code_owner_review": False,
+                        "require_extra_approval_for_unattributed_changes": True,
+                        "require_last_push_approval": False,
+                        "required_approving_review_count": 0,
+                        "required_review_thread_resolution": True,
+                        "required_reviewers": [],
+                    },
+                },
+            ],
+        }
+        manifest = (ROOT / "MANIFEST.json").read_bytes()
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout=manifest, stderr=b""
+        )
+        with (
+            mock.patch.object(
+                module,
+                "observe_live_ref",
+                return_value={"sha": commit, "current": True},
+            ),
+            mock.patch.object(
+                module,
+                "_request_json",
+                side_effect=[
+                    [{"id": 7, "target": "branch", "enforcement": "active"}],
+                    ruleset,
+                ],
+            ) as request_json,
+            mock.patch.object(module.subprocess, "run", return_value=completed),
+        ):
+            observed = module.observe_live_authority(
+                repository="timaday/codex-governed-change",
+                ref=ref,
+                expected_sha=commit,
+                token="x",
+                api_url="https://api.github.com",
+                authority_root=ROOT,
+                observed_at="2026-09-05T12:00:00Z",
+            )
+        self.assertIn("targets=branch", request_json.call_args_list[0].args[0])
+        self.assertIn("per_page=100", request_json.call_args_list[0].args[0])
+
+        with (
+            mock.patch.object(
+                module,
+                "observe_live_ref",
+                return_value={"sha": commit, "current": True},
+            ),
+            mock.patch.object(
+                module,
+                "_request_json",
+                return_value=[
+                    {"id": 7, "target": "branch", "enforcement": "active"},
+                    {"id": 8, "target": "branch", "enforcement": "active"},
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "exactly one active branch ruleset"),
+        ):
+            module.observe_live_authority(
+                repository="timaday/codex-governed-change",
+                ref=ref,
+                expected_sha=commit,
+                token="x",
+                api_url="https://api.github.com",
+                authority_root=ROOT,
+                observed_at="2026-09-05T12:00:00Z",
+            )
+
+        drifted = deepcopy(ruleset)
+        drifted["rules"][3]["parameters"]["allowed_merge_methods"] = ["merge"]
+        with (
+            mock.patch.object(
+                module,
+                "observe_live_ref",
+                return_value={"sha": commit, "current": True},
+            ),
+            mock.patch.object(
+                module,
+                "_request_json",
+                side_effect=[
+                    [{"id": 7, "target": "branch", "enforcement": "active"}],
+                    drifted,
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "pull-request rule"),
+        ):
+            module.observe_live_authority(
+                repository="timaday/codex-governed-change",
+                ref=ref,
+                expected_sha=commit,
+                token="x",
+                api_url="https://api.github.com",
+                authority_root=ROOT,
+                observed_at="2026-09-05T12:00:00Z",
+            )
+        self.assertEqual(commit, observed["manifest_commit"])
+        self.assertEqual(sha256_bytes(manifest), observed["manifest_sha256"])
+        self.assertEqual(ruleset, observed["ruleset"])
+
+        weakened = deepcopy(ruleset)
+        weakened["bypass_actors"] = [{"actor_id": 1}]
+        with (
+            mock.patch.object(
+                module,
+                "observe_live_ref",
+                return_value={"sha": commit, "current": True},
+            ),
+            mock.patch.object(
+                module,
+                "_request_json",
+                side_effect=[
+                    [{"id": 7, "target": "branch", "enforcement": "active"}],
+                    weakened,
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "bypass-free"),
+        ):
+            module.observe_live_authority(
+                repository="timaday/codex-governed-change",
+                ref=ref,
+                expected_sha=commit,
+                token="x",
+                api_url="https://api.github.com",
+                authority_root=ROOT,
+                observed_at="2026-09-05T12:00:00Z",
+            )
 
     def test_decision_source_rejects_unselected_and_actor_mismatched_files(self) -> None:
         descriptor = {
@@ -2301,6 +3241,122 @@ class AdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "rollback plan"):
                 validate_initial_bootstrap(**substituted_task)
 
+            wrong_stdout = deepcopy(arguments)
+            raw.write_bytes(b"blueprint validation passed\n")
+            wrong_stdout["rollback_gate"] = deepcopy(arguments["rollback_gate"])
+            wrong_stdout["rollback_gate"]["artifacts"][0]["bytes"] = len(
+                b"blueprint validation passed\n"
+            )
+            wrong_stdout["rollback_gate"]["artifacts"][0]["sha256"] = sha256_bytes(
+                b"blueprint validation passed\n"
+            )
+            reset_authoritative_read_session()
+            with self.assertRaisesRegex(ValueError, "target receipt"):
+                validate_initial_bootstrap(**wrong_stdout)
+
+    def test_initial_bootstrap_rejects_limitations_and_manifest_substitution(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = bootstrap_fixture(Path(directory))
+
+            limited_plan = deepcopy(arguments)
+            plan = content_address(
+                {**limited_plan["rollback_plan"], "limitations": ["unverified"]},
+                "rollback_plan_id",
+            )
+            plan_sha = sha256_bytes(canonical_bytes(plan))
+            observation = deepcopy(limited_plan["observation"])
+            observation["rollback_plan_id"] = plan["rollback_plan_id"]
+            observation["rollback_plan_sha256"] = plan_sha
+            limited_plan["rollback_plan"] = plan
+            limited_plan["rollback_plan_sha256"] = plan_sha
+            limited_plan["observation"] = observation
+            with self.assertRaisesRegex(ValueError, "rollback plan"):
+                validate_initial_bootstrap(**limited_plan)
+
+            substituted_manifest = deepcopy(arguments)
+            wrong_manifest_sha = "sha256:" + "9" * 64
+            state = deepcopy(substituted_manifest["authority_state"])
+            state["manifest_sha256"] = wrong_manifest_sha
+            substituted_manifest["authority_state"] = state
+            substituted_manifest["authority_state_sha256"] = sha256_bytes(
+                canonical_bytes(state)
+            )
+            substituted_manifest["authority_manifest_sha256"] = wrong_manifest_sha
+            with self.assertRaisesRegex(ValueError, "live protected authority"):
+                validate_initial_bootstrap(**substituted_manifest)
+
+            weakened_ruleset = deepcopy(arguments)
+            state = deepcopy(weakened_ruleset["authority_state"])
+            state["ruleset"]["bypass_actors"] = [{"actor_id": 1}]
+            weakened_ruleset["authority_state"] = state
+            weakened_ruleset["authority_state_sha256"] = sha256_bytes(
+                canonical_bytes(state)
+            )
+            with self.assertRaisesRegex(ValueError, "live protected authority"):
+                validate_initial_bootstrap(**weakened_ruleset)
+
+    def test_initial_bootstrap_rejects_fully_readdressed_capability_limitations(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = bootstrap_fixture(Path(directory))
+            forged = deepcopy(arguments)
+
+            capability = content_address(
+                {
+                    **forged["rollback_capability"],
+                    "limitations": ["provider guarantee unavailable"],
+                },
+                "capability_id",
+            )
+            capability_sha = sha256_bytes(canonical_bytes(capability))
+
+            provenance = deepcopy(forged["rollback_provenance"])
+            provenance.pop("statement_id")
+            provenance["predicate"]["environment"][
+                "sandbox_capability_sha256"
+            ] = capability_sha
+            provenance["predicate"]["artifacts"][2]["sha256"] = capability_sha
+            provenance = content_address(provenance, "statement_id")
+            provenance_sha = sha256_bytes(canonical_bytes(provenance))
+
+            gate = deepcopy(forged["rollback_gate"])
+            gate["sandbox_capability_sha256"] = capability_sha
+            gate["provenance_statement"]["sha256"] = provenance_sha
+            gate_sha = sha256_bytes(canonical_bytes(gate))
+
+            rollback = deepcopy(forged["rollback"])
+            rollback.pop("rollback_evidence_id")
+            rollback["gate_result"]["sha256"] = gate_sha
+            rollback["sandbox_capability"]["sha256"] = capability_sha
+            rollback["provenance_statement"]["sha256"] = provenance_sha
+            rollback = content_address(rollback, "rollback_evidence_id")
+
+            promotion = deepcopy(forged["decisions"][1])
+            promotion.pop("decision_id")
+            promotion["scope"] = [
+                promotion["scope"][0],
+                f"rollback:{rollback['rollback_evidence_id']}",
+            ]
+            promotion = content_address(promotion, "decision_id")
+            forged.update(
+                {
+                    "rollback_capability": capability,
+                    "rollback_capability_sha256": capability_sha,
+                    "rollback_provenance": provenance,
+                    "rollback_provenance_sha256": provenance_sha,
+                    "rollback_gate": gate,
+                    "rollback_gate_sha256": gate_sha,
+                    "rollback": rollback,
+                    "decisions": [forged["decisions"][0], promotion],
+                }
+            )
+            rebind_bootstrap_dispatch(forged)
+            with self.assertRaisesRegex(ValueError, "sandbox identity or limits"):
+                validate_initial_bootstrap(**forged)
+
     def test_initial_bootstrap_decisions_expire_at_the_exclusive_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             arguments = bootstrap_fixture(Path(directory))
@@ -2386,6 +3442,7 @@ class AdapterTests(unittest.TestCase):
                     },
                 }
             )
+            rebind_bootstrap_dispatch(forged)
             with self.assertRaisesRegex(ValueError, "sandbox identity"):
                 validate_initial_bootstrap(**forged)
 
@@ -2419,14 +3476,20 @@ class AdapterTests(unittest.TestCase):
 
             source_root = (
                 arguments["evidence"]
-                / "sha256-rollback/runs/github-1-rollback-1/gates/blueprint-quality"
+                / (
+                    "sha256-rollback/runs/github-1-rollback-1/gates/"
+                    + str(arguments["rollback_plan"]["gate_definition"]["gate_id"])
+                )
             )
             source_root.mkdir(parents=True)
             source_paths = {
                 "stdout": source_root / "stdout.bin",
                 "stderr": source_root / "stderr.bin",
             }
-            source_paths["stdout"].write_bytes(b"blueprint validation passed\n")
+            source_paths["stdout"].write_bytes(
+                b"ROLLBACK_REHEARSAL=PASS "
+                b"target=a0a0b01a19e87f2591c7e97e892cd040ce9c6e58\n"
+            )
             source_paths["stderr"].write_bytes(b"")
             write_json(
                 source_root / "sandbox-capability.json",
@@ -2436,13 +3499,15 @@ class AdapterTests(unittest.TestCase):
                 source_root / "provenance.json", arguments["rollback_provenance"]
             )
             source_result = deepcopy(arguments["rollback_gate"])
+            gate_id = str(arguments["rollback_plan"]["gate_definition"]["gate_id"])
             for artifact in source_result["artifacts"]:
                 artifact["path"] = artifact["path"].replace(
-                    "rollback/", "sha256-rollback/runs/github-1-rollback-1/gates/blueprint-quality/"
+                    "rollback/",
+                    f"sha256-rollback/runs/github-1-rollback-1/gates/{gate_id}/",
                 )
             source_result["provenance_statement"]["path"] = (
                 "artifacts/governance/completion/evidence/sha256-rollback/"
-                "runs/github-1-rollback-1/gates/blueprint-quality/provenance.json"
+                f"runs/github-1-rollback-1/gates/{gate_id}/provenance.json"
             )
             result_path = source_root / "result.json"
             write_json(result_path, source_result)
@@ -2455,10 +3520,10 @@ class AdapterTests(unittest.TestCase):
                         "rollback_task_contract_sha256"
                     ],
                     "candidate_id": arguments["rollback_candidate"]["candidate_id"],
-                    "required_gate_ids": ["blueprint-quality"],
+                    "required_gate_ids": [gate_id],
                     "gate_results": [
                         {
-                            "gate_id": "blueprint-quality",
+                            "gate_id": gate_id,
                             "reference": {
                                 "path": result_path.relative_to(candidate_root).as_posix(),
                                 "sha256": result_sha,
@@ -2479,7 +3544,7 @@ class AdapterTests(unittest.TestCase):
                     "path": manifest_path.relative_to(candidate_root).as_posix(),
                     "sha256": sha256_bytes(manifest_path.read_bytes()),
                 },
-                "results": [{"gate_id": "blueprint-quality", "status": "PASS"}],
+                "results": [{"gate_id": gate_id, "status": "PASS"}],
             }
             summary_path = temporary / "gate-summary.json"
             write_json(summary_path, summary)
@@ -2570,10 +3635,7 @@ class AdapterTests(unittest.TestCase):
             ]
             promotion = content_address(promotion, "decision_id")
             reconstructed["decisions"] = [reconstructed["decisions"][0], promotion]
-            reconstructed["verified_decision_ids"] = {
-                reconstructed["decisions"][0]["decision_id"],
-                promotion["decision_id"],
-            }
+            rebind_bootstrap_dispatch(reconstructed)
             self.assertEqual(
                 "READY_FOR_HUMAN",
                 validate_initial_bootstrap(**reconstructed)["state"],

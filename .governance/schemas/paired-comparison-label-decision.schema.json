@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/.governance/schemas/paired-comparison-label-decision.schema.json",
+  "title": "Protected paired-comparison label decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "repository_id",
+    "decision_type",
+    "approved_corpus_id",
+    "approved_case_ids",
+    "approved_labels",
+    "approved_arms",
+    "issuer",
+    "issued_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "decision_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository_id": {"const": "repo:timaday/codex-governed-change"},
+    "decision_type": {"const": "paired_comparison_labels"},
+    "approved_corpus_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "approved_case_ids": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "approved_labels": {
+      "type": "object",
+      "required": [
+        "H-TASK-001",
+        "H-TASK-002",
+        "H-TASK-003",
+        "H-TASK-004",
+        "H-TASK-005",
+        "H-TASK-006"
+      ],
+      "additionalProperties": {
+        "enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED"]
+      }
+    },
+    "approved_arms": {
+      "const": ["governed", "ordinary"]
+    },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "authentication_method",
+        "protected_source",
+        "assertion_sha256"
+      ],
+      "properties": {
+        "subject": {"type": "string", "pattern": "^github:[A-Za-z0-9-]+$"},
+        "authentication_method": {"const": "github-actions-workflow-dispatch"},
+        "protected_source": {"const": "timaday/codex-governed-change@refs/heads/governance-authority"},
+        "assertion_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "issued_at": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"}
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"}
+  }
+}

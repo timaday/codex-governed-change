@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -73,6 +75,72 @@ class SchemaValidationError(ValueError):
     def __init__(self, errors: list[str]):
         super().__init__("; ".join(errors))
         self.errors = tuple(errors)
+
+
+_PORTABLE_SIMPLE_ESCAPES = frozenset(r".^$*+?{}[]()|/\-fnrtv")
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _compile_portable_pattern(pattern: str) -> re.Pattern[str]:
+    """Compile only the schema repository's proven ECMA-262/Python subset."""
+    in_class = False
+    previous_quantifier = False
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "\\":
+            if index + 1 >= len(pattern):
+                raise re.error("trailing pattern escape")
+            escaped = pattern[index + 1]
+            if escaped in {"x", "u"}:
+                width = 2 if escaped == "x" else 4
+                digits = pattern[index + 2 : index + 2 + width]
+                if len(digits) != width or any(
+                    digit not in _HEX_DIGITS for digit in digits
+                ):
+                    raise re.error("malformed portable hexadecimal escape")
+                index += width + 2
+            elif escaped in "123456789":
+                raise re.error("backreferences are outside the portable subset")
+            elif escaped == "0":
+                if index + 2 < len(pattern) and pattern[index + 2].isdigit():
+                    raise re.error("octal escapes are not portable")
+                index += 2
+            elif escaped in _PORTABLE_SIMPLE_ESCAPES:
+                index += 2
+            else:
+                raise re.error("escape is outside the portable pattern subset")
+            previous_quantifier = False
+            continue
+        if (
+            not in_class
+            and character == "("
+            and index + 1 < len(pattern)
+            and pattern[index + 1] == "?"
+        ):
+            raise re.error("extended groups are outside the portable subset")
+        if character == "[":
+            if in_class:
+                raise re.error("nested character classes are not portable")
+            in_class = True
+            previous_quantifier = False
+        elif character == "]":
+            in_class = False
+            previous_quantifier = False
+        elif in_class and pattern[index : index + 2] in {"&&", "--", "~~", "||"}:
+            raise re.error("character-class operators are outside the portable subset")
+        elif not in_class and character in "*+?":
+            if previous_quantifier:
+                raise re.error("nested quantifiers are outside the portable subset")
+            previous_quantifier = True
+        elif not in_class and character == "}":
+            previous_quantifier = True
+        else:
+            previous_quantifier = False
+        index += 1
+    if in_class:
+        raise re.error("unterminated character class")
+    return re.compile(pattern)
 
 
 def _json_type_matches(value: Any, expected: str) -> bool:
@@ -230,9 +298,11 @@ def validate_schema_definition(schema: dict[str, Any]) -> list[str]:
                 errors.append(f"{location}: pattern must be a string")
             else:
                 try:
-                    re.compile(pattern)
+                    _compile_portable_pattern(pattern)
                 except re.error:
-                    errors.append(f"{location}: pattern must be a valid expression")
+                    errors.append(
+                        f"{location}: pattern must be a portable ECMA-262 expression"
+                    )
         if "$ref" in node:
             try:
                 _resolve_ref(schema, node["$ref"])
@@ -321,7 +391,10 @@ def validate_instance(instance: Any, schema: dict[str, Any]) -> list[str]:
                 if isinstance(minimum, int) and len(value) < minimum:
                     errors.append(f"{location}: string is shorter than {minimum}")
                 pattern = node.get("pattern")
-                if isinstance(pattern, str) and re.search(pattern, value) is None:
+                if (
+                    isinstance(pattern, str)
+                    and _compile_portable_pattern(pattern).search(value) is None
+                ):
                     errors.append(f"{location}: string does not match {pattern!r}")
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 minimum = node.get("minimum")
@@ -373,17 +446,24 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
 
             if not verify_candidate_identity(instance):
                 errors.append("$/candidate_id: candidate identity does not reconstruct")
-        if (
-            schema_name == "context-qualification"
-            and instance.get("evidence_class") == "synthetic_bootstrap"
-            and (
-                instance.get("qualified") is not False
-                or not instance.get("limitations")
-            )
-        ):
-            errors.append(
-                "$: synthetic bootstrap context must be unqualified and limited"
-            )
+        if schema_name == "context-qualification":
+            empirical_fields = {
+                "corpus_sha256", "label_decision_id", "measurement_evidence"
+            }
+            if instance.get("evidence_class") == "synthetic_bootstrap":
+                if instance.get("qualified") is not False or not instance.get(
+                    "limitations"
+                ):
+                    errors.append(
+                        "$: synthetic bootstrap context must be unqualified and limited"
+                    )
+                if empirical_fields & set(instance):
+                    errors.append(
+                        "$: synthetic bootstrap context cannot claim empirical evidence"
+                    )
+            elif instance.get("evidence_class") == "empirical":
+                for name in sorted(empirical_fields - set(instance)):
+                    errors.append(f"$: missing required empirical property {name!r}")
         if schema_name == "assurance-case":
             from codex_governance.assurance import assurance_claim_set_is_fixed
 
@@ -429,14 +509,28 @@ def parse_json_bytes(data: bytes) -> Any:
         raise ValueError(f"invalid UTF-8 JSON: {exc}") from exc
 
 
-def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
+def load_json(
+    path: Path,
+    *,
+    max_bytes: int = 2_000_000,
+    deadline: float | None = None,
+) -> Any:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
+    if deadline is not None and (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+        or not math.isfinite(deadline)
+        or time.monotonic() >= deadline
+    ):
+        raise TimeoutError("authoritative JSON deadline expired")
     cache = _AUTHORITATIVE_JSON_BYTES.get()
     key = str(path.absolute())
     data = cache.get(key) if cache is not None else None
     if data is None:
-        data = read_bounded_path_file(path, max_bytes=max_bytes)
+        data = read_bounded_path_file(
+            path, max_bytes=max_bytes, deadline=deadline
+        )
         if cache is not None:
             cache[key] = data
     elif len(data) > max_bytes:
@@ -444,9 +538,14 @@ def load_json(path: Path, *, max_bytes: int = 2_000_000) -> Any:
     return parse_json_bytes(data)
 
 
-def validate_loaded_instance(instance: Any, schema_path: Path) -> Any:
+def validate_loaded_instance(
+    instance: Any,
+    schema_path: Path,
+    *,
+    deadline: float | None = None,
+) -> Any:
     """Validate an already-parsed instance without reopening its representation."""
-    schema = load_json(schema_path)
+    schema = load_json(schema_path, deadline=deadline)
     if not isinstance(schema, dict):
         raise SchemaValidationError(["$: schema must be an object"])
     errors = validate_instance(instance, schema)
@@ -458,8 +557,17 @@ def validate_loaded_instance(instance: Any, schema_path: Path) -> Any:
     return instance
 
 
-def load_and_validate(instance_path: Path, schema_path: Path) -> Any:
-    return validate_loaded_instance(load_json(instance_path), schema_path)
+def load_and_validate(
+    instance_path: Path,
+    schema_path: Path,
+    *,
+    deadline: float | None = None,
+) -> Any:
+    return validate_loaded_instance(
+        load_json(instance_path, deadline=deadline),
+        schema_path,
+        deadline=deadline,
+    )
 
 
 class JsonRepresentationAdapter:

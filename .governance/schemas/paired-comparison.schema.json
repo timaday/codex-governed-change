@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/.governance/schemas/paired-comparison.schema.json",
+  "title": "T24 held-out paired comparison",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "comparison_id",
+    "corpus_id",
+    "label_decision_id",
+    "identity",
+    "arms",
+    "human_effort_status",
+    "admission_authority",
+    "confidence",
+    "created_at",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "comparison_id": {"$ref": "#/$defs/digest"},
+    "corpus_id": {"$ref": "#/$defs/digest"},
+    "label_decision_id": {"$ref": "#/$defs/digest"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "reasoning_effort",
+        "governed_profile",
+        "codex_cli_version",
+        "authentication",
+        "governed_prompt_sha256",
+        "governed_schema_sha256",
+        "ordinary_schema_sha256",
+        "ordinary_prompt_version",
+        "same_case_bytes",
+        "labels_excluded_from_prompts",
+        "execution_controls",
+        "authority_repository",
+        "authority_ref",
+        "authority_sha",
+        "workflow_run_id",
+        "workflow_attempt"
+      ],
+      "properties": {
+        "model": {"const": "gpt-5.6-sol"},
+        "reasoning_effort": {"const": "xhigh"},
+        "governed_profile": {"const": "STANDARD"},
+        "codex_cli_version": {"const": "codex-cli 0.149.1"},
+        "authentication": {"const": "chatgpt"},
+        "governed_prompt_sha256": {"$ref": "#/$defs/digest"},
+        "governed_schema_sha256": {"$ref": "#/$defs/digest"},
+        "ordinary_schema_sha256": {"$ref": "#/$defs/digest"},
+        "ordinary_prompt_version": {"const": "1.0.0"},
+        "same_case_bytes": {"const": true},
+        "labels_excluded_from_prompts": {"const": true},
+        "execution_controls": {"const": "matched_sanitized_read_only"},
+        "authority_repository": {"const": "timaday/codex-governed-change"},
+        "authority_ref": {"const": "refs/heads/governance-authority"},
+        "authority_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "workflow_run_id": {"type": "string", "minLength": 1},
+        "workflow_attempt": {"type": "integer", "minimum": 1}
+      }
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["governed", "ordinary"],
+      "properties": {
+        "governed": {"$ref": "#/$defs/arm"},
+        "ordinary": {"$ref": "#/$defs/arm"}
+      }
+    },
+    "human_effort_status": {"const": "PENDING_HUMAN_RECORD"},
+    "admission_authority": {"const": false},
+    "confidence": {"const": "small_corpus_descriptive_only"},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "limitations": {
+      "type": "array",
+      "minItems": 3,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^comparison/[^/]+/[^/]+/[^/]+$"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id", "arm", "expected_disposition", "observed_disposition",
+        "expected_finding_matched", "accepted_defect", "correct_completion",
+        "false_block", "unknown", "token_usage_complete", "input_tokens", "cached_input_tokens",
+        "output_tokens", "reasoning_output_tokens", "total_tokens", "elapsed_ms",
+        "artifacts"
+      ],
+      "properties": {
+        "case_id": {"type": "string", "minLength": 1},
+        "arm": {"enum": ["governed", "ordinary"]},
+        "expected_disposition": {"enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED"]},
+        "observed_disposition": {"enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED", "UNKNOWN"]},
+        "expected_finding_matched": {"type": "boolean"},
+        "accepted_defect": {"type": "boolean"},
+        "correct_completion": {"type": "boolean"},
+        "false_block": {"type": "boolean"},
+        "unknown": {"type": "boolean"},
+        "token_usage_complete": {"type": "boolean"},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0, "description": "Reasoning-token subset of output_tokens."},
+        "total_tokens": {"type": "integer", "minimum": 0, "description": "input_tokens plus output_tokens; reasoning output is not added again."},
+        "elapsed_ms": {"type": "integer", "minimum": 0},
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["result", "execution", "stdout", "stderr"],
+          "properties": {
+            "result": {"$ref": "#/$defs/artifact"},
+            "execution": {"$ref": "#/$defs/artifact"},
+            "stdout": {"$ref": "#/$defs/artifact"},
+            "stderr": {"$ref": "#/$defs/artifact"}
+          }
+        }
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tasks", "accepted_defects", "correct_completions", "false_blocks",
+        "unknowns", "token_usage_incomplete", "input_tokens", "cached_input_tokens", "output_tokens",
+        "reasoning_output_tokens", "total_tokens", "elapsed_ms"
+      ],
+      "properties": {
+        "tasks": {"type": "integer", "minimum": 4},
+        "accepted_defects": {"type": "integer", "minimum": 0},
+        "correct_completions": {"type": "integer", "minimum": 0},
+        "false_blocks": {"type": "integer", "minimum": 0},
+        "unknowns": {"type": "integer", "minimum": 0},
+        "token_usage_incomplete": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0, "description": "Summed reasoning-token subset of output_tokens."},
+        "total_tokens": {"type": "integer", "minimum": 0, "description": "Summed input_tokens plus output_tokens."},
+        "elapsed_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasks", "aggregate"],
+      "properties": {
+        "tasks": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/task"}},
+        "aggregate": {"$ref": "#/$defs/aggregate"}
+      }
+    }
+  }
+}

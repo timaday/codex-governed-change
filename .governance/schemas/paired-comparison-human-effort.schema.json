@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/.governance/schemas/paired-comparison-human-effort.schema.json",
+  "title": "Human-supplied T24 comparison effort",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "effort_id", "comparison_id", "recorded_by", "issuer",
+    "measurement_method", "governed", "ordinary", "recorded_at", "limitations",
+    "admission_authority"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "effort_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "comparison_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "recorded_by": {"type": "string", "pattern": "^github:[A-Za-z0-9-]+$"},
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "authentication_method", "protected_source", "assertion_sha256"],
+      "properties": {
+        "subject": {"type": "string", "pattern": "^github:[A-Za-z0-9-]+$"},
+        "authentication_method": {"const": "github-actions-workflow-dispatch"},
+        "protected_source": {"const": "timaday/codex-governed-change@refs/heads/governance-authority"},
+        "assertion_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "measurement_method": {"const": "human_self_report"},
+    "governed": {"$ref": "#/$defs/effort"},
+    "ordinary": {"$ref": "#/$defs/effort"},
+    "recorded_at": {"$ref": "#/$defs/timestamp"},
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "admission_authority": {"const": false}
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"},
+    "effort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_minutes", "operation_minutes"],
+      "properties": {
+        "review_minutes": {"type": "number", "minimum": 0},
+        "operation_minutes": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}
