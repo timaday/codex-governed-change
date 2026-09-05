@@ -329,10 +329,10 @@ def validate_rst_lineage(
             ),
         ],
     )
-    expected_edges = {
+    expected_edges = [
         (item["source_kind"], item["source_id"], item["required"])
         for item in expected_feedback
-    }
+    ]
     observed_edge_list = [
         (
             item.get("source_kind"),
@@ -343,7 +343,7 @@ def validate_rst_lineage(
     ]
     if (
         len(observed_edge_list) != len(set(observed_edge_list))
-        or set(observed_edge_list) != expected_edges
+        or set(observed_edge_list) != set(expected_edges)
     ):
         return DispositionState.UNKNOWN
 

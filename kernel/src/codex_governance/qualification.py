@@ -1365,11 +1365,23 @@ def _context_mode_metrics(
         execution = parse_json_bytes(artifact_reader(observation["reviewer_execution"]))
         if not isinstance(execution, Mapping) or execution.get("usage_observed") is not True:
             raise ValueError("context qualification usage is unavailable")
-        for name in ("input_tokens", "output_tokens", "reasoning_output_tokens"):
+        usage: dict[str, int] = {}
+        for name in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        ):
             value = execution.get(name)
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError("context qualification token metric is invalid")
-            tokens += value
+            usage[name] = value
+        if (
+            usage["cached_input_tokens"] > usage["input_tokens"]
+            or usage["reasoning_output_tokens"] > usage["output_tokens"]
+        ):
+            raise ValueError("context qualification token metric is inconsistent")
+        tokens += usage["input_tokens"] + usage["output_tokens"]
     detected = sum(
         item.get("observed_disposition") == "BLOCK" and item.get("matched") is True
         for item in critical

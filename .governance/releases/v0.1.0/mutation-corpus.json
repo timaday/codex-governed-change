@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:702032a9006796782110336557127859f01c038fba46c4217a8ee77ddd4d11da",
+  "corpus_id": "sha256:e91e96d6eac1838e1bb8761d38ba135675d0fb8f7f8c5b7ebe43d46d314a68df",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1307,6 +1307,42 @@
       "operator": "accept numeric backreferences with divergent nonparticipating-capture semantics",
       "requirement_id": "GOV-060",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_numeric_backreferences_are_outside_the_portable_pattern_subset"]
+    },
+    {
+      "mutant_id": "admission-retrieval-digest-deadline-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                artifact_reader=lambda reference: read_reference(\n                    repository=repository,\n                    reference={\n                        \"path\": reference,\n                        \"sha256\": reconstructed_retrieval_index[reference],\n                    },\n                    deadline=deadline,\n                ),",
+      "new": "                artifact_reader=lambda reference: read_bounded_repository_file(\n                    repository,\n                    normalize_repo_path(reference),\n                    max_bytes=8_000_000,\n                ),",
+      "operator": "reopen a model-supplied retrieval path without its protected digest or admission deadline",
+      "requirement_id": "GOV-TOKEN-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_admission_retrieval_uses_protected_digest_and_shared_deadline"]
+    },
+    {
+      "mutant_id": "rst-missing-required-follow-up-accepted",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        or set(observed_edge_list) != set(expected_edges)",
+      "new": "        or not set(observed_edge_list).issubset(set(expected_edges))",
+      "operator": "accept a feedback graph with a missing required relationship",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
+    },
+    {
+      "mutant_id": "context-reasoning-tokens-double-counted",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        tokens += usage[\"input_tokens\"] + usage[\"output_tokens\"]",
+      "new": "        tokens += (\n            usage[\"input_tokens\"]\n            + usage[\"output_tokens\"]\n            + usage[\"reasoning_output_tokens\"]\n        )",
+      "operator": "double-count reasoning tokens that are already a subset of output tokens",
+      "requirement_id": "GOV-TOKEN-002",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_context_metrics_count_reasoning_once_and_require_usage_subsets"]
+    },
+    {
+      "mutant_id": "context-token-subsets-unchecked",
+      "path": "src/codex_governance/qualification.py",
+      "old": "        if (\n            usage[\"cached_input_tokens\"] > usage[\"input_tokens\"]\n            or usage[\"reasoning_output_tokens\"] > usage[\"output_tokens\"]\n        ):\n            raise ValueError(\"context qualification token metric is inconsistent\")",
+      "new": "        if False:\n            raise ValueError(\"context qualification token metric is inconsistent\")",
+      "operator": "accept cached or reasoning token subsets larger than their containing totals",
+      "requirement_id": "GOV-TOKEN-002",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_context_metrics_count_reasoning_once_and_require_usage_subsets"]
     }
   ]
 }

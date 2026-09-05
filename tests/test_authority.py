@@ -589,14 +589,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("deebb31ee262712bd46912b2ac5de1d2cb92faf1", target["head_sha"])
+        self.assertEqual("e370eeb60f014ae40268abf2b864482efd814a81", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "deebb31ee262712bd46912b2ac5de1d2cb92faf1",
+            "e370eeb60f014ae40268abf2b864482efd814a81",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -2436,6 +2436,11 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("targets=branch", request_json.call_args_list[0].args[0])
         self.assertIn("per_page=100", request_json.call_args_list[0].args[0])
 
+        main_ruleset = deepcopy(ruleset)
+        main_ruleset["id"] = 8
+        main_ruleset["conditions"] = {
+            "ref_name": {"include": ["refs/heads/main"], "exclude": []}
+        }
         with (
             mock.patch.object(
                 module,
@@ -2445,12 +2450,49 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "_request_json",
-                return_value=[
-                    {"id": 7, "target": "branch", "enforcement": "active"},
-                    {"id": 8, "target": "branch", "enforcement": "active"},
+                side_effect=[
+                    [
+                        {"id": 7, "target": "branch", "enforcement": "active"},
+                        {"id": 8, "target": "branch", "enforcement": "active"},
+                    ],
+                    ruleset,
+                    main_ruleset,
                 ],
+            ) as multiple_request,
+            mock.patch.object(module.subprocess, "run", return_value=completed),
+        ):
+            multiple_observed = module.observe_live_authority(
+                repository="timaday/codex-governed-change",
+                ref=ref,
+                expected_sha=commit,
+                token="x",
+                api_url="https://api.github.com",
+                authority_root=ROOT,
+                observed_at="2026-09-05T12:00:00Z",
+            )
+        self.assertEqual(ruleset, multiple_observed["ruleset"])
+        self.assertEqual(3, len(multiple_request.call_args_list))
+
+        first_page = [
+            {"id": index, "target": "branch", "enforcement": "disabled"}
+            for index in range(100)
+        ]
+        with (
+            mock.patch.object(
+                module,
+                "observe_live_ref",
+                return_value={"sha": commit, "current": True},
             ),
-            self.assertRaisesRegex(ValueError, "exactly one active branch ruleset"),
+            mock.patch.object(
+                module,
+                "_request_json",
+                side_effect=[
+                    first_page,
+                    [{"id": 7, "target": "branch", "enforcement": "active"}],
+                    ruleset,
+                ],
+            ) as paginated_request,
+            mock.patch.object(module.subprocess, "run", return_value=completed),
         ):
             module.observe_live_authority(
                 repository="timaday/codex-governed-change",
@@ -2461,6 +2503,8 @@ class AdapterTests(unittest.TestCase):
                 authority_root=ROOT,
                 observed_at="2026-09-05T12:00:00Z",
             )
+        self.assertIn("page=1", paginated_request.call_args_list[0].args[0])
+        self.assertIn("page=2", paginated_request.call_args_list[1].args[0])
 
         drifted = deepcopy(ruleset)
         drifted["rules"][3]["parameters"]["allowed_merge_methods"] = ["merge"]
@@ -3164,7 +3208,7 @@ class AdapterTests(unittest.TestCase):
                     module, "observe_codex_authentication", return_value="chatgpt"
                 ),
             ):
-                records = {
+                mode_results = {
                     mode: module._run_mode(
                         mode=mode,
                         corpus=corpus,
@@ -3180,12 +3224,52 @@ class AdapterTests(unittest.TestCase):
                         workflow_attempt=1,
                         output=root,
                         requested_profile=None,
-                    )[0]
+                    )
                     for mode, schema in (
                         ("conformance", "reviewer-result.schema.json"),
                         ("rapid_review", "rapid-review-session.schema.json"),
                     )
                 }
+                records = {
+                    mode: result[0] for mode, result in mode_results.items()
+                }
+                self.assertEqual(
+                    {"conformance": 16, "rapid_review": 16},
+                    {
+                        mode: result[1]["tokens"]
+                        for mode, result in mode_results.items()
+                    },
+                )
+            def invalid_usage_launch(**arguments: object) -> dict[str, object]:
+                launched = fake_launch(**arguments)
+                launched["reasoning_output_tokens"] = 2
+                return launched
+
+            with (
+                mock.patch.object(
+                    module, "launch_reviewer", side_effect=invalid_usage_launch
+                ),
+                mock.patch.object(
+                    module, "observe_codex_authentication", return_value="chatgpt"
+                ),
+                self.assertRaisesRegex(ValueError, "token usage is inconsistent"),
+            ):
+                module._run_mode(
+                    mode="conformance",
+                    corpus=corpus,
+                    label_decision=decision,
+                    prompt_path=ROOT / "kernel/.codex/review/reviewer.prompt.md",
+                    schema_path=ROOT / "kernel/schemas/reviewer-result.schema.json",
+                    codex=sys.executable,
+                    cli_version="codex-cli 0.149.1",
+                    authentication="chatgpt",
+                    timeout_seconds=60,
+                    max_output_bytes=1_000_000,
+                    workflow_run_id="fixture-run",
+                    workflow_attempt=1,
+                    output=root / "invalid-usage",
+                    requested_profile=None,
+                )
             policy = load_json(ROOT / ".governance/effective-policy.json")
             policy["reviewer"]["qualification_corpus_sha256"] = corpus_sha
             policy["reviewer"]["qualification_label_decision_id"] = decision[

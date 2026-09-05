@@ -121,32 +121,46 @@ def observe_live_authority(
     if ref != "refs/heads/governance-authority":
         raise ValueError("bootstrap authority observation requires the protected ref")
     owner, name = require_repository(repository).split("/", 1)
-    rulesets_url = (
+    rulesets_endpoint = (
         api_url.rstrip("/")
         + "/repos/"
         + urllib.parse.quote(owner, safe="")
         + "/"
         + urllib.parse.quote(name, safe="")
-        + "/rulesets?includes_parents=false&targets=branch&per_page=100"
+        + "/rulesets"
     )
-    summaries = _request_json(rulesets_url, token=token)
-    if not isinstance(summaries, list):
-        raise RuntimeError("GitHub ruleset response is malformed")
-    matching_ids = [
-        item.get("id")
-        for item in summaries
-        if isinstance(item, dict)
-        and item.get("target") == "branch"
-        and item.get("enforcement") == "active"
-    ]
-    if len(matching_ids) != 1:
-        raise ValueError("exactly one active branch ruleset is required")
+    summaries: list[object] = []
+    for page in range(1, 101):
+        rulesets_url = (
+            rulesets_endpoint
+            + "?includes_parents=false&targets=branch&per_page=100&page="
+            + str(page)
+        )
+        batch = _request_json(rulesets_url, token=token)
+        if not isinstance(batch, list):
+            raise RuntimeError("GitHub ruleset response is malformed")
+        summaries.extend(batch)
+        if len(batch) < 100:
+            break
+    else:
+        raise ValueError("GitHub ruleset pagination exceeded the protected bound")
+    matching_ids: list[int] = []
+    for item in summaries:
+        if (
+            isinstance(item, dict)
+            and item.get("target") == "branch"
+            and item.get("enforcement") == "active"
+        ):
+            ruleset_id = item.get("id")
+            if not isinstance(ruleset_id, int) or isinstance(ruleset_id, bool):
+                raise ValueError("GitHub returned an invalid ruleset identity")
+            matching_ids.append(ruleset_id)
+    if len(matching_ids) != len(set(matching_ids)):
+        raise ValueError("GitHub returned duplicate active ruleset identities")
     rulesets: list[dict[str, object]] = []
     for ruleset_id in matching_ids:
-        if not isinstance(ruleset_id, int) or isinstance(ruleset_id, bool):
-            raise ValueError("GitHub returned an invalid ruleset identity")
         detail = _request_json(
-            rulesets_url.split("?", 1)[0] + "/" + str(ruleset_id), token=token
+            rulesets_endpoint + "/" + str(ruleset_id), token=token
         )
         if not isinstance(detail, dict):
             raise RuntimeError("GitHub ruleset detail is malformed")

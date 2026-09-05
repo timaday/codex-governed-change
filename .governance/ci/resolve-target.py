@@ -23,8 +23,8 @@ EXPECTED_TARGET = {
     "target_kind": "release",
     "target_ref": "refs/heads/main",
     "base_sha": "5393338571f8ed5de5192613dcdd6131044932dc",
-    "head_sha": "deebb31ee262712bd46912b2ac5de1d2cb92faf1",
-    "kernel_source_commit": "deebb31ee262712bd46912b2ac5de1d2cb92faf1",
+    "head_sha": "e370eeb60f014ae40268abf2b864482efd814a81",
+    "kernel_source_commit": "e370eeb60f014ae40268abf2b864482efd814a81",
     "lkg_governance_commit": "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
     "governance_transition": {
         "mode": "initial_lkg_bootstrap",

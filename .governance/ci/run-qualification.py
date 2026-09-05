@@ -504,6 +504,13 @@ def _run_mode(
                 if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                     raise ValueError("qualification token usage is unavailable")
                 observed_usage[name] = value
+            if (
+                observed_usage["cached_input_tokens"]
+                > observed_usage["input_tokens"]
+                or observed_usage["reasoning_output_tokens"]
+                > observed_usage["output_tokens"]
+            ):
+                raise ValueError("qualification token usage is inconsistent")
             execution_metrics.append(observed_usage)
             context_arguments = {
                 "mode": mode,
@@ -711,7 +718,6 @@ def _run_mode(
     total_tokens = sum(
         int(item.get("input_tokens", 0))
         + int(item.get("output_tokens", 0))
-        + int(item.get("reasoning_output_tokens", 0))
         for item in execution_metrics
     )
     return record, {
