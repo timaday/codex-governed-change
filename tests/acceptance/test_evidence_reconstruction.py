@@ -2754,6 +2754,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "limitation",
             "target",
             "chronology",
+            "missing-stream",
         ):
             variant = deepcopy(promoted_manifest)
             rollback_variant = deepcopy(rollback)
@@ -2901,6 +2902,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 rollback_variant["limitations"] = ["rollback proof incomplete"]
             elif defect == "target":
                 rollback_variant["rollback_target_commit"] = "2" * 40
+            elif defect == "missing-stream":
+                rollback_gate = json.loads(
+                    (self.repository / rollback_gate_ref["path"]).read_text()
+                )
+                stdout = next(
+                    item
+                    for item in rollback_gate["artifacts"]
+                    if item["stream"] == "stdout"
+                )
+                (self.repository / stdout["path"]).unlink()
             else:
                 rollback_variant["created_at"] = "2026-08-26T10:00:03Z"
             rollback_variant = content_address(
