@@ -798,3 +798,20 @@ broker rebinding, hosted qualification/admission evidence, the pre-approved
 held-out governed-versus-ordinary measurement decision, and separate human
 release approval. Operational qualification, measured benefit and human
 approval remain `UNKNOWN`; release remains blocked.
+
+Immutable candidate `23ad49d` passed blueprint integrity, 107 unit tests and
+237 acceptance tests. Its complete corpus run then correctly stopped before the
+first operator with baseline `UNKNOWN`: expanding the protected reconstruction
+suite raised the observed baseline duration beyond the policy-bound 600-second
+limit. No mutant received credit and all `23ad49d` observations are
+non-qualifying. This successor raises the documented local runner and protected
+acceptance-gate limit together to the repository-portable bounded value of 900
+seconds and re-addresses the existing timeout-regression operator. The
+137-entry corpus now has content ID
+`sha256:364c52e1176c9b13283cd404c813b56a49dd4ff5014d878c2b0b29be37f4427c`
+and protected byte digest
+`sha256:bddfcf21e8360f8df82843e6a9a9a7529294ecbc130f3c757f342c4f72c253b4`.
+This mutation invalidates earlier evidence. Exact-candidate deterministic,
+complete paired-control mutation, fresh review, protected authority and broker,
+hosted qualification/admission, measured comparison and human approval states
+must all be regenerated; release remains blocked.

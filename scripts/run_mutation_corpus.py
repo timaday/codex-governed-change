@@ -27,7 +27,7 @@ from codex_governance.mutation import (
 from codex_governance.sandbox import prepare_candidate_copy
 
 
-DEFAULT_MUTATION_TIMEOUT_SECONDS = 600
+DEFAULT_MUTATION_TIMEOUT_SECONDS = 900
 
 
 def run(
