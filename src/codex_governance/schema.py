@@ -373,17 +373,24 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
 
             if not verify_candidate_identity(instance):
                 errors.append("$/candidate_id: candidate identity does not reconstruct")
-        if (
-            schema_name == "context-qualification"
-            and instance.get("evidence_class") == "synthetic_bootstrap"
-            and (
-                instance.get("qualified") is not False
-                or not instance.get("limitations")
-            )
-        ):
-            errors.append(
-                "$: synthetic bootstrap context must be unqualified and limited"
-            )
+        if schema_name == "context-qualification":
+            empirical_fields = {
+                "corpus_sha256", "label_decision_id", "measurement_evidence"
+            }
+            if instance.get("evidence_class") == "synthetic_bootstrap":
+                if instance.get("qualified") is not False or not instance.get(
+                    "limitations"
+                ):
+                    errors.append(
+                        "$: synthetic bootstrap context must be unqualified and limited"
+                    )
+                if empirical_fields & set(instance):
+                    errors.append(
+                        "$: synthetic bootstrap context cannot claim empirical evidence"
+                    )
+            elif instance.get("evidence_class") == "empirical":
+                for name in sorted(empirical_fields - set(instance)):
+                    errors.append(f"$: missing required empirical property {name!r}")
         if schema_name == "assurance-case":
             from codex_governance.assurance import assurance_claim_set_is_fixed
 

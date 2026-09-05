@@ -153,6 +153,9 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "schema-ref-siblings-ignored",
         "schema-additional-properties-ignored",
         "schema-integral-float-rejected",
+        "rapid-finding-location-unchecked",
+        "rapid-retrieval-index-unchecked",
+        "context-qualification-raw-evidence-unchecked",
     }
 )
 

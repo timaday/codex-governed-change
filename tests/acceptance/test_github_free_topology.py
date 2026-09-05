@@ -73,6 +73,7 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
         )
         self.assertIn("workflow_dispatch:", qualification)
         self.assertIn("workflow_run:", finalizer)
+        self.assertNotIn("concurrency:", disposition)
         self.assertNotIn("concurrency:", finalizer)
         combined = "\n".join((disposition, qualification, finalizer))
         for forbidden in (

@@ -178,6 +178,9 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "schema-ref-siblings-ignored",
             "schema-additional-properties-ignored",
             "schema-integral-float-rejected",
+            "rapid-finding-location-unchecked",
+            "rapid-retrieval-index-unchecked",
+            "context-qualification-raw-evidence-unchecked",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

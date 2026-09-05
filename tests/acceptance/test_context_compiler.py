@@ -13,10 +13,10 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
     def qualification(self, profile: str) -> dict:
         return content_address(
             {
-                "schema_version": "2.0.0",
+                "schema_version": "3.0.0",
                 "projection_version": "1.0.0",
                 "profile": profile,
-                "evidence_class": "empirical",
+                "evidence_class": "synthetic_bootstrap",
                 "baseline": {
                     "critical_recall": 1.0, "false_passes": 0,
                     "traceability": 1.0, "disposition_correct": True,
@@ -27,9 +27,9 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     "traceability": 1.0, "disposition_correct": True,
                     "tokens": 12000,
                 },
-                "qualified": True,
+                "qualified": False,
                 "created_at": "2026-08-26T10:00:00Z",
-                "limitations": [],
+                "limitations": ["deterministic context-compiler fixture"],
             },
             "qualification_id",
         )
@@ -167,6 +167,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                 "STANDARD": 24000,
                 "DEEP": 64000,
             },
+            allow_synthetic_bootstrap=True,
         )
         self.assertEqual("DEEP", compiled["receipt"]["profile"])
         with self.assertRaisesRegex(ValueError, "token budget"):
@@ -186,6 +187,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     "STANDARD": 24000,
                     "DEEP": 64000,
                 },
+                allow_synthetic_bootstrap=True,
             )
         with self.assertRaisesRegex(ValueError, "protected minimum"):
             compile_context(
@@ -205,6 +207,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     "DEEP": 64000,
                 },
                 minimum_profile="STANDARD",
+                allow_synthetic_bootstrap=True,
             )
 
     def qualification_ids(self) -> dict[str, str]:
@@ -291,6 +294,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             reasoning_effort="xhigh",
             context_qualification=self.qualification(profile),
             protected_qualification_ids=self.qualification_ids(),
+            allow_synthetic_bootstrap=True,
         )
 
     def test_identical_inputs_produce_identical_projection_and_source_receipts(self) -> None:
@@ -336,6 +340,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             model="gpt-5.6-sol", reasoning_effort="xhigh",
             context_qualification=self.qualification("DEEP"),
             protected_qualification_ids=self.qualification_ids(),
+            allow_synthetic_bootstrap=True,
         )
         kernel = compiled["projection"]["assurance_kernel"]
         self.assertEqual(["security gate failed"], kernel["failures"])
@@ -382,6 +387,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             model="gpt-5.6-sol", reasoning_effort="xhigh",
             context_qualification=self.qualification("COMPACT"),
             protected_qualification_ids=self.qualification_ids(),
+            allow_synthetic_bootstrap=True,
         )
         standard = compile_context(
             sources=sources, candidate=self.candidate(),
@@ -391,6 +397,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             model="gpt-5.6-sol", reasoning_effort="xhigh",
             context_qualification=self.qualification("STANDARD"),
             protected_qualification_ids=self.qualification_ids(),
+            allow_synthetic_bootstrap=True,
         )
         self.assertNotIn("typed_summary", compact["projection"]["evidence_index"][0])
         self.assertIn("typed_summary", standard["projection"]["evidence_index"][0])
@@ -415,6 +422,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             model="gpt-5.6-sol", reasoning_effort="xhigh",
             context_qualification=self.qualification("STANDARD"),
             protected_qualification_ids=self.qualification_ids(),
+            allow_synthetic_bootstrap=True,
         )
         reasons = {item["reference"]: item["reason"] for item in compiled["receipt"]["excluded_sources"]}
         self.assertEqual("duplicate", reasons["evidence/copy.log"])
@@ -441,6 +449,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     model="gpt-5.6-sol", reasoning_effort="xhigh",
                     context_qualification=self.qualification("DEEP"),
                     protected_qualification_ids=self.qualification_ids(),
+                    allow_synthetic_bootstrap=True,
                 )
 
     def test_changed_file_inventory_and_selector_are_exact_candidate_derived(self) -> None:
@@ -467,6 +476,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                         reasoning_effort="xhigh",
                         context_qualification=self.qualification("STANDARD"),
                         protected_qualification_ids=self.qualification_ids(),
+                        allow_synthetic_bootstrap=True,
                     )
 
     def test_profile_version_metrics_and_protected_qualification_must_match(self) -> None:
@@ -501,6 +511,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     reasoning_effort="xhigh",
                     context_qualification=qualification,
                     protected_qualification_ids=protected_ids,
+                    allow_synthetic_bootstrap=True,
                 )
 
     def test_protected_closure_includes_unchanged_caller_and_test_and_rejects_omission(self) -> None:
@@ -568,6 +579,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                     reasoning_effort="xhigh",
                     context_qualification=self.qualification("STANDARD"),
                     protected_qualification_ids=self.qualification_ids(),
+                    allow_synthetic_bootstrap=True,
                 )
 
     def test_post_run_receipt_is_separate_exact_and_fail_closed_on_missing_usage(self) -> None:
@@ -687,6 +699,7 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                 reasoning_effort="xhigh",
                 context_qualification=self.qualification("STANDARD"),
                 protected_qualification_ids=self.qualification_ids(),
+                allow_synthetic_bootstrap=True,
             )
 
 

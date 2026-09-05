@@ -54,6 +54,7 @@ MANDATORY_QUALIFICATION_CASE_CLASSES = frozenset(
 QUALIFICATION_BASE_COMMIT = "06091d05162787593f48a54fbfcee5b84c2b7d0b"
 QUALIFICATION_CREATED_AT = "2026-08-26T10:00:00Z"
 QUALIFICATION_GATE_ID = "qualification-context"
+CONTEXT_TOKEN_BUDGETS = {"COMPACT": 8000, "STANDARD": 24000, "DEEP": 64000}
 
 
 def qualification_case_classes_complete(cases: Sequence[Any]) -> bool:
@@ -530,6 +531,7 @@ def qualification_context_documents(
     candidate: Mapping[str, Any],
     reviewer_output_sha256: str,
     execution: Mapping[str, Any],
+    requested_profile: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Rebuild one qualification case's complete governed context chain."""
     if mode not in {"conformance", "rapid_review"} or not case.get("case_id"):
@@ -585,14 +587,17 @@ def qualification_context_documents(
             for locator in locators
         ],
     )
+    selected_request = requested_profile or "STANDARD"
+    if selected_request not in CONTEXT_TOKEN_BUDGETS:
+        raise ValueError("qualification context profile is invalid")
     profile = select_context_profile(
-        requested_profile="STANDARD",
+        requested_profile=selected_request,
         changed_paths=changed_paths,
         **derive_context_signals(sources),
     )
     context_qualification = content_address(
         {
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "projection_version": "1.0.0",
             "profile": profile,
             "evidence_class": "synthetic_bootstrap",
@@ -601,14 +606,14 @@ def qualification_context_documents(
                 "false_passes": 0,
                 "traceability": 0.0,
                 "disposition_correct": False,
-                "tokens": 64000,
+                "tokens": CONTEXT_TOKEN_BUDGETS[profile],
             },
             "candidate": {
                 "critical_recall": 0.0,
                 "false_passes": 0,
                 "traceability": 0.0,
                 "disposition_correct": False,
-                "tokens": 64000,
+                "tokens": CONTEXT_TOKEN_BUDGETS[profile],
             },
             "qualified": False,
             "created_at": created_at,
@@ -621,14 +626,21 @@ def qualification_context_documents(
     compiled = compile_context(
         sources=sources,
         candidate=candidate,
-        requested_profile="STANDARD",
-        token_budget=64000,
+        requested_profile=selected_request,
+        token_budget=(
+            CONTEXT_TOKEN_BUDGETS[profile]
+            if requested_profile is not None
+            else 64000
+        ),
         changed_paths=changed_paths,
         affected_closure=changed_paths,
         model=str(execution.get("model")),
         reasoning_effort=str(execution.get("reasoning_effort")),
         context_qualification=context_qualification,
         protected_qualification_ids={profile: context_qualification["qualification_id"]},
+        protected_token_budgets=(
+            CONTEXT_TOKEN_BUDGETS if requested_profile is not None else None
+        ),
         allow_synthetic_bootstrap=True,
     )
     prepared = compiled["receipt"]
@@ -735,6 +747,7 @@ def qualification_evidence_valid(
     verified_decision_ids: frozenset[str],
     evaluated_at: str,
     prompt_bytes: bytes,
+    requested_context_profile: str | None = None,
 ) -> bool:
     """Recompute a protected qualification from its corpus and every case."""
     if mode not in {"conformance", "rapid_review"}:
@@ -1017,6 +1030,7 @@ def qualification_evidence_valid(
                     observation["reviewer_output"].get("sha256")
                 ),
                 execution=execution,
+                requested_profile=requested_context_profile,
             )
         except (KeyError, TypeError, ValueError):
             return False
@@ -1031,7 +1045,12 @@ def qualification_evidence_valid(
             task_contract_sha256=task_sha256,
             candidate_id=candidate_id,
         )
-        prefix = f"qualification/{mode}/{case['case_id']}"
+        profile_prefix = (
+            ""
+            if requested_context_profile is None
+            else requested_context_profile + "/"
+        )
+        prefix = f"qualification/{profile_prefix}{mode}/{case['case_id']}"
         expected_permitted_inputs = {
             "task_contract_path": prefix + "/task-contract.json",
             "task_contract_sha256": task_sha256,
@@ -1324,6 +1343,185 @@ def qualification_evidence_valid(
         and record.get("limitations") == []
         and qualified
     )
+
+
+def _context_mode_metrics(
+    *,
+    case_evidence: Mapping[str, Any],
+    artifact_reader: Callable[[Mapping[str, Any]], bytes],
+) -> dict[str, Any]:
+    observations = case_evidence.get("observations")
+    if not isinstance(observations, list) or not observations:
+        raise ValueError("context qualification cases are unavailable")
+    critical = [item for item in observations if item.get("severity") == "critical"]
+    controls = [item for item in observations if item.get("severity") == "control"]
+    if not critical or not controls:
+        raise ValueError("context qualification case classes are incomplete")
+    tokens = 0
+    for observation in observations:
+        execution = parse_json_bytes(artifact_reader(observation["reviewer_execution"]))
+        if not isinstance(execution, Mapping) or execution.get("usage_observed") is not True:
+            raise ValueError("context qualification usage is unavailable")
+        for name in ("input_tokens", "output_tokens", "reasoning_output_tokens"):
+            value = execution.get(name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError("context qualification token metric is invalid")
+            tokens += value
+    detected = sum(
+        item.get("observed_disposition") == "BLOCK" and item.get("matched") is True
+        for item in critical
+    )
+    return {
+        "critical_cases": len(critical),
+        "critical_detected": detected,
+        "false_passes": sum(
+            item.get("expected_disposition") == "BLOCK"
+            and item.get("observed_disposition") == "NO_BLOCKING_FINDING_OBSERVED"
+            for item in observations
+        ),
+        "false_blocks": sum(
+            item.get("observed_disposition") == "BLOCK" for item in controls
+        ),
+        "unknowns": sum(
+            item.get("observed_disposition") == "UNKNOWN" for item in observations
+        ),
+        "traceable_cases": detected,
+        "traceability_cases": len(critical),
+        "tokens": tokens,
+    }
+
+
+def combine_context_metrics(
+    mode_metrics: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Combine an exact conformance and rapid-review measurement pair."""
+    if set(mode_metrics) != {"conformance", "rapid_review"}:
+        raise ValueError("both context qualification modes are required")
+    values = list(mode_metrics.values())
+    critical_cases = sum(int(item["critical_cases"]) for item in values)
+    critical_detected = sum(int(item["critical_detected"]) for item in values)
+    traceability_cases = sum(int(item["traceability_cases"]) for item in values)
+    traceable_cases = sum(int(item["traceable_cases"]) for item in values)
+    if critical_cases < 1 or traceability_cases < 1:
+        raise ValueError("context qualification metrics are empty")
+    return {
+        "critical_recall": critical_detected / critical_cases,
+        "false_passes": sum(int(item["false_passes"]) for item in values),
+        "traceability": traceable_cases / traceability_cases,
+        "disposition_correct": bool(
+            critical_detected == critical_cases
+            and traceable_cases == traceability_cases
+            and all(int(item["false_blocks"]) == 0 for item in values)
+            and all(int(item["unknowns"]) == 0 for item in values)
+        ),
+        "tokens": sum(int(item["tokens"]) for item in values),
+    }
+
+
+def context_qualification_evidence_valid(
+    *,
+    record: Mapping[str, Any],
+    artifact_reader: Callable[[Mapping[str, Any]], bytes],
+    schema_root: Path,
+    protected_repository_id: str,
+    verified_decision_ids: frozenset[str],
+    evaluated_at: str,
+    prompt_bytes: bytes,
+) -> bool:
+    """Replay both profiles and modes behind one empirical context record."""
+    try:
+        measurement = record["measurement_evidence"]
+        corpus_reference = measurement["corpus"]
+        label_reference = measurement["label_decision"]
+        corpus_bytes = artifact_reader(corpus_reference)
+        label_bytes = artifact_reader(label_reference)
+        if (
+            sha256_bytes(corpus_bytes) != corpus_reference.get("sha256")
+            or sha256_bytes(label_bytes) != label_reference.get("sha256")
+            or record.get("corpus_sha256") != corpus_reference.get("sha256")
+        ):
+            return False
+        corpus = parse_json_bytes(corpus_bytes)
+        label_decision = parse_json_bytes(label_bytes)
+        if (
+            not isinstance(corpus, Mapping)
+            or not isinstance(label_decision, Mapping)
+            or record.get("label_decision_id") != label_decision.get("decision_id")
+        ):
+            return False
+        measured: dict[str, dict[str, Any]] = {}
+        for role, expected_profile in (
+            ("baseline", "DEEP"),
+            ("candidate", str(record["profile"])),
+        ):
+            profile_evidence = measurement[role]
+            if profile_evidence.get("profile") != expected_profile:
+                return False
+            mode_metrics: dict[str, Mapping[str, Any]] = {}
+            for mode in ("conformance", "rapid_review"):
+                mode_evidence = profile_evidence[mode]
+                record_bytes = artifact_reader(mode_evidence["record"])
+                cases_bytes = artifact_reader(mode_evidence["cases"])
+                if (
+                    sha256_bytes(record_bytes) != mode_evidence["record"].get("sha256")
+                    or sha256_bytes(cases_bytes) != mode_evidence["cases"].get("sha256")
+                ):
+                    return False
+                qualification = parse_json_bytes(record_bytes)
+                cases = parse_json_bytes(cases_bytes)
+                if not isinstance(qualification, Mapping) or not isinstance(cases, Mapping):
+                    return False
+                cases_parent = normalize_repo_path(
+                    str(mode_evidence["cases"]["path"])
+                ).rsplit("/", 1)[0]
+
+                def raw_reader(
+                    reference: Mapping[str, Any],
+                    *,
+                    profile: str = expected_profile,
+                    parent: str = cases_parent,
+                ) -> bytes:
+                    raw_path = normalize_repo_path(reference.get("path"))
+                    prefix = f"qualification/{profile}/"
+                    if not raw_path.startswith(prefix):
+                        raise ValueError("context qualification raw reference has wrong profile")
+                    mapped = normalize_repo_path(
+                        f"{parent}/raw/{profile}/{raw_path[len(prefix):]}"
+                    )
+                    return artifact_reader(
+                        {"path": mapped, "sha256": reference.get("sha256")}
+                    )
+
+                if not qualification_evidence_valid(
+                    mode=mode,
+                    record=qualification,
+                    case_evidence=cases,
+                    corpus=corpus,
+                    corpus_bytes=corpus_bytes,
+                    protected_corpus_sha256=corpus_reference["sha256"],
+                    label_decision=label_decision,
+                    artifact_reader=raw_reader,
+                    schema_root=schema_root,
+                    protected_repository_id=protected_repository_id,
+                    verified_decision_ids=verified_decision_ids,
+                    evaluated_at=evaluated_at,
+                    prompt_bytes=prompt_bytes,
+                    requested_context_profile=expected_profile,
+                ):
+                    return False
+                mode_metrics[mode] = _context_mode_metrics(
+                    case_evidence=cases, artifact_reader=raw_reader
+                )
+            measured[role] = combine_context_metrics(mode_metrics)
+        return bool(
+            measured["baseline"] == record.get("baseline")
+            and measured["candidate"] == record.get("candidate")
+            and record.get("qualified")
+            is context_variant_qualified(measured["baseline"], measured["candidate"])
+            and record.get("qualified") is True
+        )
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
 
 
 def reconcile_review_lanes(

@@ -59,8 +59,8 @@ No model confidence statement is an oracle.
   reaching native or x32 kernel dispatch is a containment failure.
 - Reviewer timeout MUST stop the namespace manager and dedicated subreaper;
   PID-1 teardown MUST drain a session-escaped descendant.
-- Before any boundary `Popen`, unavailable, malformed, wrong-PID, wrong-PPID or
-  wrong-innermost-`NSpid` procfs plus failed child enumeration MUST return
+- Before any boundary `Popen`, unavailable, malformed, duplicate, non-positive,
+  wrong-PID, wrong-PPID or wrong-innermost-`NSpid` procfs plus failed child enumeration MUST return
   `UNKNOWN` and a launch spy MUST observe zero children. A namespace-consistent
   clean control MUST reach the existing boundary handshake.
 - A deterministic procfs fork/exit interleaving proving zombie-only enumeration
@@ -99,7 +99,9 @@ No model confidence statement is an oracle.
   completed success verifies the exact broker run and referenced workflow,
   forbidden public/candidate triggers and active mirror workflows are absent,
   the authenticated JIT runner is broker-scoped, and only the final publisher
-  receives the target-only App secret.
+  receives the target-only App secret. The active broker wrapper and protected
+  template MUST leave the called finalizer's concurrency key solely to the
+  reusable authority workflow.
 - Two-gate adversarial pipeline where the first gate mutates its writable copy
   and the second gate must receive original candidate bytes.
 - Gate artifact reconstruction.
@@ -232,6 +234,25 @@ adverse signal, inventory/closure entry, profile qualification, source bundle,
 projection, inclusion/exclusion reason and metric while re-addressing outer
 documents. Every mismatch blocks. Reviewer-result tests omit changed/closure
 paths and introduce unresolved mandatory claims under a success verdict.
+Rapid-review reconstruction applies the same repository-file and line oracle to
+every finding, revalidates every retrieval expansion against protected index and
+artifact bytes, and rejects copied model claims, swapped locators and invalid
+lines.
+
+Context-qualification tests retain one exact package containing corpus bytes,
+the authenticated label decision, DEEP baseline and candidate-profile records,
+per-case evidence and every transitive raw execution artifact. They re-run the
+protected qualification oracle for both review modes, require observed usage,
+recompute recall, false passes, false blocks, `UNKNOWN`, traceability and tokens,
+and reject missing, extra, stale, re-addressed or aggregate-only evidence. The
+producer's raw-file inventory is derived from those exact references rather than
+a fixed file count.
+
+Operational RST tests require unique session, debrief, actionable, residual and
+risk-update references. The relationship graph must equal the feedback edges
+derived from surprising experiments, surviving mutants and every reviewer
+finding; an empty, duplicate or extra edge set blocks even when all referenced
+documents otherwise exist.
 
 Governance-integrity tests mutate each previous-LKG TCB class, including trusted
 Python implementation sources, and require both governance authorization and an

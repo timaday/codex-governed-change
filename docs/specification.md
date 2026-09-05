@@ -272,8 +272,9 @@ The launcher MUST:
   denies the host root, re-allows only the sanitized workspace and minimum
   detected Codex/tool runtime installation roots, and disables tool network
   access; runtime roots are derived at launch, never accepted from candidate
-  input, MUST be canonical and MUST NOT equal or contain a user home or overlap
-  the sanitized harness; redundant descendant runtime roots are coalesced, and
+  input, MUST be canonical and MUST NOT equal, contain, or be contained by a
+  user home or overlap the sanitized harness in either direction; redundant
+  descendant runtime roots are coalesced, and
   the resulting non-overlapping grants persist only through the
   argv digest; because a more-specific read rule can reopen a subtree beneath a
   broader deny, any unsafe or ambiguous overlap forces `UNKNOWN` before launch;
@@ -380,8 +381,9 @@ completion cannot promote it.
 
 Before the outer supervisor performs its first reviewer-boundary `Popen`, it
 MUST prove that `/proc/self/stat` reports the same PID and parent PID as the
-process API, that any `NSpid` value describes the same innermost PID, and that a
-complete direct-child enumeration succeeds. Unavailable, malformed or
+process API, require exactly one `NSpid` field, parse every token in that field
+as a positive decimal PID, prove its innermost token equals the same self PID,
+and complete direct-child enumeration. Unavailable, duplicate, malformed or
 namespace-inconsistent procfs means descendant containment is unavailable and
 MUST return `UNKNOWN` without launching a namespace manager, signal guard or
 reviewer child. The later namespace-local `/proc` handshake remains a separate
@@ -657,11 +659,16 @@ Every field named `evidence_refs` MUST resolve to an exact protected
 content-addressed evidence locator before rapid-review policy is evaluated.
 Operational RST additionally resolves risk-source locators, risk-to-charter
 links, typed update sources, session-to-charter links and digests,
-coverage-to-session/oracle links, debrief-to-session and residual-risk links,
-follow-up source links, oracle source path/digest pairs, and disposition-to-
-debrief/item links. A missing, duplicate, dangling, stale, digest-mismatched or
-wrong-kind relationship is `UNKNOWN`; non-empty prose or a complete set of RST
-artifact kinds cannot preserve readiness.
+coverage-to-session/oracle links, debrief-to-session, actionable-finding and
+residual-risk links, follow-up source links, oracle source path/digest pairs, and
+disposition-to-debrief/item links. Every relationship sequence is unique.
+Admission derives the exact typed follow-up edge set from surprising
+observations, surviving mutants and every reviewer finding, then requires the
+submitted follow-up graph to match it exactly; severity controls whether the
+work is mandatory, not whether the feedback edge exists. A missing, duplicate,
+extra, dangling, stale, digest-mismatched or wrong-kind relationship is
+`UNKNOWN`; non-empty prose or a complete set of RST artifact kinds cannot
+preserve readiness.
 
 Risk effort is configurable rather than duration-driven:
 
@@ -731,6 +738,10 @@ source. It emits the
 nested typed rollback evidence before the
 previous-LKG promotion predicate runs;
 ordinary governance authorization or digest-shaped proof alone is insufficient.
+The one-time initial-LKG bootstrap uses this same nested reconstruction. Its
+verification record does not replace it: every verification digest is compared
+with the resolved artifact and the promotion predicate receives the derived
+rollback result, never a literal success value.
 
 ## 16. Sandboxed execution and provenance
 
@@ -881,8 +892,9 @@ fallible-oracle/reference, charter, session observation, coverage, debrief and
 follow-up artifacts. Requirements and changes create risks; observations update
 them; surviving mutants refine charters; reviewer findings create follow-up
 risks. The protected admission producer resolves the complete relationship
-graph, including every required content-addressed locator and internal artifact
-identity, rather than trusting artifact presence or model-reported links.
+graph, including the exact derived feedback edges, every required
+content-addressed locator and internal artifact identity, rather than trusting
+artifact presence or model-reported links.
 Completed paperwork or no findings never proves correctness.
 
 ## 18. Deterministic context compilation
@@ -911,7 +923,12 @@ the policy-declared evidence root. This safely includes unchanged callers,
 contracts and tests without trusting language-specific or caller-provided
 selection. A supplied closure that is missing, extra or differently ordered
 MUST block. `prepare-review` therefore requires the exact repository and
-effective policy in addition to the candidate descriptor.
+effective policy in addition to the candidate descriptor. It also requires the
+separately checked-out protected qualification repository and exact protected
+reviewer prompt so the v3 measurement references can be descriptor-read and
+replayed. The retained evidence package preserves that repository-relative tree
+under `<evidence-root>/context-qualification-authority` for fresh review and
+admission; no host-absolute path is recorded.
 
 The candidate-bound rapid-review assessment may increase but MUST NOT reduce the
 effective protected/task risk profile, task-required review flag, or the larger
@@ -931,7 +948,12 @@ rubric artifacts; independently re-identifies repository inventory and affected
 closure; derives adverse profile signals; and rejects any supplied summary or
 flag that differs. Every projection-version/profile combination binds a
 protected content-addressed context-qualification artifact and the exact
-qualification ID declared by effective policy.
+qualification ID declared by effective policy. An empirical qualification also
+binds the retained corpus bytes, authenticated label decision, DEEP baseline and
+candidate-profile conformance/rapid-review records and per-case evidence. The
+protected reader resolves those typed references and raw case artifacts and
+recomputes every metric before the profile can be selected; the aggregate fields
+are comparison outputs, never their own proof.
 
 Preparation constructs one deterministic protected artifact closure from the
 exact gate-manifest references, mutation-record references and their recursively
@@ -956,7 +978,9 @@ truncated. The compiler escalates or returns
 
 Admission descriptor-reads those artifacts and independently reconstructs their
 source inventory, closure, signal/profile decision, inclusion choices, digests
-and metrics. A self-consistent or content-addressed summary alone is not proof.
+and metrics, including the context-qualification corpus, labels, per-mode case
+records, raw executions and aggregate comparison. A self-consistent or
+content-addressed summary alone is not proof.
 
 Context variants require representative seeded-defect/governance qualification.
 Every critical case carries a human-approved defect ID and concrete
@@ -1002,10 +1026,14 @@ with typed path and line fields on every finding. The initial-release
 had a published predecessor before v0.1.0. Every transition advertised by the
 lifecycle policy has an executable explicit migration; missing legacy facts must
 come from separately protected inputs and every content address is rebuilt.
-`context-qualification` is `2.0.0` with the required `evidence_class` field.
-Migration from `1.0.0` requires that class from a separately protected source;
-synthetic bootstrap migration also forces `qualified` false and records its
-limitation. The repository's standard-library schema adapter implements only its
+`context-qualification` is `2.0.0` with the required `evidence_class` field and
+`3.0.0` with typed empirical corpus, label-decision and baseline/candidate
+per-mode measurement references. Migration from `1.0.0` requires the evidence
+class from a separately protected source. Migration from `2.0.0` requires the
+measurement references and identities from a separately protected source for an
+empirical document; a synthetic bootstrap remains unqualified and carries no
+empirical references. Synthetic migration always forces `qualified` false and
+records its limitation. The repository's standard-library schema adapter implements only its
 advertised Draft 2020-12 keyword subset, but implements that subset faithfully:
 keyword shapes are validated, boolean subschemas are supported where admitted,
 integral JSON numbers satisfy `integer`, JSON boolean/numeric equality remains

@@ -168,6 +168,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         provenance_defect: str | None = None,
         risk_downgrade: bool = False,
         reviewer_defect: str | None = None,
+        rapid_finding_defect: str | None = None,
+        rapid_retrieval_defect: str | None = None,
     ) -> dict:
         corpus_cases = [
             {
@@ -275,7 +277,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "reasoning_effort": "xhigh",
             }
 
-        def case_document(mode: str, identity: dict, bootstrap: dict) -> dict:
+        def case_document(
+            mode: str, identity: dict, bootstrap: dict, profile: str | None
+        ) -> dict:
             observations = []
             for case in corpus_cases:
                 observed = case["expected_disposition"]
@@ -318,6 +322,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     candidate=candidate,
                     reviewer_output_sha256="sha256:" + "0" * 64,
                     execution=context_execution_facts,
+                    requested_profile=profile,
                 )
                 _gate, gate_manifest = qualification_gate_documents(
                     repository_id=evaluation_repository,
@@ -472,10 +477,27 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     )
                 )
                 stderr = b""
-                prefix = f"qualification/{mode}/{case['case_id']}"
-                result_reference = self.raw(prefix + "/result.json", result_bytes)
-                stdout_reference = self.raw(prefix + "/stdout.bin", stdout)
-                stderr_reference = self.raw(prefix + "/stderr.bin", stderr)
+                profile_prefix = "" if profile is None else profile + "/"
+                prefix = f"qualification/{profile_prefix}{mode}/{case['case_id']}"
+
+                def profile_raw(name: str, data: bytes) -> dict[str, str]:
+                    if profile is None:
+                        path = self.repository / prefix / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(data)
+                        return {
+                            "path": f"{prefix}/{name}",
+                            "sha256": sha256_bytes(data),
+                        }
+                    reference = self.raw(
+                        f"context-variants/{profile}/raw/{profile}/{mode}/{case['case_id']}/{name}",
+                        data,
+                    )
+                    return {"path": prefix + "/" + name, "sha256": reference["sha256"]}
+
+                result_reference = profile_raw("result.json", result_bytes)
+                stdout_reference = profile_raw("stdout.bin", stdout)
+                stderr_reference = profile_raw("stderr.bin", stderr)
                 primitive_observation = {
                     "parent_exit_observed": True,
                     "return_code": 0,
@@ -496,10 +518,11 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     candidate=candidate,
                     reviewer_output_sha256=sha256_bytes(result_bytes),
                     execution=context_execution_facts,
+                    requested_profile=profile,
                 )
                 context_references = {
-                    name: self.raw(
-                        prefix + "/" + name.replace("_", "-") + ".json",
+                    name: profile_raw(
+                        name.replace("_", "-") + ".json",
                         canonical_json_bytes(document),
                     )
                     for name, document in context_documents.items()
@@ -507,8 +530,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 rapid_references: dict[str, dict[str, str]] = {}
                 if mode == "rapid_review":
                     rapid_references = {
-                        "risk_assessment": self.raw(
-                            prefix + "/risk-assessment.json",
+                        "risk_assessment": profile_raw(
+                            "risk-assessment.json",
                             canonical_json_bytes(
                                 {
                                     "case_id": case["case_id"],
@@ -516,8 +539,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                                 }
                             ),
                         ),
-                        "review_charter": self.raw(
-                            prefix + "/review-charter.json",
+                        "review_charter": profile_raw(
+                            "review-charter.json",
                             canonical_json_bytes(charter),
                         ),
                     }
@@ -564,8 +587,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                             "review_charter"
                         ]["sha256"],
                     )
-                permitted_reference = self.raw(
-                    prefix + "/permitted-inputs.json",
+                permitted_reference = profile_raw(
+                    "permitted-inputs.json",
                     canonical_json_bytes(permitted_inputs),
                 )
                 prompt_bytes = (
@@ -674,8 +697,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                         "permitted_inputs": permitted_reference,
                         **rapid_references,
                         "reviewer_output": result_reference,
-                        "reviewer_execution": self.raw(
-                            prefix + "/execution.json",
+                        "reviewer_execution": profile_raw(
+                            "execution.json",
                             canonical_json_bytes(execution),
                         ),
                         "stdout": stdout_reference,
@@ -708,17 +731,35 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             label_decision_id=label_decision["decision_id"],
         )
         conformance_cases = case_document(
-            "conformance", conformance_identity, conformance_bootstrap
+            "conformance", conformance_identity, conformance_bootstrap, None
         )
-        rapid_cases = case_document("rapid_review", rapid_identity, rapid_bootstrap)
+        rapid_cases = case_document(
+            "rapid_review", rapid_identity, rapid_bootstrap, None
+        )
+        deep_conformance_cases = case_document(
+            "conformance", conformance_identity, conformance_bootstrap, "DEEP"
+        )
+        deep_rapid_cases = case_document(
+            "rapid_review", rapid_identity, rapid_bootstrap, "DEEP"
+        )
         conformance_cases_ref = self.write(
-            "conformance-cases.json",
+            "qualification/conformance-cases.json",
             conformance_cases,
             "reviewer-qualification-cases",
         )
         rapid_cases_ref = self.write(
-            "rapid-review-cases.json",
+            "qualification/rapid-review-cases.json",
             rapid_cases,
+            "reviewer-qualification-cases",
+        )
+        deep_conformance_cases_ref = self.write(
+            "context-variants/DEEP/conformance-cases.json",
+            deep_conformance_cases,
+            "reviewer-qualification-cases",
+        )
+        deep_rapid_cases_ref = self.write(
+            "context-variants/DEEP/rapid-review-cases.json",
+            deep_rapid_cases,
             "reviewer-qualification-cases",
         )
 
@@ -751,11 +792,31 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
 
         qualification = qualification_record(conformance_identity, conformance_cases)
         rapid_qualification = qualification_record(rapid_identity, rapid_cases)
+        deep_qualification = qualification_record(
+            conformance_identity, deep_conformance_cases
+        )
+        deep_rapid_qualification = qualification_record(
+            rapid_identity, deep_rapid_cases
+        )
         qualification_ref = self.write(
-            "qualification.json", qualification, "reviewer-qualification"
+            "qualification/conformance.json",
+            qualification,
+            "reviewer-qualification",
         )
         rapid_qualification_ref = self.write(
-            "rapid-qualification.json", rapid_qualification, "reviewer-qualification"
+            "qualification/rapid-review.json",
+            rapid_qualification,
+            "reviewer-qualification",
+        )
+        deep_qualification_ref = self.write(
+            "context-variants/DEEP/conformance.json",
+            deep_qualification,
+            "reviewer-qualification",
+        )
+        deep_rapid_qualification_ref = self.write(
+            "context-variants/DEEP/rapid-review.json",
+            deep_rapid_qualification,
+            "reviewer-qualification",
         )
         policy = deepcopy(json.loads((self.ROOT / "examples/effective-policy.json").read_text()))
         policy["repository_id"] = self.REPOSITORY_ID
@@ -792,23 +853,51 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         policy["sandbox"]["memory_bytes"] = 1000000
         context_qualification = content_address(
             {
-                "schema_version": "2.0.0",
+                "schema_version": "3.0.0",
                 "projection_version": "1.0.0",
                 "profile": "DEEP",
                 "evidence_class": "empirical",
+                "corpus_sha256": corpus_sha,
+                "label_decision_id": label_decision["decision_id"],
+                "measurement_evidence": {
+                    "corpus": qualification_corpus_ref,
+                    "label_decision": label_decision_ref,
+                    "baseline": {
+                        "profile": "DEEP",
+                        "conformance": {
+                            "record": deep_qualification_ref,
+                            "cases": deep_conformance_cases_ref,
+                        },
+                        "rapid_review": {
+                            "record": deep_rapid_qualification_ref,
+                            "cases": deep_rapid_cases_ref,
+                        },
+                    },
+                    "candidate": {
+                        "profile": "DEEP",
+                        "conformance": {
+                            "record": deep_qualification_ref,
+                            "cases": deep_conformance_cases_ref,
+                        },
+                        "rapid_review": {
+                            "record": deep_rapid_qualification_ref,
+                            "cases": deep_rapid_cases_ref,
+                        },
+                    },
+                },
                 "baseline": {
                     "critical_recall": 1.0,
                     "false_passes": 0,
                     "traceability": 1.0,
                     "disposition_correct": True,
-                    "tokens": 30000,
+                    "tokens": 30,
                 },
                 "candidate": {
                     "critical_recall": 1.0,
                     "false_passes": 0,
                     "traceability": 1.0,
                     "disposition_correct": True,
-                    "tokens": 12000,
+                    "tokens": 30,
                 },
                 "qualified": True,
                 "created_at": self.AT,
@@ -1374,6 +1463,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             model="gpt-5.6-sol", reasoning_effort="xhigh",
             context_qualification=context_qualification,
             protected_qualification_ids=policy["context"]["qualification_ids"],
+            qualification_artifact_reader=lambda reference: (
+                self.repository / reference["path"]
+            ).read_bytes(),
+            qualification_schema_root=self.ROOT / "schemas",
+            qualification_repository_id=self.REPOSITORY_ID,
+            qualification_verified_decision_ids=frozenset(
+                {label_decision["decision_id"]}
+            ),
+            qualification_evaluated_at=self.AT,
+            qualification_prompt_bytes=self.protected_prompt_bytes,
         )
         context_sources_ref = self.write(
             "context-sources.json",
@@ -1659,14 +1758,84 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "started_at": self.AT, "ended_at": self.ENDED, "producer_version": "test",
             "provenance": {"produced_by": "fixture", "method": "investigation", "source_refs": ["CHARTER-FIXTURE"]},
         }
+        rapid_retrieval_expansions = []
+        if rapid_retrieval_defect is not None:
+            locator_paths = {
+                document["path"]: document["artifact_sha256"]
+                for reference in locator_refs
+                for document in [
+                    json.loads(
+                        (self.repository / reference["path"]).read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                ]
+                if document.get("kind") in {"artifact", "repository_file"}
+            }
+            valid_reference, valid_digest = next(
+                (reference, digest)
+                for reference, digest in compiled_context[
+                    "retrieval_index"
+                ].items()
+                if locator_paths.get(reference) == digest
+            )
+            rapid_retrieval_expansions = [
+                {
+                    "reference": (
+                        observation["path"]
+                        if rapid_retrieval_defect == "unauthorized-artifact"
+                        else valid_reference
+                    ),
+                    "sha256": (
+                        observation["sha256"]
+                        if rapid_retrieval_defect == "unauthorized-artifact"
+                        else valid_digest
+                    ),
+                    "level": "complete_artifact",
+                    "reason": "inspect the exact implementation",
+                }
+            ]
+            session["retrieval_expansions"] = rapid_retrieval_expansions
+        if rapid_finding_defect is not None:
+            session["findings"] = [
+                {
+                    "finding_id": "RAPID-FINDING-1",
+                    "path": (
+                        "src/missing.py"
+                        if rapid_finding_defect == "missing-path"
+                        else "src/service.py"
+                    ),
+                    "line": 99 if rapid_finding_defect == "out-of-range-line" else 1,
+                    "claim": "The rapid review found a concrete defect.",
+                    "impact": "The governed behavior may be incorrect.",
+                    "severity": "high",
+                    "confidence": "high",
+                    "oracle": "GOV-052",
+                    "evidence_refs": [
+                        locator["locator_id"]
+                        if rapid_finding_defect == "swapped-locator"
+                        else source_locator["locator_id"]
+                    ],
+                    "threatened_value": "correctness",
+                }
+            ]
         session_ref = self.write("session.json", session, "rapid-review-session")
         rapid_context_execution = finalize_context_receipt(
             context_receipt,
             review_mode="rapid_review",
             reviewer_output_sha256=session_ref["sha256"],
-            retrieval_expansions=[],
+            retrieval_expansions=(
+                []
+                if rapid_retrieval_defect == "unauthorized-artifact"
+                else rapid_retrieval_expansions
+            ),
             retrieval_index=compiled_context["retrieval_index"],
-            artifact_reader=None,
+            artifact_reader=(
+                (lambda reference: (self.repository / reference).read_bytes())
+                if rapid_retrieval_expansions
+                and rapid_retrieval_defect != "unauthorized-artifact"
+                else None
+            ),
             usage_observed=True,
             actual_input_tokens=120,
             actual_output_tokens=30,
@@ -1677,6 +1846,13 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             created_at=self.ENDED,
             limitations=["fixture"],
         )
+        if rapid_retrieval_defect == "unauthorized-artifact":
+            rapid_context_execution["retrieval_expansions"] = (
+                rapid_retrieval_expansions
+            )
+            rapid_context_execution = content_address(
+                rapid_context_execution, "execution_receipt_id"
+            )
         rapid_context_execution_ref = self.write(
             "rapid-context-execution.json",
             rapid_context_execution,
@@ -1777,7 +1953,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "task_contract_sha256": task_sha, "debrief_id": "DEBRIEF-FIXTURE",
             "candidate_id": self.CANDIDATE_ID, "session_refs": [session["session_id"]],
             "product_story": story, "testing_story": story, "quality_of_testing_story": story,
-            "actionable_findings": [], "residual_risks": ["RESIDUAL-1"],
+            "actionable_findings": (
+                ["RAPID-FINDING-1"] if rapid_finding_defect is not None else []
+            ), "residual_risks": ["RESIDUAL-1"],
             "created_at": self.AT, "producer_version": "test",
             "provenance": {"produced_by": "fixture", "method": "debrief", "source_refs": ["SESSION-FIXTURE"]},
         }
@@ -1786,12 +1964,51 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "schema_version": "1.0.0", "risk_disposition_id": "RISK-DISPOSITION-FIXTURE",
             "repository_id": self.REPOSITORY_ID, "task_contract_sha256": task_sha,
             "candidate_id": self.CANDIDATE_ID, "debrief_sha256": debrief_ref["sha256"],
-            "items": [{"item_id": "RESIDUAL-1", "kind": "residual_risk", "severity": "low", "disposition": "remediated", "rationale": "bounded evidence", "evidence_refs": [locator["locator_id"]], "decision_ref": ""}],
+            "items": [
+                *(
+                    [
+                        {
+                            "item_id": "RAPID-FINDING-1",
+                            "kind": "finding",
+                            "severity": "high",
+                            "disposition": "remediated",
+                            "rationale": "fixture remediation",
+                            "evidence_refs": [source_locator["locator_id"]],
+                            "decision_ref": "",
+                        }
+                    ]
+                    if rapid_finding_defect is not None
+                    else []
+                ),
+                {"item_id": "RESIDUAL-1", "kind": "residual_risk", "severity": "low", "disposition": "remediated", "rationale": "bounded evidence", "evidence_refs": [locator["locator_id"]], "decision_ref": ""},
+            ],
             "state": "READY_FOR_HUMAN", "human_owned": True, "approved": False,
             "created_at": self.AT, "producer_version": "test",
             "provenance": {"produced_by": "fixture", "method": "deterministic", "source_refs": ["DEBRIEF-FIXTURE"]},
         }
         risk_disposition_ref = self.write("risk-disposition.json", risk_disposition, "risk-disposition")
+        follow_up_refs = []
+        if rapid_finding_defect is not None:
+            follow_up = content_address(
+                {
+                    "schema_version": "1.0.0",
+                    "repository_id": self.REPOSITORY_ID,
+                    "task_contract_sha256": task_sha,
+                    "candidate_id": self.CANDIDATE_ID,
+                    "kind": "charter",
+                    "source_kind": "reviewer_finding",
+                    "source_id": "RAPID-FINDING-1",
+                    "description": "Verify the fixture remediation.",
+                    "priority": "high",
+                    "required": True,
+                    "status": "completed",
+                    "created_at": self.AT,
+                },
+                "follow_up_id",
+            )
+            follow_up_refs.append(
+                self.write("rapid-follow-up.json", follow_up, "follow-up")
+            )
         risk_register = content_address(
             {
                 "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
@@ -1867,7 +2084,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "rapid_review_executions": [rapid_execution_ref],
                 "rapid_review_context_execution_receipts": [rapid_context_execution_ref],
                 "risk_register": risk_register_ref, "oracle_references": [oracle_ref],
-                "coverage_notes": [coverage_ref], "follow_ups": [], "assurance_case": assurance_ref,
+                "coverage_notes": [coverage_ref], "follow_ups": follow_up_refs, "assurance_case": assurance_ref,
                 "risk_assessment": risk_ref, "rapid_review_charters": [charter_ref],
                 "rapid_review_sessions": [session_ref], "rapid_review_debrief": debrief_ref,
                 "risk_disposition": risk_disposition_ref, "created_at": self.AT,
@@ -2274,6 +2491,107 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "swapped-finding-locator",
         ):
             manifest = self.complete_manifest(reviewer_defect=defect)
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_rapid_findings_require_concrete_digest_bound_locations(self) -> None:
+        valid_manifest = self.complete_manifest(rapid_finding_defect="valid")
+        valid_state, valid_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=valid_manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(valid_manifest),
+        )
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN, valid_state, valid_reasons
+        )
+
+        for defect in ("missing-path", "out-of-range-line", "swapped-locator"):
+            manifest = self.complete_manifest(rapid_finding_defect=defect)
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_rapid_retrieval_uses_the_protected_index_and_exact_bytes(self) -> None:
+        valid_manifest = self.complete_manifest(rapid_retrieval_defect="valid")
+        valid_state, valid_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=valid_manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(valid_manifest),
+        )
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN, valid_state, valid_reasons
+        )
+
+        manifest = self.complete_manifest(
+            rapid_retrieval_defect="unauthorized-artifact"
+        )
+        state, _ = evaluate_manifest(
+            repository=self.repository,
+            manifest=manifest,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(manifest),
+        )
+        self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_context_qualification_reconstructs_raw_profile_executions(self) -> None:
+        for defect in ("missing", "tampered"):
+            manifest = self.complete_manifest()
+            context_qualification = json.loads(
+                (
+                    self.repository / manifest["context_qualification"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            cases_reference = context_qualification["measurement_evidence"][
+                "candidate"
+            ]["conformance"]["cases"]
+            cases = json.loads(
+                (self.repository / cases_reference["path"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            raw_reference = cases["observations"][0]["stdout"]
+            raw_suffix = raw_reference["path"].removeprefix(
+                "qualification/DEEP/"
+            )
+            raw_path = (
+                self.repository
+                / Path(cases_reference["path"]).parent
+                / "raw"
+                / "DEEP"
+                / raw_suffix
+            )
+            if defect == "missing":
+                raw_path.unlink()
+            else:
+                raw_path.write_bytes(raw_path.read_bytes() + b"tampered\n")
             state, _ = evaluate_manifest(
                 repository=self.repository,
                 manifest=manifest,

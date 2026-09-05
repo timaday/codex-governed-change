@@ -52,6 +52,7 @@ from codex_governance.evidence import (
     candidate_prefix,
     evaluate_manifest,
     load_referenced_json,
+    read_reference,
     repository_reference,
 )
 from codex_governance.gate import run_gate
@@ -923,6 +924,19 @@ def _prepare_review(args: argparse.Namespace) -> int:
             for profile in profile_rank
         },
         minimum_profile=context_policy["default_profile"],
+        qualification_artifact_reader=lambda reference: read_reference(
+            repository=args.qualification_repository,
+            reference=reference,
+        ),
+        qualification_schema_root=args.schema_root,
+        qualification_repository_id=policy["repository_id"],
+        qualification_verified_decision_ids=frozenset(
+            {policy["reviewer"]["qualification_label_decision_id"]}
+        ),
+        qualification_evaluated_at=args.observed_at,
+        qualification_prompt_bytes=read_bounded_path_file(
+            args.qualification_prompt
+        ),
     )
     _write_cli_output(args, "sources_output", compiled["source_bundle"])
     _write_cli_output(args, "projection_output", compiled["projection"])
@@ -1233,6 +1247,21 @@ def _review(args: argparse.Namespace) -> int:
             for profile in ("COMPACT", "STANDARD", "DEEP")
         },
         minimum_profile=context_policy["default_profile"],
+        qualification_artifact_reader=lambda reference: read_reference(
+            repository=(
+                args.repository
+                / policy["evidence_root"]
+                / "context-qualification-authority"
+            ),
+            reference=reference,
+        ),
+        qualification_schema_root=args.authority_root / args.schema_root,
+        qualification_repository_id=policy["repository_id"],
+        qualification_verified_decision_ids=frozenset(
+            {policy["reviewer"]["qualification_label_decision_id"]}
+        ),
+        qualification_evaluated_at=str(context_sources.get("created_at")),
+        qualification_prompt_bytes=prompt_bytes,
     )
     context_chain_exact = bool(
         declared_artifacts == reconstructed_artifacts
@@ -1597,6 +1626,11 @@ def _evaluate(args: argparse.Namespace) -> int:
             require_sha256(item, name="verified_decision_id")
             for item in args.verified_decision_id
         ),
+        qualification_repository=(
+            args.repository
+            / policy["evidence_root"]
+            / "context-qualification-authority"
+        ),
     )
     disposition = {
         "schema_version": "1.0.0",
@@ -1736,6 +1770,8 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--gate-summary", type=Path, required=True)
     prepare.add_argument("--mutation-summary", type=Path, required=True)
     prepare.add_argument("--context-qualification", type=Path, required=True)
+    prepare.add_argument("--qualification-repository", type=Path, required=True)
+    prepare.add_argument("--qualification-prompt", type=Path, required=True)
     prepare.add_argument("--sources", type=Path)
     prepare.add_argument("--candidate", type=Path, required=True)
     prepare.add_argument("--profile", choices=("COMPACT", "STANDARD", "DEEP"), required=True)

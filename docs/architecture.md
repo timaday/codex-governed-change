@@ -318,9 +318,11 @@ reviewer deadline. Cleanup completion is evidence and never promotes an already
 incomplete run.
 
 The outer subreaper has a separate pre-launch procfs adapter. It compares
-`/proc/self/stat` PID and PPID with the process API, checks the innermost `NSpid`
-when present, and performs a complete direct-child enumeration before creating
-the first boundary child. This observation is required even though the inner
+`/proc/self/stat` PID and PPID with the process API, requires exactly one
+`NSpid` field, parses every listed namespace PID as a positive decimal value,
+checks that the innermost value is the process API's self PID, and performs a
+complete direct-child enumeration before creating the first boundary child.
+This observation is required even though the inner
 namespace later remounts and validates its own procfs. Failure prevents launch
 and is reported as unavailable containment.
 
@@ -469,7 +471,11 @@ The rapid-review policy receives the protected set of resolved evidence-locator
 identities; a non-empty string outside that set is not evidence. The operational
 RST policy separately reconstructs the complete typed graph linking risk
 sources, charters, sessions, oracles, coverage, debrief, follow-ups and risk
-disposition. Presence-only validation is never an admission input.
+disposition. Every rapid finding also resolves its claimed repository path and
+line through that locator set. Follow-up edges are derived exactly from all
+surprising observations, surviving mutants and conformance or rapid findings;
+missing, extra or duplicate edges and duplicate debrief references are
+`UNKNOWN`. Presence-only validation is never an admission input.
 
 Protected changed-surface obligations and the authenticated task define a
 minimum risk and rapid-review floor. A candidate-supplied risk assessment may

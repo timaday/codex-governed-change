@@ -349,6 +349,7 @@ def evaluate_manifest(
     current_candidate: Mapping[str, Any],
     evaluated_at: str,
     verified_decision_ids: frozenset[str] = frozenset(),
+    qualification_repository: Path | None = None,
 ) -> tuple[DispositionState, list[str]]:
     """Reconstruct all fixed assurance claims from raw typed references."""
     if not isinstance(protected_prompt_bytes, bytes):
@@ -493,14 +494,19 @@ def evaluate_manifest(
             if line > len(source.splitlines()):
                 return False
             for reference in references:
-                if not isinstance(reference, Mapping):
+                if isinstance(reference, str):
+                    locator_id = reference
+                    referenced_digest = resolved_locators.get(locator_id)
+                elif isinstance(reference, Mapping):
+                    locator_id = reference.get("locator_id")
+                    referenced_digest = reference.get("sha256")
+                else:
                     continue
-                locator_id = reference.get("locator_id")
                 locator = locator_by_id.get(str(locator_id))
                 if (
                     not isinstance(locator, Mapping)
                     or resolved_locators.get(str(locator_id))
-                    != reference.get("sha256")
+                    != referenced_digest
                     or locator.get("kind")
                     not in {"repository_file", "repository_excerpt"}
                     or normalize_repo_path(locator.get("path")) != path
@@ -1398,6 +1404,7 @@ def evaluate_manifest(
     else:
         upstream["mutation"] = "success"
 
+    reconstructed_retrieval_index: Mapping[str, str] | None = None
     try:
         context_sources = load(manifest["context_sources"], "context-source-bundle")
         context_projection = load(
@@ -1468,7 +1475,17 @@ def evaluate_manifest(
                 for profile in ("COMPACT", "STANDARD", "DEEP")
             },
             minimum_profile=policy["context"]["default_profile"],
+            qualification_artifact_reader=lambda reference: read_reference(
+                repository=(qualification_repository or repository),
+                reference=reference,
+            ),
+            qualification_schema_root=schema_root,
+            qualification_repository_id=repository_id,
+            qualification_verified_decision_ids=verified_decision_ids,
+            qualification_evaluated_at=evaluated_at,
+            qualification_prompt_bytes=prompt_bytes,
         )
+        reconstructed_retrieval_index = reconstructed["retrieval_index"]
         context_ok = (
             verify_content_address(context_sources, "source_bundle_id")
             and verify_content_address(context_projection, "projection_id")
@@ -2097,6 +2114,12 @@ def evaluate_manifest(
                 isinstance(locator_id, str) and locator_id in resolved_locators
                 for locator_id in locator_ids
             )
+            rapid_bindings = rapid_bindings and all(
+                isinstance(finding, Mapping)
+                and finding_location_resolves(finding)
+                for session in sessions
+                for finding in session.get("findings", ())
+            )
             evidence_index: dict[str, str] = {}
             for locator_id, resolved_digest in resolved_locators.items():
                 locator = locator_by_id.get(locator_id, {})
@@ -2106,6 +2129,25 @@ def evaluate_manifest(
                 if isinstance(artifact_digest, str):
                     if isinstance(path, str):
                         evidence_index[path] = artifact_digest
+            rapid_bindings = (
+                rapid_bindings
+                and isinstance(reconstructed_retrieval_index, Mapping)
+                and all(
+                validate_retrieval_expansions(
+                    retrieval_expansions=session.get("retrieval_expansions", ()),
+                    retrieval_index=reconstructed_retrieval_index,
+                    artifact_reader=lambda reference: read_reference(
+                        repository=repository,
+                        reference={
+                            "path": reference,
+                            "sha256": reconstructed_retrieval_index[reference],
+                        },
+                    ),
+                )
+                == session.get("retrieval_expansions", ())
+                for session in sessions
+                )
+            )
             lineage_ok = (
                 validate_rst_lineage(
                     repository_id,
@@ -2123,9 +2165,8 @@ def evaluate_manifest(
                     evidence_index=evidence_index,
                     charter_digests=charter_sha_by_id,
                     debrief_digest=manifest["rapid_review_debrief"]["sha256"],
-                    mutant_ids={
-                        record["mutant_id"] for record in mutation_records
-                    },
+                    mutation_records=mutation_records,
+                    reviewer_findings=reviewer.get("findings", ()),
                 )
                 is DispositionState.READY_FOR_HUMAN
             )

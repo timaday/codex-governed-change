@@ -81,15 +81,20 @@ def _procfs_containment_available() -> bool:
         if int(pid_text.strip()) != os.getpid() or int(fields[1]) != os.getppid():
             return False
         status = Path("/proc/self/status").read_text(encoding="ascii")
-        namespace_pid = next(
-            (
-                line.split(":", 1)[1].split()
-                for line in status.splitlines()
-                if line.startswith("NSpid:")
-            ),
-            None,
-        )
-        if not namespace_pid or int(namespace_pid[-1]) != os.getpid():
+        namespace_lines = [
+            line.split(":", 1)[1].split()
+            for line in status.splitlines()
+            if line.startswith("NSpid:")
+        ]
+        if len(namespace_lines) != 1 or not namespace_lines[0]:
+            return False
+        namespace_pids = namespace_lines[0]
+        if any(
+            not value.isascii()
+            or not value.isdecimal()
+            or int(value) < 1
+            for value in namespace_pids
+        ) or int(namespace_pids[-1]) != os.getpid():
             return False
         _direct_children()
         return True

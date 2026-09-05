@@ -96,6 +96,43 @@ def migrate_context_qualification_v1_to_v2(
     return content_address(migrated, "qualification_id")
 
 
+def migrate_context_qualification_v2_to_v3(
+    document: Mapping[str, Any], *, corpus_sha256: str | None = None,
+    label_decision_id: str | None = None,
+    measurement_evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind legacy context metrics to separately protected measurements."""
+    from codex_governance.canonical import require_sha256
+
+    migrated = _migration_document(
+        document, from_version="2.0.0", identity_field="qualification_id"
+    )
+    if {
+        "corpus_sha256", "label_decision_id", "measurement_evidence"
+    } & set(migrated):
+        raise ValueError("legacy context qualification already contains v3 fields")
+    if migrated.get("evidence_class") == "empirical":
+        if measurement_evidence is None:
+            raise ValueError("empirical context qualification evidence is required")
+        migrated["corpus_sha256"] = require_sha256(corpus_sha256)
+        migrated["label_decision_id"] = require_sha256(label_decision_id)
+        migrated["measurement_evidence"] = dict(measurement_evidence)
+    elif migrated.get("evidence_class") == "synthetic_bootstrap":
+        if any(
+            item is not None
+            for item in (corpus_sha256, label_decision_id, measurement_evidence)
+        ):
+            raise ValueError("synthetic bootstrap cannot acquire empirical evidence")
+        migrated["qualified"] = False
+        if not migrated.get("limitations"):
+            raise ValueError("synthetic bootstrap limitation is required")
+    else:
+        raise ValueError("context qualification evidence class is invalid")
+    return _finish_migration(
+        migrated, to_version="3.0.0", identity_field="qualification_id"
+    )
+
+
 def migrate_sandbox_capability_v1_to_v2(
     document: Mapping[str, Any], *, image: str, command: Sequence[str]
 ) -> dict[str, Any]:
@@ -806,6 +843,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-execution", "4.0.0", "5.0.0"): migrate_reviewer_execution_v4_to_v5,
     ("rollback-evidence", "1.0.0", "2.0.0"): migrate_rollback_evidence_v1_to_v2,
     ("context-qualification", "1.0.0", "2.0.0"): migrate_context_qualification_v1_to_v2,
+    ("context-qualification", "2.0.0", "3.0.0"): migrate_context_qualification_v2_to_v3,
     ("context-receipt", "1.0.0", "2.0.0"): migrate_context_receipt_v1_to_v2,
     ("sandbox-capability", "1.0.0", "2.0.0"): migrate_sandbox_capability_v1_to_v2,
     ("provenance-statement", "1.0.0", "2.0.0"): migrate_provenance_statement_v1_to_v2,

@@ -150,7 +150,8 @@ home-directory, host or local endpoint values in policy or committed artifacts.
 `prepare-review` reports the non-authoritative component state `CONTEXT_READY`;
 only `evaluate` may report or successfully return `READY_FOR_HUMAN`.
 `prepare-review` requires the repository, policy, task, candidate, complete gate
-and mutation summaries, protected context qualification, protected observation
+and mutation summaries, protected context qualification repository and prompt,
+protected observation
 time, profile/model/effort and exact policy-selected budget. It re-identifies the
 candidate, derives and hashes the complete conservative Git-visible closure, and
 writes separate source-bundle, projection and prepared-receipt artifacts. Any

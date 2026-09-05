@@ -6,11 +6,14 @@
   "additionalProperties": false,
   "required": ["schema_version", "qualification_id", "projection_version", "profile", "evidence_class", "baseline", "candidate", "qualified", "created_at", "limitations"],
   "properties": {
-    "schema_version": {"const": "2.0.0"},
+    "schema_version": {"const": "3.0.0"},
     "qualification_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "projection_version": {"type": "string", "minLength": 1},
     "profile": {"enum": ["COMPACT", "STANDARD", "DEEP"]},
     "evidence_class": {"enum": ["empirical", "synthetic_bootstrap"]},
+    "corpus_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "label_decision_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "measurement_evidence": {"$ref": "#/$defs/measurementEvidence"},
     "baseline": {"$ref": "#/$defs/metrics"},
     "candidate": {"$ref": "#/$defs/metrics"},
     "qualified": {"type": "boolean"},
@@ -18,6 +21,45 @@
     "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
   },
   "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "modeEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "cases"],
+      "properties": {
+        "record": {"$ref": "#/$defs/reference"},
+        "cases": {"$ref": "#/$defs/reference"}
+      }
+    },
+    "profileEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "conformance", "rapid_review"],
+      "properties": {
+        "profile": {"enum": ["COMPACT", "STANDARD", "DEEP"]},
+        "conformance": {"$ref": "#/$defs/modeEvidence"},
+        "rapid_review": {"$ref": "#/$defs/modeEvidence"}
+      }
+    },
+    "measurementEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpus", "label_decision", "baseline", "candidate"],
+      "properties": {
+        "corpus": {"$ref": "#/$defs/reference"},
+        "label_decision": {"$ref": "#/$defs/reference"},
+        "baseline": {"$ref": "#/$defs/profileEvidence"},
+        "candidate": {"$ref": "#/$defs/profileEvidence"}
+      }
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": false,

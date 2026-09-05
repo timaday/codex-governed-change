@@ -149,22 +149,27 @@ def resolve_reviewer_runtime_read_roots(
         raise ValueError("Codex executable is unavailable on the sanitized PATH")
 
     executable_paths = {Path(executable).resolve()}
-    node = shutil.which("node", path=search_path)
-    if node is not None:
-        executable_paths.add(Path(node).resolve())
+    if Path(codex_executable).name == "codex":
+        node = shutil.which("node", path=search_path)
+        if node is not None:
+            executable_paths.add(Path(node).resolve())
 
     home_value = source.get("HOME") or source.get("USERPROFILE")
     home = Path(home_value).resolve() if isinstance(home_value, str) and home_value else None
     roots = []
     for executable_path in executable_paths:
         candidate = _runtime_prefix(executable_path)
-        if home is not None and candidate == home:
-            candidate = executable_path.parent
         candidate = candidate.resolve()
         if (
             not candidate.is_absolute()
             or candidate == Path(candidate.anchor)
-            or (home is not None and _path_contains(candidate, home))
+            or (
+                home is not None
+                and (
+                    _path_contains(candidate, home)
+                    or _path_contains(home, candidate)
+                )
+            )
         ):
             raise ValueError("reviewer runtime read root is unsafe")
         roots.append(candidate)

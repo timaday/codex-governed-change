@@ -37,11 +37,16 @@ selection precedes profile-specific budget and qualification checks.
 Preparation, the isolated reviewer and admission independently reconstruct the
 same closure, profile, index, projection and disclosed bytes. A lower requested
 profile cannot pin a lower qualification after protected signals escalate it.
+Every reported retrieval expansion must also exist in that reconstructed index;
+its exact bytes are descriptor-read and re-hashed at review finalization and
+again at admission.
 
 Context qualification distinguishes protected empirical measurements from an
 explicitly unqualified synthetic bootstrap used only while constructing
 qualification cases. Production preparation, review and admission accept only
-the empirical class.
+the empirical class and replay its protected corpus, label decision, both review
+modes, per-case records and raw reviewer executions before accepting aggregate
+metrics.
 
 Context variants are promotable only when a labelled defect/governance corpus
 shows no material regression in critical recall, evidence traceability or

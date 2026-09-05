@@ -39,9 +39,11 @@ kernel capability forces `UNKNOWN`. A racy zombie-only scan cannot establish
 initial success, and cleanup completion remains separate from execution validity.
 Before any boundary child launches, the outer supervisor must also prove that
 its procfs view reports the same self PID and parent PID as the process API,
-that any namespace PID list ends in that self PID, and that direct-child
-enumeration succeeds. This preflight is distinct from the inner namespace
-handshake; failure returns `UNKNOWN` without launching candidate-controlled code.
+that exactly one namespace PID list exists, that every token in that list is a
+positive decimal PID, that its final token is that self PID, and that
+direct-child enumeration succeeds. This preflight is distinct from the inner
+namespace handshake; failure returns `UNKNOWN` without launching
+candidate-controlled code.
 
 Runtime read grants are canonical and pairwise non-overlapping after redundant
 descendant installation roots are coalesced. They cannot equal or contain a

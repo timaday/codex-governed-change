@@ -63,6 +63,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             "explicit_required",
             migration_policy("rollback-evidence", "1.0.0", "2.0.0"),
         )
+        self.assertEqual(
+            "explicit_required",
+            migration_policy("context-qualification", "2.0.0", "3.0.0"),
+        )
         for kind in (
             "effective-policy",
             "evidence-manifest",
@@ -115,6 +119,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         from codex_governance.lifecycle import (
             EXECUTABLE_MIGRATIONS,
             migrate_context_qualification_v1_to_v2,
+            migrate_context_qualification_v2_to_v3,
             migrate_context_receipt_v1_to_v2,
             migrate_effective_policy_v1_to_v2,
             migrate_effective_policy_v2_to_v3,
@@ -519,7 +524,16 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("rollback-evidence", rebuilt_rollback)
         observed.add(("rollback-evidence", "1.0.0", "2.0.0"))
 
-        context_qualification_v2 = example("context-qualification")
+        context_qualification_v3 = example("context-qualification")
+        measurement_evidence = context_qualification_v3["measurement_evidence"]
+        corpus_sha256 = context_qualification_v3["corpus_sha256"]
+        label_decision_id = context_qualification_v3["label_decision_id"]
+        context_qualification_v2 = deepcopy(context_qualification_v3)
+        for name in ("measurement_evidence", "corpus_sha256", "label_decision_id"):
+            context_qualification_v2.pop(name)
+        context_qualification_v2 = addressed(
+            context_qualification_v2, "2.0.0", "qualification_id"
+        )
         evidence_class = context_qualification_v2["evidence_class"]
         context_qualification_v1 = deepcopy(context_qualification_v2)
         context_qualification_v1.pop("evidence_class")
@@ -531,8 +545,28 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             context_qualification_v1, evidence_class=evidence_class
         )
         self.assertEqual(context_qualification_v2, rebuilt_context_qualification)
-        current("context-qualification", rebuilt_context_qualification)
         observed.add(("context-qualification", "1.0.0", "2.0.0"))
+        rebuilt_context_qualification_v3 = migrate_context_qualification_v2_to_v3(
+            context_qualification_v2,
+            corpus_sha256=corpus_sha256,
+            label_decision_id=label_decision_id,
+            measurement_evidence=measurement_evidence,
+        )
+        self.assertEqual(context_qualification_v3, rebuilt_context_qualification_v3)
+        current("context-qualification", rebuilt_context_qualification_v3)
+        observed.add(("context-qualification", "2.0.0", "3.0.0"))
+
+        synthetic_v2 = deepcopy(context_qualification_v2)
+        synthetic_v2["evidence_class"] = "synthetic_bootstrap"
+        synthetic_v2["qualified"] = False
+        synthetic_v2["limitations"] = ["Bootstrap evidence is not empirical."]
+        synthetic_v2 = addressed(
+            synthetic_v2, "2.0.0", "qualification_id"
+        )
+        synthetic_v3 = migrate_context_qualification_v2_to_v3(synthetic_v2)
+        current("context-qualification", synthetic_v3)
+        self.assertEqual("3.0.0", synthetic_v3["schema_version"])
+        self.assertNotIn("measurement_evidence", synthetic_v3)
 
         receipt_v2 = example("context-receipt")
         qualification_id = receipt_v2["context_qualification_id"]

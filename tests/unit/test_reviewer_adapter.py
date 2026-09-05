@@ -212,13 +212,19 @@ class ReviewerAdapterTest(unittest.TestCase):
         return executable
 
     def command(self, executable: Path) -> list[str]:
-        return build_reviewer_command(
-            codex_executable=str(executable),
-            model="fake-gpt",
-            schema_path=self.harness["schema"],
-            output_path=self.harness["output"],
-            review_root=self.harness["root"],
-        )
+        # The fake executable is the whole deterministic runtime. Do not inherit
+        # a developer PATH (for example a home-installed Node runtime).
+        with patch(
+            "codex_governance.reviewer.resolve_reviewer_runtime_read_roots",
+            return_value=(self.runtime_bin.parent,),
+        ):
+            return build_reviewer_command(
+                codex_executable=str(executable),
+                model="fake-gpt",
+                schema_path=self.harness["schema"],
+                output_path=self.harness["output"],
+                review_root=self.harness["root"],
+            )
 
     def stdin(self) -> str:
         return build_reviewer_stdin(
@@ -239,7 +245,10 @@ class ReviewerAdapterTest(unittest.TestCase):
         command[permission_index] = command[permission_index].replace(
             "network={enabled=false}", "network={enabled=true}"
         )
-        with self.assertRaisesRegex(ValueError, "permission profile"):
+        with patch(
+            "codex_governance.reviewer.resolve_reviewer_runtime_read_roots",
+            return_value=(self.runtime_bin.parent,),
+        ), self.assertRaisesRegex(ValueError, "permission profile"):
             _validate_portable_reviewer_command(
                 command, model="fake-gpt", reasoning_effort="xhigh"
             )
@@ -1217,7 +1226,11 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         executable.write_text("#!/bin/sh\n", encoding="utf-8")
         executable.chmod(0o755)
         roots = resolve_reviewer_runtime_read_roots(
-            "codex", environment={"PATH": str(install), "HOME": self.temporary.name}
+            "codex",
+            environment={
+                "PATH": str(install),
+                "HOME": str(Path(self.temporary.name) / "reviewer-home"),
+            },
         )
         self.assertEqual((install.parent,), roots)
         profile = build_reviewer_permission_profile(roots)
@@ -1227,6 +1240,22 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertEqual(profile, coalesced)
         with self.assertRaisesRegex(ValueError, "unsafe"):
             build_reviewer_permission_profile([Path(Path.cwd().anchor)])
+
+    def test_runtime_profile_rejects_home_overlap_in_both_directions(self) -> None:
+        root = Path(self.temporary.name)
+        install = root / "runtime" / "bin"
+        install.mkdir(parents=True, exist_ok=True)
+        executable = install / "codex"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+        for home in (root, install.parent / "user-home"):
+            with self.subTest(home=home), self.assertRaisesRegex(
+                ValueError, "unsafe"
+            ):
+                resolve_reviewer_runtime_read_roots(
+                    "codex",
+                    environment={"PATH": str(install), "HOME": str(home)},
+                )
 
     def test_runtime_profile_rejects_harness_and_runtime_root_overlap(self) -> None:
         runtime = Path(self.temporary.name) / "runtime"
@@ -1274,6 +1303,33 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
 
         self.assertEqual([], launched)
         self.assertEqual(False, statuses[0]["boundary_available"])
+
+    def test_procfs_nspid_requires_one_fully_parsed_positive_pid_line(self) -> None:
+        pid = os.getpid()
+        ppid = os.getppid()
+
+        def check(status: str) -> bool:
+            def read_text(path: Path, **_kwargs: object) -> str:
+                if str(path).endswith("/stat"):
+                    return f"{pid} (python) S {ppid}\n"
+                if str(path).endswith("/status"):
+                    return status
+                raise AssertionError(path)
+
+            with patch.object(
+                Path, "read_text", autospec=True, side_effect=read_text
+            ), patch.object(reviewer_supervisor, "_direct_children", return_value={}):
+                return reviewer_supervisor._procfs_containment_available()
+
+        self.assertTrue(check(f"Name:\tpython\nNSpid:\t99 {pid}\n"))
+        for status in (
+            f"NSpid:\t99 {pid}\nNSpid:\t99 {pid}\n",
+            f"NSpid:\tbroken {pid}\n",
+            f"NSpid:\t0 {pid}\n",
+            f"NSpid:\t99 +{pid}\n",
+        ):
+            with self.subTest(status=status):
+                self.assertFalse(check(status))
 
     def test_unavailable_malformed_timeout_and_drift_are_unknown(self) -> None:
         unavailable = launch_reviewer(
@@ -1941,11 +1997,15 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
             "'reasoning_output_tokens': 1}}))\n"
         )
         output = Path(self.temporary.name) / "rapid-session.json"
-        command = build_reviewer_command(
-            codex_executable=str(fake), model="fake-gpt",
-            schema_path=Path("schemas/rapid-review-session.schema.json"),
-            output_path=output, review_root=self.harness["root"],
-        )
+        with patch(
+            "codex_governance.reviewer.resolve_reviewer_runtime_read_roots",
+            return_value=(self.runtime_bin.parent,),
+        ):
+            command = build_reviewer_command(
+                codex_executable=str(fake), model="fake-gpt",
+                schema_path=Path("schemas/rapid-review-session.schema.json"),
+                output_path=output, review_root=self.harness["root"],
+            )
         expected = {
             "repository_id": "repo:example/project",
             "candidate_id": self.CANDIDATE,

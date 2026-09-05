@@ -19,10 +19,6 @@ permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: governed-disposition-broker
-  cancel-in-progress: false
-
 jobs:
   governed_disposition:
     if: >-

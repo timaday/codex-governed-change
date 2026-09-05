@@ -520,6 +520,18 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             self.assertFalse((repository / "artifacts/governance/scope.json").exists())
 
     def test_prepare_review_emits_schema_valid_receipt_and_budget_blocks(self) -> None:
+        from tests.acceptance.test_evidence_reconstruction import (
+            EvidenceReconstructionAcceptanceTest,
+        )
+
+        qualification_fixture = EvidenceReconstructionAcceptanceTest(
+            "test_only_reconstructable_exact_candidate_manifest_is_ready"
+        )
+        qualification_fixture.setUp()
+        self.addCleanup(qualification_fixture.tearDown)
+        qualification_manifest = qualification_fixture.complete_manifest()
+        qualification_reference = qualification_manifest["context_qualification"]
+        qualification_repository = qualification_fixture.repository
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = root / "candidate"
@@ -555,17 +567,19 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             policy = json.loads(
                 (self.ROOT / "examples/effective-policy.json").read_text(encoding="utf-8")
             )
-            policy["repository_id"] = "repo:example/context-fixture"
+            policy["repository_id"] = qualification_fixture.REPOSITORY_ID
             policy["lkg_governance_commit"] = base
             qualification = json.loads(
-                (self.ROOT / "examples/context-qualification.json").read_text(
-                    encoding="utf-8"
-                )
+                (
+                    qualification_repository
+                    / qualification_reference["path"]
+                ).read_text(encoding="utf-8")
             )
-            qualification["profile"] = "DEEP"
-            qualification = content_address(qualification, "qualification_id")
             policy["context"]["qualification_ids"]["DEEP"] = qualification[
                 "qualification_id"
+            ]
+            policy["reviewer"]["qualification_label_decision_id"] = qualification[
+                "label_decision_id"
             ]
             policy_path = root / "policy.json"
             policy_path.write_bytes(canonical_json_bytes(policy))
@@ -733,6 +747,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--qualification-repository", str(qualification_repository),
+                "--qualification-prompt", str(
+                    self.ROOT / ".codex/review/reviewer.prompt.md"
+                ),
                 "--candidate", str(candidate_path), "--profile", "DEEP",
                 "--token-budget", "64000",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
@@ -775,6 +793,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--qualification-repository", str(qualification_repository),
+                "--qualification-prompt", str(
+                    self.ROOT / ".codex/review/reviewer.prompt.md"
+                ),
                 "--candidate", str(candidate_path), "--profile", "COMPACT",
                 "--token-budget", "1",
                 "--model", "gpt-5.6-sol", "--reasoning-effort", "xhigh",
@@ -795,6 +817,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--task", str(task_path), "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--qualification-repository", str(qualification_repository),
+                "--qualification-prompt", str(
+                    self.ROOT / ".codex/review/reviewer.prompt.md"
+                ),
                 "--candidate", str(candidate_path), "--profile", "DEEP",
                 "--token-budget", "64000", "--model", "gpt-5.6-sol",
                 "--reasoning-effort", "xhigh",

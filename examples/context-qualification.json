@@ -1,9 +1,37 @@
 {
-  "schema_version": "2.0.0",
-  "qualification_id": "sha256:cd84c537d7d62ee8695c5d4a8a5d7600f2c0e98a2a44d4f9c48bb52b7faaac1a",
+  "schema_version": "3.0.0",
+  "qualification_id": "sha256:a8fb8365957f2ebf788e82ff3c31ef652e57d0b0ebfdf8d3c266fe63add8394c",
   "projection_version": "1.0.0",
   "profile": "STANDARD",
   "evidence_class": "empirical",
+  "corpus_sha256": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+  "label_decision_id": "sha256:0202020202020202020202020202020202020202020202020202020202020202",
+  "measurement_evidence": {
+    "corpus": {"path": ".governance/qualification-evidence/corpus.json", "sha256": "sha256:0101010101010101010101010101010101010101010101010101010101010101"},
+    "label_decision": {"path": ".governance/qualification-evidence/human-label-decision.json", "sha256": "sha256:0303030303030303030303030303030303030303030303030303030303030303"},
+    "baseline": {
+      "profile": "DEEP",
+      "conformance": {
+        "record": {"path": ".governance/qualification-evidence/context-variants/DEEP/conformance.json", "sha256": "sha256:0404040404040404040404040404040404040404040404040404040404040404"},
+        "cases": {"path": ".governance/qualification-evidence/context-variants/DEEP/conformance-cases.json", "sha256": "sha256:0505050505050505050505050505050505050505050505050505050505050505"}
+      },
+      "rapid_review": {
+        "record": {"path": ".governance/qualification-evidence/context-variants/DEEP/rapid-review.json", "sha256": "sha256:0606060606060606060606060606060606060606060606060606060606060606"},
+        "cases": {"path": ".governance/qualification-evidence/context-variants/DEEP/rapid-review-cases.json", "sha256": "sha256:0707070707070707070707070707070707070707070707070707070707070707"}
+      }
+    },
+    "candidate": {
+      "profile": "STANDARD",
+      "conformance": {
+        "record": {"path": ".governance/qualification-evidence/context-variants/STANDARD/conformance.json", "sha256": "sha256:0808080808080808080808080808080808080808080808080808080808080808"},
+        "cases": {"path": ".governance/qualification-evidence/context-variants/STANDARD/conformance-cases.json", "sha256": "sha256:0909090909090909090909090909090909090909090909090909090909090909"}
+      },
+      "rapid_review": {
+        "record": {"path": ".governance/qualification-evidence/context-variants/STANDARD/rapid-review.json", "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "cases": {"path": ".governance/qualification-evidence/context-variants/STANDARD/rapid-review-cases.json", "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      }
+    }
+  },
   "baseline": {
     "critical_recall": 1.0,
     "false_passes": 0,
