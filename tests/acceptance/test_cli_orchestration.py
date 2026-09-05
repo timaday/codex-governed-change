@@ -934,10 +934,10 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 )
                 parser = Mock()
                 parser.parse_args.return_value = args
-                observed: list[float] = []
+                observed: list[float | None] = []
 
                 def lock_for(received: Namespace):
-                    observed.append(received._review_deadline)
+                    observed.append(getattr(received, "_review_deadline", None))
                     return cli.nullcontext()
 
                 with (
@@ -947,6 +947,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 ):
                     self.assertEqual(0, cli.main([]))
                 self.assertEqual(1, len(observed))
+                self.assertIsInstance(observed[0], float)
                 self.assertGreater(observed[0], time.monotonic())
 
     def test_every_bounded_command_accepts_an_explicit_timeout(self) -> None:

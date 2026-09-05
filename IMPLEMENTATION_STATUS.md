@@ -882,3 +882,21 @@ qualification evidence, the approved held-out governed-versus-ordinary
 measurement, protected admission reconstruction and separate human release
 approval are still required. Operational qualification, measured benefit and
 human approval remain `UNKNOWN`; release remains blocked.
+
+Immutable candidate `ba705a9` passed blueprint integrity, 109 unit tests, 243
+acceptance tests, the 352-test combined suite, packaging compilation, rollback
+rehearsal and public-portability checks. Its complete 145-entry local corpus had
+surviving controls for every operator and killed 144 mutants, but correctly
+returned `BLOCK`: `review-deadline-start-delayed` made the selected acceptance
+fixture dereference an absent command deadline, which raised a harness error and
+therefore reconstructed as `UNKNOWN` rather than a causal kill. This
+working-copy successor records a missing deadline value and fails through an
+ordinary assertion, preserving the same GOV-025 oracle while ensuring that
+import, discovery, fixture and runtime errors remain `UNKNOWN`. The candidate
+mutation invalidates every `ba705a9` observation. Exact-candidate deterministic
+and complete paired-control mutation evidence, a new strict fresh review,
+protected authority/kernel/broker rebinding, hosted real-isolation and
+human-labelled qualification evidence, the approved held-out
+governed-versus-ordinary measurement, protected admission reconstruction and
+separate human release approval remain required. Operational qualification,
+measured benefit and human approval remain `UNKNOWN`; release remains blocked.
