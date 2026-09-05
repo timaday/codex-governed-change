@@ -900,3 +900,39 @@ human-labelled qualification evidence, the approved held-out
 governed-versus-ordinary measurement, protected admission reconstruction and
 separate human release approval remain required. Operational qualification,
 measured benefit and human approval remain `UNKNOWN`; release remains blocked.
+
+Immutable candidate `deebb31` passed blueprint integrity, 109 unit tests, 243
+acceptance tests, the 352-test combined suite, packaging compilation, rollback
+rehearsal, public portability and the complete 145-operator paired-control
+corpus. Every clean control survived and every mutant was killed. Its exact
+fresh ChatGPT-authenticated `gpt-5.6-sol` source review completed with valid
+bounded process, capture, cleanup, candidate and model bindings and reported no
+blocking source finding. The subsequently frozen public-authority candidate
+`3ef59c8` passed all 79 authority tests and bundle reconstruction, but its fresh
+review was correctly classified `UNKNOWN` after ambiguous machine-shaped stream
+normalization made process observation incomplete. Its structured advisory
+output nevertheless identified four hypotheses, all of which were reproduced
+before repair except one subclaim: the existing rapid-retrieval mutant
+precondition occurs exactly once and had applied successfully.
+
+This working-copy source successor closes the three reproduced kernel defects.
+Admission retrieval now resolves model-requested expansion paths only through
+the protected digest index and unchanged command deadline; RST feedback edges
+must retain the exact independently derived sequence; and empirical context
+qualification counts input plus output tokens without double-counting reasoning
+tokens while validating cached-input and reasoning-output subset invariants.
+Four targeted paired-control operators cover digest/deadline retrieval, RST
+ordering, token aggregation and token subsets, bringing the corpus to 149
+entries with content ID
+`sha256:6a88453d06dcc905649b69cc6c94b3cd40307862f2c33f4b1489105dd0411382`
+and protected byte digest
+`sha256:f32903a1cb7658fe21218b9117c70c36485c551ecd40c8554ffed6da69f21654`.
+All four focused controls survived and their mutants were causally killed. The
+separate authority-only live-ruleset applicability defect remains to be closed
+when the kernel is rebound into the next authority successor. This status
+mutation invalidates all working-copy observations. Exact-candidate gates, the
+complete 149-entry corpus, fresh review, authority/kernel/broker rebinding,
+hosted real-isolation and empirical qualification, paired comparison, protected
+admission reconstruction and separate human release approval remain required.
+Operational qualification, measured benefit and human approval remain
+`UNKNOWN`; release remains blocked.

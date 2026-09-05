@@ -204,6 +204,9 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
             "duplicate-debrief-finding": lambda value: value["debrief"].update(actionable_findings=["FINDING-1", "FINDING-1"]),
             "duplicate-debrief-residual": lambda value: value["debrief"].update(residual_risks=["RESIDUAL-1", "RESIDUAL-1"]),
             "missing-feedback-edge": lambda value: value.update(follow_ups=value["follow_ups"][:-1]),
+            "reordered-feedback-edges": lambda value: value.update(
+                follow_ups=list(reversed(value["follow_ups"]))
+            ),
             "wrong-feedback-required": lambda value: value["follow_ups"][0].update(required=True),
             "extra-feedback-edge": lambda value: value["follow_ups"].append(content_address({**{key: value[key] for key in ("repository_id", "task_contract_sha256", "candidate_id")}, "kind": "risk", "source_kind": "session", "source_id": "SESSION-1", "required": False}, "follow_up_id")),
         }

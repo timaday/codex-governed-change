@@ -177,6 +177,10 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "prepare-review-deadline-not-started",
         "admission-deadline-dropped",
         "schema-backreference-accepted",
+        "admission-retrieval-digest-deadline-unchecked",
+        "rst-follow-up-order-collapsed",
+        "context-reasoning-tokens-double-counted",
+        "context-token-subsets-unchecked",
     }
 )
 

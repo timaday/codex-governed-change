@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -172,6 +173,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         rapid_finding_defect: str | None = None,
         rapid_retrieval_defect: str | None = None,
         rst_relationship_defect: str | None = None,
+        context_retrieval: bool = False,
     ) -> dict:
         corpus_cases = [
             {
@@ -895,14 +897,14 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "false_passes": 0,
                     "traceability": 1.0,
                     "disposition_correct": True,
-                    "tokens": 30,
+                    "tokens": 20,
                 },
                 "candidate": {
                     "critical_recall": 1.0,
                     "false_passes": 0,
                     "traceability": 1.0,
                     "disposition_correct": True,
-                    "tokens": 30,
+                    "tokens": 20,
                 },
                 "qualified": True,
                 "created_at": self.AT,
@@ -1526,6 +1528,23 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             self.ROOT / ".codex/review/reviewer.prompt.md"
         ).read_bytes()
 
+        context_retrieval_expansions = []
+        if context_retrieval:
+            valid_reference, valid_digest = next(
+                (reference, digest)
+                for reference, digest in compiled_context["retrieval_index"].items()
+                if (self.repository / reference).is_file()
+                and sha256_bytes((self.repository / reference).read_bytes()) == digest
+            )
+            context_retrieval_expansions = [
+                {
+                    "reference": valid_reference,
+                    "sha256": valid_digest,
+                    "level": "complete_artifact",
+                    "reason": "inspect the exact protected artifact",
+                }
+            ]
+
         reviewer = {
             "schema_version": "3.0.0", "repository_id": self.REPOSITORY_ID,
             "candidate_id": self.CANDIDATE_ID, "task_contract_sha256": task_sha,
@@ -1539,7 +1558,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "exact_diff", "affected_closure", "governance_and_evidence"
             ],
             "affected_closure": affected_closure,
-            "retrieval_expansions": [], "findings": [], "missing_evidence": [],
+            "retrieval_expansions": context_retrieval_expansions,
+            "findings": [], "missing_evidence": [],
             "claims": [
                 {
                     "claim_id": claim_id,
@@ -1597,9 +1617,13 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             context_receipt,
             review_mode="conformance",
             reviewer_output_sha256=reviewer_ref["sha256"],
-            retrieval_expansions=[],
+            retrieval_expansions=context_retrieval_expansions,
             retrieval_index=compiled_context["retrieval_index"],
-            artifact_reader=None,
+            artifact_reader=(
+                (lambda reference: (self.repository / reference).read_bytes())
+                if context_retrieval_expansions
+                else None
+            ),
             usage_observed=True,
             actual_input_tokens=100,
             actual_output_tokens=20,
@@ -2319,6 +2343,54 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             verified_decision_ids=self.verified_decision_ids(manifest),
         )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
+
+    def test_admission_retrieval_uses_protected_digest_and_shared_deadline(self) -> None:
+        from codex_governance import evidence
+
+        manifest = self.complete_manifest(context_retrieval=True)
+        execution = json.loads(
+            (
+                self.repository
+                / manifest["context_execution_receipt"]["path"]
+            ).read_text(encoding="utf-8")
+        )
+        expansion = execution["retrieval_expansions"][0]
+        expected_reference = {
+            "path": expansion["reference"],
+            "sha256": expansion["sha256"],
+        }
+        observed: list[tuple[dict, float | None]] = []
+        original = evidence.read_reference
+
+        def observe_reference(
+            repository,
+            reference,
+            max_bytes=8_000_000,
+            deadline=None,
+        ):
+            if reference == expected_reference:
+                observed.append((dict(reference), deadline))
+            return original(
+                repository=repository,
+                reference=reference,
+                max_bytes=max_bytes,
+                deadline=deadline,
+            )
+
+        shared_deadline = time.monotonic() + 300
+        with patch.object(evidence, "read_reference", side_effect=observe_reference):
+            state, reasons = evidence.evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+                deadline=shared_deadline,
+            )
+        self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
+        self.assertIn((expected_reference, shared_deadline), observed)
 
     def test_admission_rejects_an_incomplete_rst_update_graph(self) -> None:
         manifest = self.complete_manifest(

@@ -2376,10 +2376,13 @@ def evaluate_manifest(
                     "retrieval_expansions", ()
                 ),
                 retrieval_index=reconstructed["retrieval_index"],
-                artifact_reader=lambda reference: read_bounded_repository_file(
-                    repository,
-                    normalize_repo_path(reference),
-                    max_bytes=8_000_000,
+                artifact_reader=lambda reference: read_reference(
+                    repository=repository,
+                    reference={
+                        "path": reference,
+                        "sha256": reconstructed_retrieval_index[reference],
+                    },
+                    deadline=deadline,
                 ),
             )
             == context_execution.get("retrieval_expansions")

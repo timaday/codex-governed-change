@@ -992,6 +992,68 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             (root / observations[0]["stdout"]["path"]).write_bytes(b"forged")
             self.assertFalse(qualification_evidence_valid(**arguments))
 
+    def test_context_metrics_count_reasoning_once_and_require_usage_subsets(self) -> None:
+        from codex_governance.qualification import _context_mode_metrics
+
+        executions = {
+            "critical.json": {
+                "usage_observed": True,
+                "input_tokens": 10,
+                "cached_input_tokens": 4,
+                "output_tokens": 5,
+                "reasoning_output_tokens": 3,
+            },
+            "control.json": {
+                "usage_observed": True,
+                "input_tokens": 20,
+                "cached_input_tokens": 5,
+                "output_tokens": 7,
+                "reasoning_output_tokens": 4,
+            },
+        }
+        case_evidence = {
+            "observations": [
+                {
+                    "severity": "critical",
+                    "expected_disposition": "BLOCK",
+                    "observed_disposition": "BLOCK",
+                    "matched": True,
+                    "reviewer_execution": {"path": "critical.json"},
+                },
+                {
+                    "severity": "control",
+                    "expected_disposition": "NO_BLOCKING_FINDING_OBSERVED",
+                    "observed_disposition": "NO_BLOCKING_FINDING_OBSERVED",
+                    "matched": True,
+                    "reviewer_execution": {"path": "control.json"},
+                },
+            ]
+        }
+
+        def read(reference):
+            return canonical_json_bytes(executions[reference["path"]])
+
+        metrics = _context_mode_metrics(
+            case_evidence=case_evidence,
+            artifact_reader=read,
+        )
+        self.assertEqual(42, metrics["tokens"])
+
+        for field, value in (
+            ("cached_input_tokens", 11),
+            ("reasoning_output_tokens", 6),
+        ):
+            with self.subTest(field=field):
+                invalid = deepcopy(executions)
+                invalid["critical.json"][field] = value
+                with self.assertRaisesRegex(ValueError, "inconsistent"):
+                    _context_mode_metrics(
+                        case_evidence=case_evidence,
+                        artifact_reader=lambda reference: canonical_json_bytes(
+                            invalid[reference["path"]]
+                        ),
+                    )
+
     def test_high_risk_disagreement_is_visible_unknown_not_majority_vote(self) -> None:
         from codex_governance.qualification import reconcile_review_lanes
 
