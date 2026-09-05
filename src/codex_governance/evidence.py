@@ -1454,16 +1454,25 @@ def evaluate_manifest(
                 and isinstance(pull_request_parameters, Mapping)
                 and set(pull_request_parameters)
                 == {
+                    "allowed_merge_methods",
                     "dismiss_stale_reviews_on_push",
                     "require_code_owner_review",
+                    "require_extra_approval_for_unattributed_changes",
                     "require_last_push_approval",
                     "required_approving_review_count",
                     "required_review_thread_resolution",
+                    "required_reviewers",
                 }
+                and pull_request_parameters.get("allowed_merge_methods")
+                == ["squash", "rebase"]
                 and pull_request_parameters.get("dismiss_stale_reviews_on_push")
                 is True
                 and pull_request_parameters.get("require_code_owner_review")
                 is False
+                and pull_request_parameters.get(
+                    "require_extra_approval_for_unattributed_changes"
+                ) is True
+                and pull_request_parameters.get("required_reviewers") == []
                 and pull_request_parameters.get(
                     "required_review_thread_resolution"
                 ) is True

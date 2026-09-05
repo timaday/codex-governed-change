@@ -311,7 +311,9 @@ Requirements: all
   schema-lifecycle, assurance and context-optimization gates without skips.
 - Reconstruct the live public-authority ruleset, private-broker caller pins,
   trigger allowlist and target App check source without claiming paid private
-  protection.
+  protection. Bind the exact hosted pull-request parameter shape, including
+  squash/rebase-only merging, extra approval for unattributed changes and the
+  empty required-reviewer list.
 - Reconstruct the called-job workflow SHA and completed-run referenced-workflow
   binding, and prove no reusable mirror remains active in the broker.
 - Qualify token variants and the final reviewer identity on the labelled corpus.

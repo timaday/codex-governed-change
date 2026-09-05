@@ -815,3 +815,22 @@ This mutation invalidates earlier evidence. Exact-candidate deterministic,
 complete paired-control mutation, fresh review, protected authority and broker,
 hosted qualification/admission, measured comparison and human approval states
 must all be regenerated; release remains blocked.
+
+Immutable candidate `25de1ee` passed post-commit blueprint integrity and 107
+unit tests; its exact 237-test acceptance run passed in 655.935 seconds. The
+complete mutation run was stopped after a live read-only ruleset observation
+showed that GitHub's hosted pull-request rule includes three protected fields
+not represented by that candidate's exact-shape validator: allowed merge
+methods, unattributed-change approval and required reviewers. The live state is
+the intended squash/rebase-only, extra-approval, empty-reviewer-list profile,
+but `25de1ee` would reject it as shape drift. Its incomplete mutation run and
+all earlier observations are non-qualifying. This successor binds that exact
+hosted parameter shape in the contract, reference rulesets, reconstruction and
+adversarial tests. A dedicated semantic operator brings the corpus to 138
+entries with content ID
+`sha256:0ed4abbc83a477e2abf348572570358172382f698c04308adcfcfc3ab55a2fc3`
+and protected byte digest
+`sha256:acf7cb7e380b9eb8bc741f414d6ead283f551807c0900d22f958547f8894adce`.
+Complete deterministic, paired-control mutation and strict
+fresh review evidence must be rebound to the next immutable candidate; release
+remains blocked.

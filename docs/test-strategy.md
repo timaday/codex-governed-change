@@ -92,7 +92,9 @@ No model confidence statement is an oracle.
 - Immutable commit pipeline.
 - Personal-account GitHub Free topology fixtures proving that the public
   authority ref and target branch have distinct no-bypass rulesets, the
-  authority ruleset requires linear history and real two-parent decision and
+  authority ruleset requires linear history, exactly reconstructs the hosted
+  squash/rebase-only, unattributed-change-approval and empty-reviewer-list
+  pull-request parameters, and real two-parent decision and
   receipt transitions are rejected, private
   broker callers pin full authority SHAs, called jobs derive authority from
   GitHub's resolved workflow SHA without caller-selected identity inputs,

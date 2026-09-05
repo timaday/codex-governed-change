@@ -44,13 +44,36 @@ class GitHubFreeTopologyAcceptanceTest(unittest.TestCase):
         self.assertEqual(1, reviewed_pr["parameters"]["required_approving_review_count"])
         self.assertTrue(reviewed_pr["parameters"]["require_last_push_approval"])
         for rule in (sole_pr, reviewed_pr):
+            self.assertEqual(
+                ["squash", "rebase"],
+                rule["parameters"]["allowed_merge_methods"],
+            )
             self.assertTrue(rule["parameters"]["dismiss_stale_reviews_on_push"])
+            self.assertTrue(
+                rule["parameters"][
+                    "require_extra_approval_for_unattributed_changes"
+                ]
+            )
             self.assertTrue(rule["parameters"]["required_review_thread_resolution"])
+            self.assertEqual([], rule["parameters"]["required_reviewers"])
 
     def test_target_ruleset_is_fail_closed_and_app_source_bound(self) -> None:
         ruleset = self.load_json("target-main.ruleset.template.json")
         self.assertEqual("disabled", ruleset["enforcement"])
         self.assertEqual([], ruleset["bypass_actors"])
+        pull_request = next(
+            rule for rule in ruleset["rules"] if rule["type"] == "pull_request"
+        )
+        self.assertEqual(
+            ["squash", "rebase"],
+            pull_request["parameters"]["allowed_merge_methods"],
+        )
+        self.assertTrue(
+            pull_request["parameters"][
+                "require_extra_approval_for_unattributed_changes"
+            ]
+        )
+        self.assertEqual([], pull_request["parameters"]["required_reviewers"])
         status_rule = next(
             rule for rule in ruleset["rules"] if rule["type"] == "required_status_checks"
         )

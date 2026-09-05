@@ -30,7 +30,7 @@
       "DEEP": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
-  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:bddfcf21e8360f8df82843e6a9a9a7529294ecbc130f3c757f342c4f72c253b4", "generated_budget": 0},
+  "mutation": {"curated_required": true, "corpus_path": "tests/mutation/corpus.json", "corpus_sha256": "sha256:acf7cb7e380b9eb8bc741f414d6ead283f551807c0900d22f958547f8894adce", "generated_budget": 0},
   "reviewer": {
     "model": "gpt-5.6-sol",
     "reasoning_effort": "xhigh",

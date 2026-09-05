@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:364c52e1176c9b13283cd404c813b56a49dd4ff5014d878c2b0b29be37f4427c",
+  "corpus_id": "sha256:0ed4abbc83a477e2abf348572570358172382f698c04308adcfcfc3ab55a2fc3",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1188,6 +1188,15 @@
       "old": "                and authority_state_valid\n                and policy.get(\"lkg_governance_commit\")",
       "new": "                and True\n                and policy.get(\"lkg_governance_commit\")",
       "operator": "accept an arbitrary hosted authority commit without reconstructing its ref ruleset and manifest",
+      "requirement_id": "GOV-063",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "initial-bootstrap-hosted-ruleset-shape-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and pull_request_parameters.get(\"allowed_merge_methods\")\n                == [\"squash\", \"rebase\"]",
+      "new": "                and isinstance(\n                    pull_request_parameters.get(\"allowed_merge_methods\"), list\n                )",
+      "operator": "accept a hosted authority ruleset with unapproved merge methods",
       "requirement_id": "GOV-063",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
     },

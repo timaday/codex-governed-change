@@ -189,6 +189,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "prepare-review-policy-verifies-labels",
             "review-policy-verifies-labels",
             "initial-bootstrap-authority-state-unchecked",
+            "initial-bootstrap-hosted-ruleset-shape-unchecked",
             "initial-bootstrap-plan-limitations-accepted",
             "initial-bootstrap-capability-limitations-accepted",
             "reviewer-os-home-unchecked",

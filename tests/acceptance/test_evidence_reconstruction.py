@@ -3591,11 +3591,14 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     {
                         "type": "pull_request",
                         "parameters": {
+                            "allowed_merge_methods": ["squash", "rebase"],
                             "dismiss_stale_reviews_on_push": True,
                             "require_code_owner_review": False,
+                            "require_extra_approval_for_unattributed_changes": True,
                             "require_last_push_approval": False,
                             "required_approving_review_count": 0,
                             "required_review_thread_resolution": True,
+                            "required_reviewers": [],
                         },
                     },
                 ],
@@ -3957,6 +3960,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "manifest-commit",
             "ruleset-bypass",
             "ruleset-linear-history",
+            "ruleset-parameter-missing",
+            "ruleset-parameter-extra",
+            "ruleset-parameter-value",
         ):
             state_variant = deepcopy(authority_state)
             if state_defect == "stale-ref":
@@ -3967,12 +3973,24 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 state_variant["ruleset"]["bypass_actors"] = [
                     {"actor_id": 1, "actor_type": "RepositoryRole"}
                 ]
-            else:
+            elif state_defect == "ruleset-linear-history":
                 state_variant["ruleset"]["rules"] = [
                     item
                     for item in state_variant["ruleset"]["rules"]
                     if item["type"] != "required_linear_history"
                 ]
+            else:
+                parameters = next(
+                    item
+                    for item in state_variant["ruleset"]["rules"]
+                    if item["type"] == "pull_request"
+                )["parameters"]
+                if state_defect == "ruleset-parameter-missing":
+                    parameters.pop("required_reviewers")
+                elif state_defect == "ruleset-parameter-extra":
+                    parameters["merge_commit_allowed"] = False
+                else:
+                    parameters["allowed_merge_methods"] = ["merge"]
             state_variant_reference = self.raw(
                 f"initial-authority-state-{state_defect}.json",
                 canonical_json_bytes(state_variant),

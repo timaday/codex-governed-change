@@ -562,7 +562,11 @@ authority ruleset MUST require linear history. Protected decision and
 authorization-receipt transitions are single-parent commits over their exact
 basis; a two-parent merge commit is invalid even when its tree matches the
 reviewed change. Authority pull requests MUST therefore be squash-merged or
-rebase-merged, never merge-committed. The private broker MUST accept only
+rebase-merged, never merge-committed. The live ruleset observation MUST bind
+GitHub's exact pull-request parameter shape, including squash/rebase as the
+only allowed merge methods, required extra approval for unattributed changes,
+and an empty required-reviewer list. Shape drift is `UNKNOWN`. The private
+broker MUST accept only
 `workflow_dispatch`, a separately enabled
 post-receipt `schedule`, and the internal completed-run finalization event. The
 schedule MUST remain disabled during qualification, authority advancement,
