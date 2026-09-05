@@ -917,16 +917,17 @@ precondition occurs exactly once and had applied successfully.
 
 This working-copy source successor closes the three reproduced kernel defects.
 Admission retrieval now resolves model-requested expansion paths only through
-the protected digest index and unchanged command deadline; RST feedback edges
-must retain the exact independently derived sequence; and empirical context
+the protected digest index and unchanged command deadline; RST feedback graphs
+must contain the exact independently derived typed set, including every required
+relationship while remaining order-insensitive; and empirical context
 qualification counts input plus output tokens without double-counting reasoning
 tokens while validating cached-input and reasoning-output subset invariants.
-Four targeted paired-control operators cover digest/deadline retrieval, RST
-ordering, token aggregation and token subsets, bringing the corpus to 149
-entries with content ID
-`sha256:6a88453d06dcc905649b69cc6c94b3cd40307862f2c33f4b1489105dd0411382`
+Four targeted paired-control operators cover digest/deadline retrieval, missing
+required RST edges, token aggregation and token subsets, bringing the corpus to
+149 entries with content ID
+`sha256:e91e96d6eac1838e1bb8761d38ba135675d0fb8f7f8c5b7ebe43d46d314a68df`
 and protected byte digest
-`sha256:f32903a1cb7658fe21218b9117c70c36485c551ecd40c8554ffed6da69f21654`.
+`sha256:2af138c4f2e1ab4dcfc54df7ef14e5c85d6b2c6b7f7bcfdb5ac0a109cd84102f`.
 All four focused controls survived and their mutants were causally killed. The
 separate authority-only live-ruleset applicability defect remains to be closed
 when the kernel is rebound into the next authority successor. This status

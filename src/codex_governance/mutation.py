@@ -178,7 +178,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "admission-deadline-dropped",
         "schema-backreference-accepted",
         "admission-retrieval-digest-deadline-unchecked",
-        "rst-follow-up-order-collapsed",
+        "rst-missing-required-follow-up-accepted",
         "context-reasoning-tokens-double-counted",
         "context-token-subsets-unchecked",
     }

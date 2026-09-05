@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:6a88453d06dcc905649b69cc6c94b3cd40307862f2c33f4b1489105dd0411382",
+  "corpus_id": "sha256:e91e96d6eac1838e1bb8761d38ba135675d0fb8f7f8c5b7ebe43d46d314a68df",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1318,13 +1318,13 @@
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_admission_retrieval_uses_protected_digest_and_shared_deadline"]
     },
     {
-      "mutant_id": "rst-follow-up-order-collapsed",
+      "mutant_id": "rst-missing-required-follow-up-accepted",
       "path": "src/codex_governance/rst_operations.py",
-      "old": "        or observed_edge_list != expected_edges",
-      "new": "        or set(observed_edge_list) != set(expected_edges)",
-      "operator": "accept a reordered RST feedback relationship sequence",
+      "old": "        or set(observed_edge_list) != set(expected_edges)",
+      "new": "        or not set(observed_edge_list).issubset(set(expected_edges))",
+      "operator": "accept a feedback graph with a missing required relationship",
       "requirement_id": "GOV-057",
-      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_complete_operational_relationship_graph_is_required"]
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
     },
     {
       "mutant_id": "context-reasoning-tokens-double-counted",
