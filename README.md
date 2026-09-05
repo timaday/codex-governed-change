@@ -23,7 +23,10 @@ The curated mutation corpus is copied into the protected release directory and
 the policy binds its exact raw bytes; the candidate-local corpus is never the
 mutation authority. Protected context-qualification records are stored under
 `.governance/context-qualifications/` and bind every profile/version identity.
-For v0.1.0 they establish quality parity without claiming token savings.
+The bootstrap-basis records are explicit `synthetic_bootstrap` placeholders and
+do not establish quality parity, token savings, or production authorization.
+They must be replaced by protected empirical qualification for each profile
+before admission can reconstruct readiness.
 
 The target registry separately binds the kernel source commit, the one-time
 initial-LKG transition, exact bootstrap and proposed policy digests, exact task
@@ -89,10 +92,15 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
    labels. Manually run `Qualify protected Codex reviewer broker` from the
    private broker on that clean JIT runner; it executes the exact conformance
    and rapid-review prompt/schema/model/launcher/CLI identities against every
-   approved seeded case. Replace both blocking draft records and both
-   content-addressed per-case documents with the measured results, update the
-   protected policy with their exact IDs and corpus digest, and commit those
-   qualification files as the authority basis. The qualified identity includes
+   approved seeded case, then repeats the corpus for COMPACT, STANDARD, and
+   DEEP context variants. The identity pass supplies the reviewer-identity
+   records; every profile is independently compared with DEEP and any assurance
+   regression blocks regardless of token use. Replace both blocking draft
+   reviewer records, both content-addressed identity-pass per-case
+   documents, their 64 raw reconstruction artifacts, and all three synthetic
+   context placeholders with the measured results. Update the protected policy
+   with their exact IDs and corpus digest, then commit those qualification files
+   as the authority basis. The qualified identity includes
    the exact `chatgpt` authentication mode as well as the prompt, schema, model,
    reasoning, launcher, and CLI identities. Then add human decisions in one
    child commit containing only decision files plus `MANIFEST.json`; bootstrap

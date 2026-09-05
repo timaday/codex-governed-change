@@ -36,10 +36,12 @@ from codex_governance.canonical import (
 )
 from codex_governance.configuration import load_effective_policy, resolve_effective_configuration
 from codex_governance.context import (
+    build_protected_context_artifacts,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
     finalize_context_receipt,
+    verify_protected_context_artifacts,
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.evidence import (
@@ -797,13 +799,9 @@ def _prepare_review(args: argparse.Namespace) -> int:
         raise ValueError("context policy and candidate binding mismatch")
     context_policy = policy["context"]
     profile_rank = {"COMPACT": 0, "STANDARD": 1, "DEEP": 2}
-    expected_budget = context_policy[f"{args.profile.lower()}_tokens"]
     if (
         context_policy.get("projection_version") != qualification.get("projection_version")
-        or qualification.get("qualification_id")
-        != context_policy.get("qualification_ids", {}).get(args.profile)
         or profile_rank[args.profile] < profile_rank[context_policy["default_profile"]]
-        or args.token_budget != expected_budget
         or args.model != policy["reviewer"]["model"]
         or args.reasoning_effort != policy["reviewer"]["reasoning_effort"]
     ):
@@ -887,6 +885,15 @@ def _prepare_review(args: argparse.Namespace) -> int:
         )
     ):
         raise ValueError("mutation summary is incomplete or not exact-candidate PASS")
+    artifacts = build_protected_context_artifacts(
+        gate_references=[
+            item["reference"] for item in gate_manifest["gate_results"]
+        ],
+        gate_results=gate_results,
+        mutation_references=mutation_summary.get("mutant_records", ()),
+        mutation_records=mutation_records,
+    )
+    verify_protected_context_artifacts(args.repository, artifacts)
     sources = build_protected_context_sources(
         candidate=observed_candidate,
         task=task,
@@ -896,6 +903,7 @@ def _prepare_review(args: argparse.Namespace) -> int:
         gate_results=gate_results,
         mutation_records=mutation_records,
         created_at=args.observed_at,
+        artifacts=artifacts,
     )
     if args.sources is not None and _document(args.sources) != sources:
         raise ValueError("caller context sources do not match protected reconstruction")
@@ -910,6 +918,11 @@ def _prepare_review(args: argparse.Namespace) -> int:
         reasoning_effort=args.reasoning_effort,
         context_qualification=qualification,
         protected_qualification_ids=context_policy["qualification_ids"],
+        protected_token_budgets={
+            profile: context_policy[f"{profile.lower()}_tokens"]
+            for profile in profile_rank
+        },
+        minimum_profile=context_policy["default_profile"],
     )
     _write_cli_output(args, "sources_output", compiled["source_bundle"])
     _write_cli_output(args, "projection_output", compiled["projection"])
@@ -1112,6 +1125,122 @@ def _review(args: argparse.Namespace) -> int:
     qualification = evidence_document(
         "reviewer_qualification_path", "reviewer-qualification"
     )
+    declared_artifacts = context_sources.get("sources", {}).get("artifacts")
+    if not isinstance(declared_artifacts, list):
+        raise ValueError("protected context artifact index is unavailable")
+    resolved_artifact_bytes = verify_protected_context_artifacts(
+        args.repository,
+        declared_artifacts,
+        deadline=review_deadline,
+    )
+    prepared_evidence.update(resolved_artifact_bytes)
+    artifact_by_reference = {
+        item.get("reference"): item
+        for item in declared_artifacts
+        if isinstance(item, Mapping)
+    }
+    if len(artifact_by_reference) != len(declared_artifacts):
+        raise ValueError("protected context artifact index is ambiguous")
+    gate_references = [
+        item["reference"] for item in gate_manifest.get("gate_results", ())
+    ]
+    gate_results = []
+    for reference in gate_references:
+        descriptor = artifact_by_reference.get(reference.get("path"))
+        if (
+            descriptor is None
+            or descriptor.get("sha256") != reference.get("sha256")
+        ):
+            raise ValueError("protected gate result is absent from context")
+        gate_results.append(
+            validated_bytes(
+                resolved_artifact_bytes[reference["path"]], "gate-result"
+            )
+        )
+    mutation_references = [
+        {"path": item["reference"], "sha256": item["sha256"]}
+        for item in declared_artifacts
+        if isinstance(item, Mapping)
+        and isinstance(item.get("summary"), Mapping)
+        and item["summary"].get("kind") == "mutant_record"
+    ]
+    mutation_records = [
+        validated_bytes(
+            resolved_artifact_bytes[reference["path"]], "mutant-record"
+        )
+        for reference in mutation_references
+    ]
+    expected_mutant_ids = {
+        "MUTANT-" + mutant.upper() for mutant in REQUIRED_CURATED_MUTANTS
+    }
+    if (
+        len(mutation_records) != len(expected_mutant_ids)
+        or {record.get("mutant_id") for record in mutation_records}
+        != expected_mutant_ids
+        or any(
+            record.get("repository_id") != policy["repository_id"]
+            or record.get("candidate_id") != candidate["candidate_id"]
+            or record.get("effective_policy_sha256") != policy_sha
+            or record.get("task_contract_sha256")
+            != permitted.get("task_contract_sha256")
+            or record.get("outcome") != "KILLED"
+            for record in mutation_records
+        )
+    ):
+        raise ValueError("protected mutation context is incomplete")
+    reconstructed_artifacts = build_protected_context_artifacts(
+        gate_references=gate_references,
+        gate_results=gate_results,
+        mutation_references=mutation_references,
+        mutation_records=mutation_records,
+    )
+    affected_closure = GitCliRepositoryAdapter(
+        args.repository, deadline=review_deadline
+    ).conservative_affected_closure(
+        candidate=candidate,
+        evidence_root=policy["evidence_root"],
+    )
+    repository_inventory = build_repository_inventory(
+        args.repository,
+        affected_closure=affected_closure,
+        changed_paths=candidate["changed_paths"],
+    )
+    reconstructed_sources = build_protected_context_sources(
+        candidate=candidate,
+        task=task,
+        policy=policy,
+        repository_inventory=repository_inventory,
+        affected_closure=affected_closure,
+        gate_results=gate_results,
+        mutation_records=mutation_records,
+        created_at=context_sources.get("created_at"),
+        artifacts=reconstructed_artifacts,
+    )
+    context_policy = policy["context"]
+    reconstructed_context = compile_context(
+        sources=reconstructed_sources,
+        candidate=candidate,
+        requested_profile=context_sources.get("requested_profile"),
+        token_budget=context_sources.get("token_budget"),
+        changed_paths=candidate["changed_paths"],
+        affected_closure=affected_closure,
+        model=context_sources.get("model"),
+        reasoning_effort=context_sources.get("reasoning_effort"),
+        context_qualification=context_qualification,
+        protected_qualification_ids=context_policy["qualification_ids"],
+        protected_token_budgets={
+            profile: context_policy[f"{profile.lower()}_tokens"]
+            for profile in ("COMPACT", "STANDARD", "DEEP")
+        },
+        minimum_profile=context_policy["default_profile"],
+    )
+    context_chain_exact = bool(
+        declared_artifacts == reconstructed_artifacts
+        and context_sources == reconstructed_context["source_bundle"]
+        and context_projection == reconstructed_context["projection"]
+        and receipt == reconstructed_context["receipt"]
+        and reconstructed_context["state"] == "CONTEXT_READY"
+    )
     codex_cli_version = observe_codex_cli_version(
         args.codex, deadline=review_deadline
     )
@@ -1142,6 +1271,7 @@ def _review(args: argparse.Namespace) -> int:
         is not DispositionState.READY_FOR_HUMAN
         or permitted.get("reviewer_qualification_id")
         != qualification.get("qualification_id")
+        or not context_chain_exact
         or permitted_policy != policy
         or task.get("repository_id") != policy["repository_id"]
         or task.get("base_commit") != candidate["base_commit"]

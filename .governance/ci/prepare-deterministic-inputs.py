@@ -248,6 +248,7 @@ def main() -> None:
             or context_qualification.get("qualification_id") != expected_id
             or content_address(context_qualification, "qualification_id")
             != context_qualification
+            or context_qualification.get("evidence_class") != "empirical"
             or context_qualification.get("qualified") is not True
         ):
             raise ValueError("protected context qualification is invalid")

@@ -502,14 +502,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("fbe4594a46c2f7c86787dde9950661f3a9df85c7", target["head_sha"])
+        self.assertEqual("9bfc318d0b9c3436bd79837b18b818f81beb6440", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "fbe4594a46c2f7c86787dde9950661f3a9df85c7",
+            "9bfc318d0b9c3436bd79837b18b818f81beb6440",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -648,6 +648,7 @@ class AuthorityContractTests(unittest.TestCase):
             workflow.index("Require exact ChatGPT-authenticated Codex identity"),
         )
         self.assertIn("run-qualification.py", workflow)
+        self.assertIn("reviewer and context-profile corpus", workflow)
         self.assertIn('--actor "$GITHUB_ACTOR"', workflow)
         self.assertIn("qualification-results", workflow)
 
@@ -951,6 +952,26 @@ class AuthorityContractTests(unittest.TestCase):
                 ).value,
             )
 
+    def test_synthetic_context_records_are_explicitly_non_authorizing(self) -> None:
+        policy = load_json(ROOT / ".governance/effective-policy.json")
+        schema = load_json(
+            ROOT / "kernel/schemas/context-qualification.schema.json"
+        )
+        for profile in ("COMPACT", "STANDARD", "DEEP"):
+            record = load_json(
+                ROOT / ".governance/context-qualifications" / f"{profile}.json"
+            )
+            self.assertEqual([], validate_instance(record, schema), profile)
+            self.assertEqual(
+                policy["context"]["qualification_ids"][profile],
+                record["qualification_id"],
+            )
+            self.assertEqual("2.0.0", record["schema_version"])
+            self.assertEqual("synthetic_bootstrap", record["evidence_class"])
+            self.assertFalse(record["qualified"])
+            self.assertFalse(record["candidate"]["disposition_correct"])
+            self.assertEqual(content_address(record, "qualification_id"), record)
+
     def test_qualification_corpus_has_exact_human_approved_labels(self) -> None:
         corpus = load_json(
             ROOT / ".governance/releases/v0.1.0/qualification/corpus.json"
@@ -1029,6 +1050,92 @@ class AuthorityContractTests(unittest.TestCase):
                 },
             ),
         )
+        per_mode = {
+            "critical_cases": 7,
+            "critical_detected": 7,
+            "false_passes": 0,
+            "false_blocks": 0,
+            "unknowns": 0,
+            "traceable_cases": 7,
+            "traceability_cases": 7,
+            "tokens": 30,
+        }
+        combined = module._combine_context_metrics(
+            {"conformance": per_mode, "rapid_review": per_mode}
+        )
+        self.assertEqual(1.0, combined["critical_recall"])
+        self.assertEqual(1.0, combined["traceability"])
+        self.assertTrue(combined["disposition_correct"])
+        self.assertEqual(60, combined["tokens"])
+        qualified = module._context_qualification_record(
+            profile="COMPACT",
+            baseline=combined,
+            candidate=combined,
+            created_at="2026-09-05T00:00:00Z",
+        )
+        self.assertEqual("empirical", qualified["evidence_class"])
+        self.assertTrue(qualified["qualified"])
+        self.assertEqual(content_address(qualified, "qualification_id"), qualified)
+        degraded = dict(combined)
+        degraded["critical_recall"] = 0.5
+        blocked = module._context_qualification_record(
+            profile="COMPACT",
+            baseline=combined,
+            candidate=degraded,
+            created_at="2026-09-05T00:00:00Z",
+        )
+        self.assertFalse(blocked["qualified"])
+
+    def test_context_variant_builder_keeps_bootstrap_non_authorizing(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "run_context_variant", CI / "run-qualification.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        corpus = load_json(
+            ROOT / ".governance/releases/v0.1.0/qualification/corpus.json"
+        )
+        decision = load_json(
+            ROOT
+            / ".governance/releases/v0.1.0/qualification/human-label-decision.json"
+        )
+        prompt = ROOT / "kernel/.codex/review/reviewer.prompt.md"
+        schema = ROOT / "kernel/schemas/reviewer-result.schema.json"
+        identity = {
+            "prompt_sha256": sha256_bytes(prompt.read_bytes()),
+            "schema_sha256": sha256_bytes(schema.read_bytes()),
+            "launcher_sha256": module.reviewer_launcher_sha256(),
+            "codex_cli_version": "codex-cli 0.149.1",
+            "authentication": "chatgpt",
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+        }
+        bootstrap = qualification_module.bootstrap_qualification_record(
+            identity=identity,
+            corpus_sha256=sha256_bytes(canonical_bytes(corpus)),
+            label_decision_id=decision["decision_id"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            prepared = module._prepare_case(
+                root=Path(directory),
+                case=corpus["cases"][-1],
+                mode="conformance",
+                prompt_path=prompt,
+                schema_path=schema,
+                bootstrap=bootstrap,
+                requested_profile="COMPACT",
+            )
+        context = prepared["preliminary_context"]
+        self.assertEqual("COMPACT", context["context_projection"]["profile"])
+        self.assertEqual(
+            "COMPACT", context["context_sources"]["requested_profile"]
+        )
+        self.assertEqual(
+            "synthetic_bootstrap",
+            context["context_qualification"]["evidence_class"],
+        )
+        self.assertFalse(context["context_qualification"]["qualified"])
 
     def test_every_action_is_full_sha_pinned(self) -> None:
         workflow = (ROOT / ".github/workflows/disposition.yml").read_text(encoding="utf-8")
@@ -2132,7 +2239,8 @@ class AdapterTests(unittest.TestCase):
                         workflow_run_id="fixture-run",
                         workflow_attempt=1,
                         output=root,
-                    )
+                        requested_profile=None,
+                    )[0]
                     for mode, schema in (
                         ("conformance", "reviewer-result.schema.json"),
                         ("rapid_review", "rapid-review-session.schema.json"),

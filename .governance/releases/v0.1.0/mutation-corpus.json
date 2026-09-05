@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:765ac3acb571fc67ffb1eb55d6c3e25b5ec72b9ac92b1d6e925632008528fd22",
+  "corpus_id": "sha256:2f762b12fd1941fa4ffa732fd1807d2ee93edda8bd63ee36720e86c4235129c2",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -983,6 +983,114 @@
       "operator": "omit dedicated malformed-scheme endpoint classification and fall back to generic path handling",
       "requirement_id": "GOV-021",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_gate_runner.GateRunnerTest.test_malformed_scheme_host_paths_are_endpoint_ambiguity", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_ambiguous_reviewer_stream_values_are_redacted_and_unknown"]
+    },
+    {
+      "mutant_id": "procfs-containment-preflight-omitted",
+      "path": "src/codex_governance/reviewer_supervisor.py",
+      "old": "    if not _procfs_containment_available():\n        _write_status(status_descriptor, status)\n        return 126",
+      "new": "    if False:\n        _write_status(status_descriptor, status)\n        return 126",
+      "operator": "launch the reviewer boundary without proving procfs descendant enumeration",
+      "requirement_id": "GOV-025",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_procfs_containment_unavailable_prevents_any_boundary_launch"]
+    },
+    {
+      "mutant_id": "rapid-evidence-resolution-omitted",
+      "path": "src/codex_governance/rapid_review.py",
+      "old": "    return _nonempty_strings(value) and set(value).issubset(resolved)",
+      "new": "    return _nonempty_strings(value)",
+      "operator": "accept nonempty but dangling rapid-review evidence references",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rapid_review.RapidReviewAcceptanceTest.test_nonempty_but_dangling_evidence_reference_is_unknown"]
+    },
+    {
+      "mutant_id": "rst-presence-promotes-readiness",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "    if artifacts is not None:\n        # Artifact-kind presence is intentionally never sufficient evidence.\n        return DispositionState.UNKNOWN",
+      "new": "    if artifacts is not None:\n        return DispositionState.READY_FOR_HUMAN",
+      "operator": "promote a bare operational RST artifact-kind list to readiness",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_presence_only_artifact_kinds_are_not_lineage_evidence"]
+    },
+    {
+      "mutant_id": "context-artifact-recursion-omitted",
+      "path": "src/codex_governance/context.py",
+      "old": "            if \"path\" in value and \"sha256\" in value:\n                add(value.get(\"path\"), value.get(\"sha256\"), relevant=False)",
+      "new": "            if False:\n                add(value.get(\"path\"), value.get(\"sha256\"), relevant=False)",
+      "operator": "omit recursively typed path and digest materials from protected context",
+      "requirement_id": "GOV-TOKEN-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_context_compiler.ContextCompilerAcceptanceTest.test_protected_artifact_closure_is_derived_and_byte_resolved"]
+    },
+    {
+      "mutant_id": "context-artifacts-not-compiled",
+      "path": "src/codex_governance/cli.py",
+      "old": "        artifacts=artifacts,",
+      "new": "        artifacts=(),",
+      "operator": "discard the protected artifact closure before context compilation",
+      "requirement_id": "GOV-TOKEN-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_cli_orchestration.CliOrchestrationAcceptanceTest.test_prepare_review_emits_schema_valid_receipt_and_budget_blocks"]
+    },
+    {
+      "mutant_id": "synthetic-context-qualification-promoted",
+      "path": "src/codex_governance/context.py",
+      "old": "            allow_synthetic_bootstrap\n            and record.get(\"evidence_class\") == \"synthetic_bootstrap\"",
+      "new": "            True\n            and record.get(\"evidence_class\") == \"synthetic_bootstrap\"",
+      "operator": "allow synthetic bootstrap evidence to qualify production context",
+      "requirement_id": "GOV-TOKEN-002",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_context_compiler.ContextCompilerAcceptanceTest.test_synthetic_bootstrap_qualification_cannot_prepare_production"]
+    },
+    {
+      "mutant_id": "effective-profile-budget-unchecked",
+      "path": "src/codex_governance/context.py",
+      "old": "        if token_budget != expected_budget:\n            raise ValueError(\"context token budget does not match effective profile\")",
+      "new": "        if False:\n            raise ValueError(\"context token budget does not match effective profile\")",
+      "operator": "reuse a lower requested-profile budget after protected DEEP escalation",
+      "requirement_id": "GOV-TOKEN-003",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_context_compiler.ContextCompilerAcceptanceTest.test_effective_deep_profile_selects_deep_budget_and_qualification"]
+    },
+    {
+      "mutant_id": "reviewer-runtime-overlap-accepted",
+      "path": "src/codex_governance/reviewer.py",
+      "old": "        if resolved_review_root is not None and (\n            _path_contains(root, resolved_review_root)\n            or _path_contains(resolved_review_root, root)\n        ):",
+      "new": "        if False and (\n            _path_contains(root, resolved_review_root)\n            or _path_contains(resolved_review_root, root)\n        ):",
+      "operator": "allow a runtime read grant to overlap the sanitized review harness",
+      "requirement_id": "GOV-006",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_reviewer_adapter.ReviewerAdapterTest.test_runtime_profile_rejects_harness_and_runtime_root_overlap"]
+    },
+    {
+      "mutant_id": "schema-json-equality-collapsed",
+      "path": "src/codex_governance/schema.py",
+      "old": "    if isinstance(left, bool) or isinstance(right, bool):\n        return isinstance(left, bool) and isinstance(right, bool) and left == right",
+      "new": "    if isinstance(left, bool) or isinstance(right, bool):\n        return left == right",
+      "operator": "collapse JSON boolean and numeric equality for const and enum",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_advertised_draft_2020_12_subset_semantics_are_exact"]
+    },
+    {
+      "mutant_id": "schema-ref-siblings-ignored",
+      "path": "src/codex_governance/schema.py",
+      "old": "        if \"$ref\" in node:\n            check(value, _resolve_ref(schema, node[\"$ref\"]), location)\n        try:",
+      "new": "        if \"$ref\" in node:\n            check(value, _resolve_ref(schema, node[\"$ref\"]), location)\n            return\n        try:",
+      "operator": "ignore Draft 2020-12 validation siblings beside a local reference",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_advertised_draft_2020_12_subset_semantics_are_exact"]
+    },
+    {
+      "mutant_id": "schema-additional-properties-ignored",
+      "path": "src/codex_governance/schema.py",
+      "old": "                        elif isinstance(additional, (dict, bool)):\n                            check(value[name], additional, f\"{location}/{name}\")",
+      "new": "                        elif False:\n                            check(value[name], additional, f\"{location}/{name}\")",
+      "operator": "ignore schema-valued additionalProperties validation",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_advertised_draft_2020_12_subset_semantics_are_exact"]
+    },
+    {
+      "mutant_id": "schema-integral-float-rejected",
+      "path": "src/codex_governance/schema.py",
+      "old": "            isinstance(value, float)\n            and value.is_integer()",
+      "new": "            isinstance(value, float)\n            and False",
+      "operator": "reject mathematically integral JSON numbers from integer schemas",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_advertised_draft_2020_12_subset_semantics_are_exact"]
     }
   ]
 }

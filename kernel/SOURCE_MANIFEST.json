@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "source_repository": "timaday/codex-governed-change",
-  "source_commit": "fbe4594a46c2f7c86787dde9950661f3a9df85c7",
+  "source_commit": "9bfc318d0b9c3436bd79837b18b818f81beb6440",
   "files": [
     {
       "path": ".codex/review/reviewer.prompt.md",
@@ -33,7 +33,7 @@
     },
     {
       "path": "schemas/context-qualification.schema.json",
-      "sha256": "sha256:636da11be6890d7b103f7ad00b010a635b6b6522286d84b7ba97a3624616bdb4"
+      "sha256": "sha256:761e0e3cca31a26d84d2a4018c11210b10912392095bf8f20f844f8b29a86eb4"
     },
     {
       "path": "schemas/context-receipt.schema.json",
@@ -193,7 +193,7 @@
     },
     {
       "path": "src/codex_governance/cli.py",
-      "sha256": "sha256:21c6049600812c21bfc2e877a2e13b99b2c5eef65a8db745a4ebc49dc6e8ba70"
+      "sha256": "sha256:f49c25acf57516961096705d41072d3e0d8e8c4e2514bff5bd9644f5f598fdca"
     },
     {
       "path": "src/codex_governance/configuration.py",
@@ -201,7 +201,7 @@
     },
     {
       "path": "src/codex_governance/context.py",
-      "sha256": "sha256:00c8b17b12851fd000aa0cbc5c090759b87fc033abfc5916fbba15f053f6cd1c"
+      "sha256": "sha256:f3c28c5a2d296ebfec9f88583bdb6803f5d03dffcaaad7ba795672030fe8e064"
     },
     {
       "path": "src/codex_governance/domain/__init__.py",
@@ -217,7 +217,7 @@
     },
     {
       "path": "src/codex_governance/evidence.py",
-      "sha256": "sha256:031fe093d555142b06afdca84b991f3c2a12d9d15298ffb630f665cd61dfe914"
+      "sha256": "sha256:5def781911e7e6bac12558221f18e41a77529030ed67986270d405633f11ced6"
     },
     {
       "path": "src/codex_governance/gate.py",
@@ -233,7 +233,7 @@
     },
     {
       "path": "src/codex_governance/lifecycle.py",
-      "sha256": "sha256:db018febc840aa25b300b5da0255a4ab0c51d7ac1e6991b3fab74d28e087c1ae"
+      "sha256": "sha256:ffdb5a8da7ae0ad02ae97bfb43f85ba376095344c7a32176053e1beb9debc5c7"
     },
     {
       "path": "src/codex_governance/locators.py",
@@ -245,7 +245,7 @@
     },
     {
       "path": "src/codex_governance/mutation.py",
-      "sha256": "sha256:871f1bdf2914e83e1514e48ee8d4c953cc384ec4f87fbcd9158fe7e7d8bf7a93"
+      "sha256": "sha256:603d15d437514112a35ed869aa36558af3e34e6ea1f681541c7ae06f66a4780c"
     },
     {
       "path": "src/codex_governance/mutation_runner.py",
@@ -261,15 +261,15 @@
     },
     {
       "path": "src/codex_governance/qualification.py",
-      "sha256": "sha256:cf8bc0aec6ef577982fcac4e26dcdda1d3a5c5346e2b9fa36a3ac2314e7dc8a3"
+      "sha256": "sha256:469136e4fd0f20399695fd73da19ef1605bdb906e4a8357b01b9d1750767c610"
     },
     {
       "path": "src/codex_governance/rapid_review.py",
-      "sha256": "sha256:b2d6edb4738293fd60e5d0a33462c5eea9dfedfb9c83631d4ee6797c1bda437d"
+      "sha256": "sha256:0226532a6a4ceef672e7b837a0c11b027485501a5abd96226c155ab34096eb8a"
     },
     {
       "path": "src/codex_governance/reviewer.py",
-      "sha256": "sha256:ef706e076001fafac200be3c64809ca4752dcb20df812709e5a230a423be03a5"
+      "sha256": "sha256:ea59d9cdec17caabe9bdfcc8c780f68898ff6be01df93da0b9f68da769c60b98"
     },
     {
       "path": "src/codex_governance/reviewer_namespace.py",
@@ -281,7 +281,7 @@
     },
     {
       "path": "src/codex_governance/reviewer_supervisor.py",
-      "sha256": "sha256:8dc58ef3aeec73f584d85a803b27f8f441c03ffc273db67ad4eb7da753d7c53b"
+      "sha256": "sha256:e8fe72468f7fb48dd308ec5cbf5d97cf57ccf2903fc1d910258fcb24daf3cfbb"
     },
     {
       "path": "src/codex_governance/rollback.py",
@@ -289,7 +289,7 @@
     },
     {
       "path": "src/codex_governance/rst_operations.py",
-      "sha256": "sha256:8846a2809ff99cde736272a2b3f3a2e8bb6c70b88579ba5fd665cd9a6eeac76d"
+      "sha256": "sha256:3bfc04058873933131905a43d3b529ab7c752979c93d56dc1bf4dbd8a74b5bed"
     },
     {
       "path": "src/codex_governance/sandbox.py",
@@ -297,7 +297,7 @@
     },
     {
       "path": "src/codex_governance/schema.py",
-      "sha256": "sha256:f19f3f799fc264c2b6ac9e4cc25588f25577df0b5058708f925dc444a63f0c54"
+      "sha256": "sha256:c2b7dbaf8864a05b208aab9429b89ed633b220355ecb3f9e8e4c6a3201a634cf"
     }
   ]
 }

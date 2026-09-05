@@ -23,10 +23,12 @@ from codex_governance.artifacts import read_bounded_repository_file
 from codex_governance.candidate import GitCliRepositoryAdapter, verify_candidate_identity
 from codex_governance.context import (
     MANDATORY_REVIEWER_CLAIMS,
+    build_protected_context_artifacts,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
     validate_retrieval_expansions,
+    verify_protected_context_artifacts,
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.admission import evaluate_admission
@@ -71,7 +73,10 @@ from codex_governance.reviewer import (
     reviewer_stream_is_portable,
 )
 from codex_governance.rollback import protected_rollback_command
-from codex_governance.rst_operations import evaluate_operational_rst
+from codex_governance.rst_operations import (
+    evaluate_operational_rst,
+    validate_rst_lineage,
+)
 from codex_governance.sandbox import (
     sandbox_execution_identity,
     validate_sandbox_capability,
@@ -554,7 +559,7 @@ def evaluate_manifest(
                 and current_candidate.get("base_commit")
                 == "5393338571f8ed5de5192613dcdd6131044932dc"
                 and current_candidate.get("head_commit")
-                == "fbe4594a46c2f7c86787dde9950661f3a9df85c7"
+                == "9bfc318d0b9c3436bd79837b18b818f81beb6440"
                 and policy.get("lkg_governance_commit")
                 == current_candidate.get("base_commit")
                 and proposed_policy.get("repository_id") == repository_id
@@ -1597,6 +1602,25 @@ def evaluate_manifest(
             affected_closure=affected_closure,
             changed_paths=current_candidate["changed_paths"],
         )
+        reconstructed_artifacts = build_protected_context_artifacts(
+            gate_references=[
+                item["reference"] for item in manifest["gate_results"]
+            ],
+            gate_results=gate_documents,
+            mutation_references=manifest["mutant_records"],
+            mutation_records=mutation_records,
+        )
+        declared_artifacts = context_sources.get("sources", {}).get("artifacts")
+        if declared_artifacts != reconstructed_artifacts:
+            raise ValueError("protected context artifact closure does not reconstruct")
+        verify_protected_context_artifacts(
+            repository,
+            reconstructed_artifacts,
+            artifact_reader=lambda reference, digest: read_reference(
+                repository=repository,
+                reference={"path": reference, "sha256": digest},
+            ),
+        )
         reconstructed_sources = build_protected_context_sources(
             candidate=current_candidate,
             task=task,
@@ -1606,6 +1630,7 @@ def evaluate_manifest(
             gate_results=gate_documents,
             mutation_records=mutation_records,
             created_at=context_sources["created_at"],
+            artifacts=reconstructed_artifacts,
         )
         reconstructed = compile_context(
             sources=reconstructed_sources,
@@ -1618,6 +1643,11 @@ def evaluate_manifest(
             reasoning_effort=context_sources["reasoning_effort"],
             context_qualification=context_qualification,
             protected_qualification_ids=policy["context"]["qualification_ids"],
+            protected_token_budgets={
+                profile: policy["context"][f"{profile.lower()}_tokens"]
+                for profile in ("COMPACT", "STANDARD", "DEEP")
+            },
+            minimum_profile=policy["context"]["default_profile"],
         )
         context_ok = (
             verify_content_address(context_sources, "source_bundle_id")
@@ -1924,13 +1954,7 @@ def evaluate_manifest(
         oracles = [load(reference, "oracle-reference") for reference in manifest["oracle_references"]]
         coverage = [load(reference, "coverage-note") for reference in manifest["coverage_notes"]]
         follow_ups = [load(reference, "follow-up") for reference in manifest["follow_ups"]]
-        lineage = [risk_register, *oracles, *coverage, *follow_ups]
-        lineage_ok = all(
-            item.get("repository_id") == repository_id
-            and item.get("task_contract_sha256") == task_sha
-            and item.get("candidate_id") == current_candidate_id
-            for item in lineage
-        )
+        lineage_ok = False
         open_follow_ups = [item for item in follow_ups if item.get("required") and item.get("status") != "completed"]
         direct_observations: list[Any] = []
         rapid_state = DispositionState.UNKNOWN
@@ -2253,6 +2277,38 @@ def evaluate_manifest(
                 isinstance(locator_id, str) and locator_id in resolved_locators
                 for locator_id in locator_ids
             )
+            evidence_index: dict[str, str] = {}
+            for locator_id, resolved_digest in resolved_locators.items():
+                locator = locator_by_id.get(locator_id, {})
+                artifact_digest = locator.get("artifact_sha256")
+                path = locator.get("path")
+                evidence_index[locator_id] = resolved_digest
+                if isinstance(artifact_digest, str):
+                    if isinstance(path, str):
+                        evidence_index[path] = artifact_digest
+            lineage_ok = (
+                validate_rst_lineage(
+                    repository_id,
+                    task_sha,
+                    current_candidate_id,
+                    risk_assessment=risk,
+                    risk_register=risk_register,
+                    oracle_references=oracles,
+                    charters=charters,
+                    sessions=sessions,
+                    coverage_notes=coverage,
+                    debrief=debrief,
+                    follow_ups=follow_ups,
+                    risk_disposition=risk_disposition,
+                    evidence_index=evidence_index,
+                    charter_digests=charter_sha_by_id,
+                    debrief_digest=manifest["rapid_review_debrief"]["sha256"],
+                    mutant_ids={
+                        record["mutant_id"] for record in mutation_records
+                    },
+                )
+                is DispositionState.READY_FOR_HUMAN
+            )
             decision_map = {item["decision_id"]: item for item in valid_decisions}
             if not risk_floor_ok:
                 rapid_state = DispositionState.BLOCK
@@ -2267,6 +2323,7 @@ def evaluate_manifest(
                     policy_sha256=policy_sha,
                     now=now,
                     verified_decision_ids=verified_decision_ids,
+                    resolved_evidence_refs=set(resolved_locators),
                 )
                 if not rapid_bindings or not rapid_execution_ok:
                     rapid_state = DispositionState.UNKNOWN

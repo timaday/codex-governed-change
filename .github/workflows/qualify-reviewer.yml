@@ -18,7 +18,7 @@ env:
 
 jobs:
   qualify:
-    name: Eight-case exact-identity qualification
+    name: Reviewer and context-profile qualification
     if: >-
       github.repository == 'timaday/codex-governed-change-authority' &&
       github.ref == 'refs/heads/main' &&
@@ -50,7 +50,7 @@ jobs:
           test "$(codex --version)" = "codex-cli 0.149.1"
           test "$(codex login status 2>&1)" = "Logged in using ChatGPT"
 
-      - name: Run exact conformance and rapid-review corpus
+      - name: Run exact reviewer and context-profile corpus
         env:
           PYTHONPATH: kernel/src:.governance/ci
           PYTHONDONTWRITEBYTECODE: "1"

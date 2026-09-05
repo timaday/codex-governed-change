@@ -141,6 +141,18 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "permission-finalization-deadline-rebased",
         "colon-multi-posix-unredacted",
         "malformed-scheme-endpoint-family-omitted",
+        "procfs-containment-preflight-omitted",
+        "rapid-evidence-resolution-omitted",
+        "rst-presence-promotes-readiness",
+        "context-artifact-recursion-omitted",
+        "context-artifacts-not-compiled",
+        "synthetic-context-qualification-promoted",
+        "effective-profile-budget-unchecked",
+        "reviewer-runtime-overlap-accepted",
+        "schema-json-equality-collapsed",
+        "schema-ref-siblings-ignored",
+        "schema-additional-properties-ignored",
+        "schema-integral-float-rejected",
     }
 )
 
