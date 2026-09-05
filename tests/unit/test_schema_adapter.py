@@ -8,6 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from codex_governance.schema import (
+    DRAFT_2020_12,
     JsonRepresentationAdapter,
     SchemaValidationError,
     authoritative_json_session,
@@ -45,6 +46,69 @@ class SchemaAdapterTest(unittest.TestCase):
         schema["format"] = "custom"
         self.assertTrue(any("unsupported keyword" in item for item in validate_instance({}, schema)))
         self.assertFalse(math.isfinite(float("nan")))
+
+    def test_advertised_draft_2020_12_subset_semantics_are_exact(self) -> None:
+        self.assertEqual(
+            [],
+            validate_instance(
+                1.0, {"$schema": DRAFT_2020_12, "type": "integer"}
+            ),
+        )
+        self.assertTrue(
+            validate_instance(1, {"$schema": DRAFT_2020_12, "const": True})
+        )
+        self.assertTrue(
+            validate_instance(
+                1, {"$schema": DRAFT_2020_12, "enum": [True]}
+            )
+        )
+        self.assertTrue(
+            validate_instance(
+                1,
+                {
+                    "$schema": DRAFT_2020_12,
+                    "$defs": {"integer": {"type": "integer"}},
+                    "$ref": "#/$defs/integer",
+                    "minimum": 2,
+                },
+            )
+        )
+        self.assertTrue(
+            validate_instance(
+                {"extra": "not-an-integer"},
+                {
+                    "$schema": DRAFT_2020_12,
+                    "type": "object",
+                    "additionalProperties": {"type": "integer"},
+                },
+            )
+        )
+        self.assertTrue(
+            validate_instance(
+                [1], {"$schema": DRAFT_2020_12, "type": "array", "items": False}
+            )
+        )
+
+    def test_malformed_supported_keyword_definitions_fail_closed(self) -> None:
+        malformed = (
+            {"required": "value"},
+            {"required": ["value", "value"]},
+            {"properties": []},
+            {"additionalProperties": 1},
+            {"items": 1},
+            {"minItems": -1},
+            {"uniqueItems": 1},
+            {"pattern": "["},
+            {"enum": []},
+            {"enum": [True, True]},
+        )
+        for fragment in malformed:
+            with self.subTest(fragment=fragment):
+                self.assertTrue(
+                    validate_instance(
+                        None, {"$schema": DRAFT_2020_12, **fragment}
+                    )
+                )
 
     def test_authoritative_json_rejects_symlink_fifo_and_oversize(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -37,6 +37,17 @@ x32-tagged syscall before native dispatch rather than assuming the host kernel
 has disabled that alternate ABI. An unavailable equivalent
 kernel capability forces `UNKNOWN`. A racy zombie-only scan cannot establish
 initial success, and cleanup completion remains separate from execution validity.
+Before any boundary child launches, the outer supervisor must also prove that
+its procfs view reports the same self PID and parent PID as the process API,
+that any namespace PID list ends in that self PID, and that direct-child
+enumeration succeeds. This preflight is distinct from the inner namespace
+handshake; failure returns `UNKNOWN` without launching candidate-controlled code.
+
+Runtime read grants are canonical and pairwise non-overlapping after redundant
+descendant installation roots are coalesced. They cannot equal or contain a
+user home, filesystem root or sanitized harness, and cannot be nested beneath
+the harness. This is required because a more-specific Codex
+filesystem grant can reopen a path beneath the root deny.
 
 ## Alternatives
 

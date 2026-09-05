@@ -1,11 +1,11 @@
 {
   "schema_version": "2.0.0",
-  "receipt_id": "sha256:2a62cb0d7f2ba26d7e4efc5951829415f7bab123720bc5e86c8e4e83d6de69f6",
+  "receipt_id": "sha256:b22b329ca1fc90c0558ceb4319f7707524f0900c0c4eaa2fd63779a0babd7885",
   "repository_id": "repo:example/codex-governed-change",
   "candidate_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "projection_version": "1.0.0",
   "profile": "STANDARD",
-  "context_qualification_id": "sha256:a59c8ea5a2faa94784e3ed808cb189c9a78660ddc499bdb64ba20975e543ebda",
+  "context_qualification_id": "sha256:cd84c537d7d62ee8695c5d4a8a5d7600f2c0e98a2a44d4f9c48bb52b7faaac1a",
   "source_bundle_sha256": "sha256:31a5abd67aa0e80e4a6b219fec810ac31a480cdb6366af0688f4179c0de7f85e",
   "source_sha256": "sha256:31a5abd67aa0e80e4a6b219fec810ac31a480cdb6366af0688f4179c0de7f85e",
   "projection_sha256": "sha256:31e88f64374752ed0de7c30dc934989afe343bf7c969878a932d3941e8d3793f",

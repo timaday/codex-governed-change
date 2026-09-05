@@ -22,6 +22,7 @@ from codex_governance.canonical import (
 from codex_governance.context import (
     MANDATORY_REVIEWER_CLAIMS,
     REVIEW_RUBRIC,
+    build_protected_context_artifacts,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
@@ -791,9 +792,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         policy["sandbox"]["memory_bytes"] = 1000000
         context_qualification = content_address(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "2.0.0",
                 "projection_version": "1.0.0",
                 "profile": "DEEP",
+                "evidence_class": "empirical",
                 "baseline": {
                     "critical_recall": 1.0,
                     "false_passes": 0,
@@ -1339,6 +1341,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             candidate=self.candidate,
             evidence_root=policy["evidence_root"],
         )
+        mutation_records = [
+            json.loads((self.repository / reference["path"]).read_text())
+            for reference in mutant_refs
+        ]
+        context_artifacts = build_protected_context_artifacts(
+            gate_references=[gate_ref],
+            gate_results=[gate_result],
+            mutation_references=mutant_refs,
+            mutation_records=mutation_records,
+        )
         sources = build_protected_context_sources(
             candidate=self.candidate,
             task=task,
@@ -1350,11 +1362,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ),
             affected_closure=affected_closure,
             gate_results=[gate_result],
-            mutation_records=[
-                json.loads((self.repository / reference["path"]).read_text())
-                for reference in mutant_refs
-            ],
+            mutation_records=mutation_records,
             created_at=self.AT,
+            artifacts=context_artifacts,
         )
         compiled_context = compile_context(
             sources=sources, candidate=self.candidate,
@@ -1786,7 +1796,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             {
                 "schema_version": "1.0.0", "repository_id": self.REPOSITORY_ID,
                 "task_contract_sha256": task_sha, "candidate_id": self.CANDIDATE_ID,
-                "risks": [{"risk_id": "RISK-1", "description": "regression", "threatened_value": "correctness", "impact": "high", "status": "mitigated", "source_refs": ["GOV-031"], "charter_refs": ["CHARTER-FIXTURE"]}],
+                "risks": [{"risk_id": "RISK-1", "description": "regression", "threatened_value": "correctness", "impact": "high", "status": "mitigated", "source_refs": [locator["locator_id"]], "charter_refs": ["CHARTER-FIXTURE"]}],
                 "updated_from": ["session:SESSION-FIXTURE"], "created_at": self.AT, "producer_version": "test",
             },
             "risk_register_id",

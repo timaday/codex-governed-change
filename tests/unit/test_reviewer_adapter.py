@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - unavailable on Windows
 from codex_governance.candidate import GitCliRepositoryAdapter
 from codex_governance.canonical import sha256_bytes, sha256_canonical
 from codex_governance.domain.model import ReviewerVerdict
-from codex_governance import reviewer_signal_guard
+from codex_governance import reviewer_signal_guard, reviewer_supervisor
 from codex_governance.reviewer import (
     _ReviewerOutputAuthority,
     _validate_portable_reviewer_command,
@@ -50,6 +50,8 @@ class ReviewerAdapterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
+        self.runtime_bin = root / "runtime" / "bin"
+        self.runtime_bin.mkdir(parents=True)
         self.repository = root / "repository"
         self.repository.mkdir()
         self.git("init", "-q")
@@ -181,7 +183,7 @@ class ReviewerAdapterTest(unittest.TestCase):
         )
 
     def fake_codex(self, body: str) -> Path:
-        executable = Path(self.temporary.name) / f"fake-codex-{len(list(Path(self.temporary.name).glob('fake-codex-*')))}"
+        executable = self.runtime_bin / f"fake-codex-{len(list(self.runtime_bin.glob('fake-codex-*')))}"
         claims = [
             {
                 "claim_id": claim_id,
@@ -1210,7 +1212,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
 
     def test_runtime_profile_is_bounded_and_rejects_filesystem_root(self) -> None:
         install = Path(self.temporary.name) / "runtime" / "bin"
-        install.mkdir(parents=True)
+        install.mkdir(parents=True, exist_ok=True)
         executable = install / "codex"
         executable.write_text("#!/bin/sh\n", encoding="utf-8")
         executable.chmod(0o755)
@@ -1221,12 +1223,61 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         profile = build_reviewer_permission_profile(roots)
         self.assertIn(json.dumps(str(install.parent)) + '="read"', profile)
         self.assertIn('":root"="deny"', profile)
+        coalesced = build_reviewer_permission_profile([install.parent, install])
+        self.assertEqual(profile, coalesced)
         with self.assertRaisesRegex(ValueError, "unsafe"):
             build_reviewer_permission_profile([Path(Path.cwd().anchor)])
 
+    def test_runtime_profile_rejects_harness_and_runtime_root_overlap(self) -> None:
+        runtime = Path(self.temporary.name) / "runtime"
+        harness = runtime / "review-harness"
+        with patch(
+            "codex_governance.reviewer.resolve_reviewer_runtime_read_roots",
+            return_value=(runtime,),
+        ), self.assertRaisesRegex(ValueError, "overlap"):
+            build_reviewer_command(
+                codex_executable="codex",
+                model="gpt-5.6-sol",
+                schema_path=harness / "schema.json",
+                output_path=harness / "output.json",
+                review_root=harness,
+            )
+
+    def test_procfs_containment_unavailable_prevents_any_boundary_launch(self) -> None:
+        statuses = []
+        launched = []
+
+        class Child:
+            pass
+
+        with patch.object(reviewer_supervisor, "_enable_subreaper", return_value=True), patch.object(
+            reviewer_supervisor,
+            "_procfs_containment_available",
+            return_value=False,
+            create=True,
+        ), patch.object(reviewer_supervisor, "_write_status", side_effect=lambda _fd, value: statuses.append(value)), patch.object(
+            reviewer_supervisor.signal, "signal"
+        ), patch.object(
+            reviewer_supervisor.subprocess,
+            "Popen",
+            side_effect=lambda *args, **kwargs: launched.append((args, kwargs)) or Child(),
+        ), patch.object(
+            reviewer_supervisor, "_boundary_handshake", return_value=None
+        ), patch.object(
+            reviewer_supervisor, "_stop_boundary_child", return_value=True
+        ), patch.object(
+            reviewer_supervisor, "_drain_descendants", return_value=(False, False)
+        ):
+            self.assertEqual(
+                126, reviewer_supervisor.main(["7", "--", "reviewer"])
+            )
+
+        self.assertEqual([], launched)
+        self.assertEqual(False, statuses[0]["boundary_available"])
+
     def test_unavailable_malformed_timeout_and_drift_are_unknown(self) -> None:
         unavailable = launch_reviewer(
-            command=self.command(Path(self.temporary.name) / "missing-codex"),
+            command=self.command(self.runtime_bin / "missing-codex"),
             stdin_text=self.stdin(), schema_path=self.harness["schema"],
             output_path=self.harness["output"], expected_candidate_id=self.CANDIDATE,
             candidate_supplier=lambda _deadline: self.CANDIDATE, timeout_seconds=0.1,
@@ -1893,7 +1944,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         command = build_reviewer_command(
             codex_executable=str(fake), model="fake-gpt",
             schema_path=Path("schemas/rapid-review-session.schema.json"),
-            output_path=output, review_root=Path(self.temporary.name),
+            output_path=output, review_root=self.harness["root"],
         )
         expected = {
             "repository_id": "repo:example/project",

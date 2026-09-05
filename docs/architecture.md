@@ -244,6 +244,12 @@ codex exec
 
 The sanitized harness is its own minimal Git root. The immutable candidate is nested at a declared read-only path. Candidate-owned `.codex`, `.agents`, hooks, rules and skills remain visible for review but are not active configuration because Codex starts at the harness root. One reviewer deadline begins before lock/policy selection and governs all candidate/authority reads, CLI-version observation, preparation, execution, cleanup, identity and final output. The reviewer adapter descriptor-reads candidate evidence only beneath the candidate repository and prompt/schema bytes only beneath a distinct protected authority root; both path families are relative to their declared root and are copied from the same validated bytes. Candidate and evidence entries plus the final output are read or copied through retained no-follow descriptors by killable helpers, and the final permission walk runs in a killable child; all use that one absolute deadline. The fixed protected prompt and normalized permitted inputs are sent on stdin. Immediately before and after execution, one composite observer independently re-identifies both the read-only copied snapshot exposed to Codex and the original source candidate; either drift makes the execution unknown. Admission receives the protected authority root separately and rebuilds stdin from its descriptor-read prompt bytes, never from a candidate-owned prompt. A custom permission profile extends Codex read-only behavior, denies the host root, re-allows only the harness and minimum detected Codex/tool runtime installation roots, and disables tool network access. Runtime roots are derived from the protected parent executable environment at launch, are never candidate inputs, and are represented in evidence only by the complete argv digest. The parent launcher environment is a narrow runtime/authentication allowlist and contains no author transcript path or API key. A second fixed allowlist governs model-generated tool processes: it replaces the parent home with a fixed synthetic value and excludes `CODEX_HOME`, proxies, authentication material and undeclared variables. Authentication remains ChatGPT/Codex-managed by the parent process; authentication files and environment values are not copied into reviewer inputs or evidence.
 
+Permission construction canonicalizes runtime roots, coalesces redundant nested
+runtime installations, and rejects filesystem or user-home ancestors plus any
+ancestor/descendant overlap with the sanitized harness. This models Codex's most-specific-path precedence:
+an absolute runtime read grant cannot reopen candidate-controlled or broader
+host content beneath the root deny.
+
 Launcher-closure source identity and the output schema use retained descriptor-
 bound reads under that same absolute reviewer deadline; final output validation
 uses the retained schema object without reopening its path. Each review mode has
@@ -310,6 +316,13 @@ initial success because enumeration races with fork/exit. Stream closure occurs
 only through a bounded helper; a blocked write or close cannot escape the
 reviewer deadline. Cleanup completion is evidence and never promotes an already
 incomplete run.
+
+The outer subreaper has a separate pre-launch procfs adapter. It compares
+`/proc/self/stat` PID and PPID with the process API, checks the innermost `NSpid`
+when present, and performs a complete direct-child enumeration before creating
+the first boundary child. This observation is required even though the inner
+namespace later remounts and validates its own procfs. Failure prevents launch
+and is reported as unavailable containment.
 
 ## Evidence storage
 
@@ -418,6 +431,11 @@ digests, repository closure, adverse-signal profile selection, inclusion choices
 metrics and separately referenced protected profile/version qualification before
 accepting usage. Reviewer process provenance names the source bundle, projection,
 qualification, prepared receipt and post-run receipt as distinct materials.
+The source bundle also contains one deterministically derived artifact index
+covering exact gate-result and mutation-record references plus their recursively
+typed path/digest materials. Preparation, review and admission independently
+derive and byte-resolve that same index. Effective profile selection happens
+before profile-specific qualification and budget validation.
 
 ## Configuration
 
@@ -446,6 +464,12 @@ There is no generic catch that converts a known block into a softer unknown or c
 ## Rapid-review policy boundary
 
 Rapid-review planning and aggregation are pure domain policy. The model-facing adapter may investigate and produce a structured session report, but it cannot declare its artifacts complete, accept a finding or residual risk, or change disposition. The application validates exact candidate and charter digests, provenance, direct oracle/evidence linkage, coverage and omission reporting, session status, three-story debrief completeness, and human authorization for material acceptance.
+
+The rapid-review policy receives the protected set of resolved evidence-locator
+identities; a non-empty string outside that set is not evidence. The operational
+RST policy separately reconstructs the complete typed graph linking risk
+sources, charters, sessions, oracles, coverage, debrief, follow-ups and risk
+disposition. Presence-only validation is never an admission input.
 
 Protected changed-surface obligations and the authenticated task define a
 minimum risk and rapid-review floor. A candidate-supplied risk assessment may
@@ -573,6 +597,12 @@ The compiler never receives the author transcript or persisted reasoning. The
 fresh-context reviewer can search the complete read-only repository and resolve
 unabridged artifacts, but the prompt initially contains only the deterministic
 projection.
+
+Context qualification is a versioned authority boundary. Empirical records are
+derived from protected labelled observations and may satisfy production
+preparation/review/admission. Synthetic-bootstrap records are explicitly
+unqualified and accepted only by the qualification-case constructor; the
+general compiler defaults to rejecting them.
 
 ## Concurrency
 

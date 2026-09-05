@@ -6,16 +6,17 @@ from copy import deepcopy
 from pathlib import Path
 
 from codex_governance.candidate import GitCliRepositoryAdapter, candidate_id_from_components
-from codex_governance.canonical import content_address, sha256_bytes
+from codex_governance.canonical import canonical_json_bytes, content_address, sha256_bytes
 
 
 class ContextCompilerAcceptanceTest(unittest.TestCase):
     def qualification(self, profile: str) -> dict:
         return content_address(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "2.0.0",
                 "projection_version": "1.0.0",
                 "profile": profile,
+                "evidence_class": "empirical",
                 "baseline": {
                     "critical_recall": 1.0, "false_passes": 0,
                     "traceability": 1.0, "disposition_correct": True,
@@ -32,6 +33,179 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
             },
             "qualification_id",
         )
+
+    def test_unlabelled_context_qualification_cannot_prepare_production(self) -> None:
+        from codex_governance.context import compile_context
+
+        sources = self.sources()
+        unlabelled = self.qualification("STANDARD")
+        unlabelled.pop("evidence_class")
+        unlabelled = content_address(unlabelled, "qualification_id")
+        with self.assertRaisesRegex(ValueError, "qualification"):
+            compile_context(
+                sources=sources,
+                candidate=self.candidate(),
+                requested_profile="STANDARD",
+                token_budget=64000,
+                changed_paths=["src/service.py"],
+                affected_closure=sources["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=unlabelled,
+                protected_qualification_ids={
+                    **self.qualification_ids(),
+                    "STANDARD": unlabelled["qualification_id"],
+                },
+            )
+
+    def test_synthetic_bootstrap_qualification_cannot_prepare_production(self) -> None:
+        from codex_governance.context import compile_context
+
+        sources = self.sources()
+        synthetic = self.qualification("STANDARD")
+        synthetic.update(
+            evidence_class="synthetic_bootstrap",
+            qualified=False,
+            limitations=["qualification-case construction only"],
+        )
+        synthetic = content_address(synthetic, "qualification_id")
+        with self.assertRaisesRegex(ValueError, "qualification"):
+            compile_context(
+                sources=sources,
+                candidate=self.candidate(),
+                requested_profile="STANDARD",
+                token_budget=24000,
+                changed_paths=["src/service.py"],
+                affected_closure=sources["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=synthetic,
+                protected_qualification_ids={
+                    **self.qualification_ids(),
+                    "STANDARD": synthetic["qualification_id"],
+                },
+            )
+
+    def test_protected_artifact_closure_is_derived_and_byte_resolved(self) -> None:
+        from codex_governance.context import (
+            build_protected_context_artifacts,
+            verify_protected_context_artifacts,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            evidence = repository / "evidence"
+            evidence.mkdir()
+            raw = b"bounded observation\n"
+            (evidence / "observation.bin").write_bytes(raw)
+            raw_reference = {
+                "path": "evidence/observation.bin",
+                "sha256": sha256_bytes(raw),
+            }
+            gate = {
+                "gate_id": "unit",
+                "status": "PASS",
+                "artifacts": [raw_reference],
+            }
+            gate_bytes = canonical_json_bytes(gate)
+            (evidence / "gate.json").write_bytes(gate_bytes)
+            gate_reference = {
+                "path": "evidence/gate.json",
+                "sha256": sha256_bytes(gate_bytes),
+            }
+            mutant = {
+                "mutant_id": "MUTANT-AUTH",
+                "outcome": "KILLED",
+                "execution_result": raw_reference,
+            }
+            mutant_bytes = canonical_json_bytes(mutant)
+            (evidence / "mutant.json").write_bytes(mutant_bytes)
+            mutant_reference = {
+                "path": "evidence/mutant.json",
+                "sha256": sha256_bytes(mutant_bytes),
+            }
+            artifacts = build_protected_context_artifacts(
+                gate_references=[gate_reference],
+                gate_results=[gate],
+                mutation_references=[mutant_reference],
+                mutation_records=[mutant],
+            )
+            self.assertEqual(
+                {
+                    "evidence/gate.json",
+                    "evidence/mutant.json",
+                    "evidence/observation.bin",
+                },
+                {item["reference"] for item in artifacts},
+            )
+            self.assertEqual(
+                set(item["reference"] for item in artifacts),
+                set(verify_protected_context_artifacts(repository, artifacts)),
+            )
+            (evidence / "observation.bin").write_bytes(b"changed\n")
+            with self.assertRaisesRegex(ValueError, "bytes do not match"):
+                verify_protected_context_artifacts(repository, artifacts)
+
+    def test_effective_deep_profile_selects_deep_budget_and_qualification(self) -> None:
+        from codex_governance.context import compile_context
+
+        changed_paths = ["schemas/authority.schema.json"]
+        sources = self.sources(changed_paths)
+        compiled = compile_context(
+            sources=sources,
+            candidate=self.candidate(changed_paths),
+            requested_profile="STANDARD",
+            token_budget=64000,
+            changed_paths=changed_paths,
+            affected_closure=sources["affected_closure"],
+            model="gpt-5.6-sol",
+            reasoning_effort="xhigh",
+            context_qualification=self.qualification("DEEP"),
+            protected_qualification_ids=self.qualification_ids(),
+            protected_token_budgets={
+                "COMPACT": 8000,
+                "STANDARD": 24000,
+                "DEEP": 64000,
+            },
+        )
+        self.assertEqual("DEEP", compiled["receipt"]["profile"])
+        with self.assertRaisesRegex(ValueError, "token budget"):
+            compile_context(
+                sources=sources,
+                candidate=self.candidate(changed_paths),
+                requested_profile="STANDARD",
+                token_budget=24000,
+                changed_paths=changed_paths,
+                affected_closure=sources["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=self.qualification("DEEP"),
+                protected_qualification_ids=self.qualification_ids(),
+                protected_token_budgets={
+                    "COMPACT": 8000,
+                    "STANDARD": 24000,
+                    "DEEP": 64000,
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "protected minimum"):
+            compile_context(
+                sources=self.sources(),
+                candidate=self.candidate(),
+                requested_profile="COMPACT",
+                token_budget=8000,
+                changed_paths=["src/service.py"],
+                affected_closure=self.sources()["affected_closure"],
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                context_qualification=self.qualification("COMPACT"),
+                protected_qualification_ids=self.qualification_ids(),
+                protected_token_budgets={
+                    "COMPACT": 8000,
+                    "STANDARD": 24000,
+                    "DEEP": 64000,
+                },
+                minimum_profile="STANDARD",
+            )
 
     def qualification_ids(self) -> dict[str, str]:
         return {

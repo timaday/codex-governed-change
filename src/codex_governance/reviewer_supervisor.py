@@ -67,6 +67,36 @@ def _direct_children() -> dict[int, str]:
     return children
 
 
+def _procfs_containment_available() -> bool:
+    """Prove that procfs can identify descendants in this PID namespace."""
+    try:
+        raw_stat = Path("/proc/self/stat").read_text(encoding="ascii")
+        prefix, separator, suffix = raw_stat.rpartition(")")
+        fields = suffix.split()
+        if not separator or len(fields) < 2:
+            return False
+        pid_text, opening, _command = prefix.partition("(")
+        if not opening:
+            return False
+        if int(pid_text.strip()) != os.getpid() or int(fields[1]) != os.getppid():
+            return False
+        status = Path("/proc/self/status").read_text(encoding="ascii")
+        namespace_pid = next(
+            (
+                line.split(":", 1)[1].split()
+                for line in status.splitlines()
+                if line.startswith("NSpid:")
+            ),
+            None,
+        )
+        if not namespace_pid or int(namespace_pid[-1]) != os.getpid():
+            return False
+        _direct_children()
+        return True
+    except (OSError, RuntimeError, UnicodeError, ValueError):
+        return False
+
+
 def _reap_zombies(children: dict[int, str]) -> None:
     for pid, state in children.items():
         if state != "Z":
@@ -226,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
         "child_return_code": None,
     }
     if not _enable_subreaper():
+        _write_status(status_descriptor, status)
+        return 126
+    if not _procfs_containment_available():
         _write_status(status_descriptor, status)
         return 126
     signal.signal(signal.SIGTERM, _set_stop_requested)

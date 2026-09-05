@@ -112,7 +112,86 @@ class RapidReviewAcceptanceTest(unittest.TestCase):
             debrief=self.debrief(count),
             risk_disposition=self.risk_disposition(count),
             authorized_humans={"maintainer"},
+            resolved_evidence_refs={
+                *(f"evidence/experiment-{index}.json" for index in range(1, count + 1)),
+                "evidence/session.json",
+            },
         )
+
+    def test_nonempty_but_dangling_evidence_reference_is_unknown(self) -> None:
+        self.assertEqual(
+            DispositionState.UNKNOWN,
+            evaluate_rapid_review(
+                candidate_id=self.CANDIDATE,
+                risk_assessment=self.assessment(),
+                charters=[self.charter()],
+                sessions=[self.session()],
+                debrief=self.debrief(),
+                risk_disposition=self.risk_disposition(),
+                authorized_humans=set(),
+                resolved_evidence_refs=set(),
+            ),
+        )
+
+    def test_each_evidence_bearing_field_requires_its_own_resolved_locator(self) -> None:
+        session = self.session()
+        session["findings"] = [
+            {
+                "finding_id": "FINDING-LOW",
+                "severity": "low",
+                "confidence": "high",
+                "impact": "A bounded low-severity observation.",
+                "oracle": "exact candidate binding",
+                "evidence_refs": ["evidence/finding.json"],
+                "threatened_value": "evidence traceability",
+            }
+        ]
+        disposition = self.risk_disposition()
+        disposition["items"].append(
+            {
+                "item_id": "FINDING-LOW",
+                "kind": "finding",
+                "severity": "low",
+                "disposition": "deferred",
+                "decision_ref": "",
+                "evidence_refs": ["evidence/finding.json"],
+            }
+        )
+        arguments = {
+            "candidate_id": self.CANDIDATE,
+            "risk_assessment": self.assessment(),
+            "charters": [self.charter()],
+            "sessions": [session],
+            "debrief": self.debrief(),
+            "risk_disposition": disposition,
+            "authorized_humans": set(),
+            "resolved_evidence_refs": {
+                "evidence/experiment-1.json",
+                "evidence/session.json",
+                "evidence/finding.json",
+            },
+        }
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN,
+            evaluate_rapid_review(**arguments),
+        )
+        mutations = {
+            "experiment": lambda value: value["sessions"][0]["experiments"][0].update(evidence_refs=["evidence/missing.json"]),
+            "finding": lambda value: value["sessions"][0]["findings"][0].update(evidence_refs=["evidence/missing.json"]),
+            "residual": lambda value: value["sessions"][0]["residual_risks"][0].update(evidence_refs=["evidence/missing.json"]),
+            "product-story": lambda value: value["debrief"]["product_story"].update(evidence_refs=["evidence/missing.json"]),
+            "testing-story": lambda value: value["debrief"]["testing_story"].update(evidence_refs=["evidence/missing.json"]),
+            "quality-story": lambda value: value["debrief"]["quality_of_testing_story"].update(evidence_refs=["evidence/missing.json"]),
+            "disposition": lambda value: value["risk_disposition"]["items"][0].update(evidence_refs=["evidence/missing.json"]),
+        }
+        for name, mutate in mutations.items():
+            variant = deepcopy(arguments)
+            mutate(variant)
+            with self.subTest(name=name):
+                self.assertEqual(
+                    DispositionState.UNKNOWN,
+                    evaluate_rapid_review(**variant),
+                )
 
     def test_risk_profile_selects_required_review_work(self) -> None:
         self.assertEqual(("low", 0, False), select_risk_profile("low", [], "recorded rationale"))
@@ -232,6 +311,11 @@ class RapidReviewAcceptanceTest(unittest.TestCase):
             candidate_id=self.CANDIDATE, risk_assessment=self.assessment(),
             charters=[self.charter()], sessions=[session], debrief=self.debrief(),
             risk_disposition=disposition,
+            resolved_evidence_refs={
+                "evidence/experiment-1.json",
+                "evidence/session.json",
+                "evidence/finding.json",
+            },
         )
         self.assertEqual(
             DispositionState.BLOCK,

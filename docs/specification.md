@@ -272,7 +272,12 @@ The launcher MUST:
   denies the host root, re-allows only the sanitized workspace and minimum
   detected Codex/tool runtime installation roots, and disables tool network
   access; runtime roots are derived at launch, never accepted from candidate
-  input, and persist only through the argv digest; the legacy broad-read
+  input, MUST be canonical and MUST NOT equal or contain a user home or overlap
+  the sanitized harness; redundant descendant runtime roots are coalesced, and
+  the resulting non-overlapping grants persist only through the
+  argv digest; because a more-specific read rule can reopen a subtree beneath a
+  broader deny, any unsafe or ambiguous overlap forces `UNKNOWN` before launch;
+  the legacy broad-read
   `--sandbox read-only` mode is insufficient for this boundary and MUST NOT be
   combined with the custom profile;
 - set approval policy to `never`, require strict config parsing, and restrict
@@ -372,6 +377,15 @@ inferred from a racy zombie-only process-group scan. Cleanup, stream closure and
 capture joins MUST remain time-bounded. Any live descendant, missing containment
 handshake or incomplete capture permanently forces `UNKNOWN`; later cleanup
 completion cannot promote it.
+
+Before the outer supervisor performs its first reviewer-boundary `Popen`, it
+MUST prove that `/proc/self/stat` reports the same PID and parent PID as the
+process API, that any `NSpid` value describes the same innermost PID, and that a
+complete direct-child enumeration succeeds. Unavailable, malformed or
+namespace-inconsistent procfs means descendant containment is unavailable and
+MUST return `UNKNOWN` without launching a namespace manager, signal guard or
+reviewer child. The later namespace-local `/proc` handshake remains a separate
+required observation.
 
 Before retained reviewer streams are hashed or persisted, the trusted launcher
 MUST replace harness, executable-runtime, home, authentication-home, temporary,
@@ -639,6 +653,16 @@ For each exact candidate, the workflow MUST:
 7. return actionable findings for remediation; and
 8. invalidate all affected evidence and repeat after any candidate mutation.
 
+Every field named `evidence_refs` MUST resolve to an exact protected
+content-addressed evidence locator before rapid-review policy is evaluated.
+Operational RST additionally resolves risk-source locators, risk-to-charter
+links, typed update sources, session-to-charter links and digests,
+coverage-to-session/oracle links, debrief-to-session and residual-risk links,
+follow-up source links, oracle source path/digest pairs, and disposition-to-
+debrief/item links. A missing, duplicate, dangling, stale, digest-mismatched or
+wrong-kind relationship is `UNKNOWN`; non-empty prose or a complete set of RST
+artifact kinds cannot preserve readiness.
+
 Risk effort is configurable rather than duration-driven:
 
 - `low`: rapid review may be skipped only with a non-empty policy-valid rationale; hazardous surfaces in GOV-034 cannot select this profile;
@@ -856,7 +880,10 @@ Operational RST maintains separate candidate/task-bound risk-register,
 fallible-oracle/reference, charter, session observation, coverage, debrief and
 follow-up artifacts. Requirements and changes create risks; observations update
 them; surviving mutants refine charters; reviewer findings create follow-up
-risks. Completed paperwork or no findings never proves correctness.
+risks. The protected admission producer resolves the complete relationship
+graph, including every required content-addressed locator and internal artifact
+identity, rather than trusting artifact presence or model-reported links.
+Completed paperwork or no findings never proves correctness.
 
 ## 18. Deterministic context compilation
 
@@ -906,6 +933,18 @@ flag that differs. Every projection-version/profile combination binds a
 protected content-addressed context-qualification artifact and the exact
 qualification ID declared by effective policy.
 
+Preparation constructs one deterministic protected artifact closure from the
+exact gate-manifest references, mutation-record references and their recursively
+typed path/digest materials. It selects the effective profile from the complete
+protected source set before checking the profile-specific budget and
+qualification. Correct escalation therefore selects the protected qualification
+for the effective profile; a qualification for only the requested lower profile
+cannot be reused. The isolated reviewer descriptor-reads and independently
+reconstructs that same source bundle, profile, projection, artifact index and
+bytes before launch. Admission repeats the reconstruction from manifest
+references. Missing or different artifacts, index entries, profiles, disclosure
+bytes or inclusion reasons are `UNKNOWN`.
+
 The source bundle, projection and prepared receipt are separate immutable
 referenced artifacts. The receipt binds projection/profile version,
 context-qualification identity, source/projection digests,
@@ -931,6 +970,15 @@ traceability and disposition correctness do not materially regress; efficiency m
 uses Git metadata, repository search, import/test mapping and content-addressed
 manifests, not embeddings or a vector database.
 
+Context qualification has two non-interchangeable evidence classes.
+`empirical` is measured from a protected labelled corpus and is the only class
+accepted by production preparation, review or admission. `synthetic_bootstrap`
+is explicitly unqualified, carries a non-empty limitation and may be used only
+inside deterministic qualification-case construction to break the initial
+measurement cycle. Bootstrap context can prepare a qualification case but can
+never satisfy production context qualification or be promoted by changing its
+content address.
+
 ## 19. Schema lifecycle and portability
 
 Schemas define supported versions and migration behavior. The qualification
@@ -954,6 +1002,16 @@ with typed path and line fields on every finding. The initial-release
 had a published predecessor before v0.1.0. Every transition advertised by the
 lifecycle policy has an executable explicit migration; missing legacy facts must
 come from separately protected inputs and every content address is rebuilt.
+`context-qualification` is `2.0.0` with the required `evidence_class` field.
+Migration from `1.0.0` requires that class from a separately protected source;
+synthetic bootstrap migration also forces `qualified` false and records its
+limitation. The repository's standard-library schema adapter implements only its
+advertised Draft 2020-12 keyword subset, but implements that subset faithfully:
+keyword shapes are validated, boolean subschemas are supported where admitted,
+integral JSON numbers satisfy `integer`, JSON boolean/numeric equality remains
+distinct, `$ref` siblings are also applied, and schema-valued `items` and
+`additionalProperties` are enforced. Unsupported keywords and malformed subset
+schemas fail closed before instance validation.
 An old document is accepted only
 as migration input and never as current admission evidence. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time

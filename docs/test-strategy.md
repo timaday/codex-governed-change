@@ -59,6 +59,10 @@ No model confidence statement is an oracle.
   reaching native or x32 kernel dispatch is a containment failure.
 - Reviewer timeout MUST stop the namespace manager and dedicated subreaper;
   PID-1 teardown MUST drain a session-escaped descendant.
+- Before any boundary `Popen`, unavailable, malformed, wrong-PID, wrong-PPID or
+  wrong-innermost-`NSpid` procfs plus failed child enumeration MUST return
+  `UNKNOWN` and a launch spy MUST observe zero children. A namespace-consistent
+  clean control MUST reach the existing boundary handshake.
 - A deterministic procfs fork/exit interleaving proving zombie-only enumeration
   cannot establish initial success, plus a forced stream-close stall that MUST
   return bounded `UNKNOWN` rather than hang.
@@ -504,6 +508,13 @@ substituted reference is otherwise digest-valid. A valid-looking finding from a
 stale execution or unqualified reviewer remains `UNKNOWN`, never confirmed
 `BLOCK`.
 
+For rapid review, replace every experiment, finding, residual-risk, story and
+disposition evidence locator in turn with a non-empty missing ID and require
+`UNKNOWN`. For operational RST, mutate each risk/charter, update-source,
+session/charter, coverage/session/oracle, debrief/session/residual-risk,
+follow-up/source, oracle path/digest and disposition/debrief/item edge. A bare
+complete artifact-kind set is a red control, not readiness evidence.
+
 ## Context compiler and reviewer qualification
 
 Fixtures must prove:
@@ -518,12 +529,27 @@ Fixtures must prove:
 - identical inputs produce byte-identical projections and receipts;
 - failures, warnings, survivors, limitations and unknowns survive every summary;
 - protected/high-risk surfaces and selector uncertainty choose `DEEP`;
+- STANDARD requests with protected DEEP signals select and validate the DEEP
+  budget/qualification before preparation, then reconstruct the same effective
+  profile during review and admission;
+- exact gate-result, mutant-record and recursively typed path/digest materials
+  produce one byte-resolved artifact index in preparation, review and admission;
 - unchanged evidence is referenced by content digest rather than duplicated;
 - author conversation and persisted reasoning never enter source or retrieval;
 - a prepared receipt is immutable and a post-run execution receipt binds it to
   the reviewer output, execution statement, all retrievals and Codex JSONL usage;
 - receipt metrics keep tokens, bytes, cache, latency, cost, retrieval and quality
   measurements distinct, and absent CLI usage blocks rather than becoming zero.
+- production rejects `synthetic_bootstrap` qualification while deterministic
+  qualification-case construction accepts only an explicitly unqualified,
+  limited bootstrap record; empirical qualification remains the clean control.
+
+Schema-adapter tests exercise every advertised keyword's definition shape and
+instance semantics. Targeted cases include integral floats as `integer`, boolean
+versus numeric `const`/`enum` equality, `$ref` siblings, boolean/schema `items`,
+schema-valued `additionalProperties`, invalid regex and duplicate or malformed
+`required`/`enum` definitions. Unsupported keywords remain a clean fail-closed
+control.
 
 Human-labelled seeded critical defects and prompt injections qualify each review
 mode's exact prompt, schema, model and material launcher identity; a conformance
@@ -560,6 +586,15 @@ optimization variants using critical recall, false pass/block, unknown rate,
 mutation kill, RST findings, traceability, unresolved unknowns, tokens, bytes,
 latency, retrieval and cost. Reject any optimization with material assurance
 regression regardless of token savings.
+
+T24 also runs a held-out paired comparison between governed and ordinary Codex
+under the same ChatGPT-authenticated model family and representative task set.
+Retain per-arm task identity, protected expected outcome, accepted defects,
+correct completion, false blocks, `UNKNOWN`, total input/cached/output/reasoning
+tokens, elapsed time and human review/operation minutes. Aggregate counts only
+after all task records reconstruct, report limitations and confidence without
+claiming causality from a small corpus, and never let a favourable comparison
+substitute for deterministic admission or human approval.
 
 Assurance/admission tests require exactly nine protected assurance claim IDs,
 exactly once each, with the fixed claim-to-rule mapping. Omission, duplicate ID

@@ -129,6 +129,10 @@ def _runtime_prefix(executable: Path) -> Path:
     return parent.parent if parent.name.lower() in {"bin", "scripts"} else parent
 
 
+def _path_contains(parent: Path, child: Path) -> bool:
+    return parent == child or parent in child.parents
+
+
 def resolve_reviewer_runtime_read_roots(
     codex_executable: str, *, environment: Mapping[str, str] | None = None
 ) -> tuple[Path, ...]:
@@ -156,22 +160,54 @@ def resolve_reviewer_runtime_read_roots(
         candidate = _runtime_prefix(executable_path)
         if home is not None and candidate == home:
             candidate = executable_path.parent
-        if not candidate.is_absolute() or candidate == Path(candidate.anchor):
+        candidate = candidate.resolve()
+        if (
+            not candidate.is_absolute()
+            or candidate == Path(candidate.anchor)
+            or (home is not None and _path_contains(candidate, home))
+        ):
             raise ValueError("reviewer runtime read root is unsafe")
         roots.append(candidate)
-    return tuple(sorted(set(roots), key=os.fspath))
+    ordered = sorted(set(roots), key=lambda path: (len(path.parts), os.fspath(path)))
+    return tuple(
+        root
+        for index, root in enumerate(ordered)
+        if not any(_path_contains(parent, root) for parent in ordered[:index])
+    )
 
 
-def build_reviewer_permission_profile(runtime_read_roots: Sequence[Path]) -> str:
+def build_reviewer_permission_profile(
+    runtime_read_roots: Sequence[Path], *, review_root: Path | None = None
+) -> str:
     """Build a path-safe inline profile without persisting host path values."""
+    ordered_roots = sorted(
+        {Path(path).resolve(strict=False) for path in runtime_read_roots},
+        key=lambda path: (len(path.parts), os.fspath(path)),
+    )
+    roots = tuple(
+        root
+        for index, root in enumerate(ordered_roots)
+        if not any(
+            _path_contains(parent, root) for parent in ordered_roots[:index]
+        )
+    )
+    resolved_review_root = (
+        Path(review_root).resolve(strict=False) if review_root is not None else None
+    )
+    for root in roots:
+        if not root.is_absolute() or root == Path(root.anchor):
+            raise ValueError("reviewer runtime read root is unsafe")
+        if resolved_review_root is not None and (
+            _path_contains(root, resolved_review_root)
+            or _path_contains(resolved_review_root, root)
+        ):
+            raise ValueError("reviewer runtime read root overlaps the review harness")
     entries = [
         '":root"="deny"',
         '":minimal"="read"',
         '":workspace_roots"={"."="read"}',
     ]
-    for root in sorted({Path(path) for path in runtime_read_roots}, key=os.fspath):
-        if not root.is_absolute() or root == Path(root.anchor):
-            raise ValueError("reviewer runtime read root is unsafe")
+    for root in roots:
         entries.append(f'{json.dumps(os.fspath(root))}="read"')
     return (
         'permissions={governed_reviewer={extends=":read-only",filesystem={'
@@ -271,8 +307,9 @@ def _validate_portable_reviewer_command(
     ]
     if len(permission_indexes) != 1:
         raise ValueError("reviewer command permission profile is unavailable")
+    review_root = Path(command[command.index("--cd") + 1])
     expected_permission_profile = build_reviewer_permission_profile(
-        resolve_reviewer_runtime_read_roots(command[0])
+        resolve_reviewer_runtime_read_roots(command[0]), review_root=review_root
     )
     if normalized[permission_indexes[0]] != expected_permission_profile:
         raise ValueError("reviewer command permission profile is not exact")
@@ -299,7 +336,8 @@ def build_reviewer_command(
     ):
         raise ValueError("reviewer executable, model and effort are required")
     permission_profile = build_reviewer_permission_profile(
-        resolve_reviewer_runtime_read_roots(codex_executable)
+        resolve_reviewer_runtime_read_roots(codex_executable),
+        review_root=review_root,
     )
     return [
         codex_executable,

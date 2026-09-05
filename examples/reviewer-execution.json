@@ -1,6 +1,6 @@
 {
   "schema_version": "5.0.0",
-  "execution_id": "sha256:f8100c1c631c0cb1296489bfd3bf53febfce3c5330e0b11a71e0136684962fd9",
+  "execution_id": "sha256:15aa2afd4c8b17d860d28ec023f847b57e8979f9ffdad75391db3237418c6cb1",
   "repository_id": "repo:example/codex-governed-change",
   "task_contract_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "effective_policy_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -83,7 +83,7 @@
     {"name": "qualification", "sha256": "sha256:1616161616161616161616161616161616161616161616161616161616161616"},
     {"name": "context-source-bundle", "sha256": "sha256:31a5abd67aa0e80e4a6b219fec810ac31a480cdb6366af0688f4179c0de7f85e"},
     {"name": "context-projection", "sha256": "sha256:31e88f64374752ed0de7c30dc934989afe343bf7c969878a932d3941e8d3793f"},
-    {"name": "context-qualification", "sha256": "sha256:a59c8ea5a2faa94784e3ed808cb189c9a78660ddc499bdb64ba20975e543ebda"},
+    {"name": "context-qualification", "sha256": "sha256:cd84c537d7d62ee8695c5d4a8a5d7600f2c0e98a2a44d4f9c48bb52b7faaac1a"},
     {"name": "prepared-context", "sha256": "sha256:1717171717171717171717171717171717171717171717171717171717171717"},
     {"name": "post-run-context", "sha256": "sha256:2727272727272727272727272727272727272727272727272727272727272727"}
   ],

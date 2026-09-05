@@ -31,6 +31,18 @@ token/byte metrics, truncation state, retrieval expansions, model and effort.
 Mandatory information is never silently truncated. The compiler escalates to
 `DEEP` or returns `CONTEXT_BUDGET_INSUFFICIENT` and `UNKNOWN/BLOCK`.
 
+One protected artifact closure is derived from gate-manifest and mutation-record
+references plus recursively typed path/digest materials. Effective profile
+selection precedes profile-specific budget and qualification checks.
+Preparation, the isolated reviewer and admission independently reconstruct the
+same closure, profile, index, projection and disclosed bytes. A lower requested
+profile cannot pin a lower qualification after protected signals escalate it.
+
+Context qualification distinguishes protected empirical measurements from an
+explicitly unqualified synthetic bootstrap used only while constructing
+qualification cases. Production preparation, review and admission accept only
+the empirical class.
+
 Context variants are promotable only when a labelled defect/governance corpus
 shows no material regression in critical recall, evidence traceability or
 disposition correctness. Caching is recorded only when the active interface

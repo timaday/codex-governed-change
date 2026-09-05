@@ -592,26 +592,29 @@ def qualification_context_documents(
     )
     context_qualification = content_address(
         {
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "projection_version": "1.0.0",
             "profile": profile,
+            "evidence_class": "synthetic_bootstrap",
             "baseline": {
-                "critical_recall": 1.0,
+                "critical_recall": 0.0,
                 "false_passes": 0,
-                "traceability": 1.0,
-                "disposition_correct": True,
+                "traceability": 0.0,
+                "disposition_correct": False,
                 "tokens": 64000,
             },
             "candidate": {
-                "critical_recall": 1.0,
+                "critical_recall": 0.0,
                 "false_passes": 0,
-                "traceability": 1.0,
-                "disposition_correct": True,
+                "traceability": 0.0,
+                "disposition_correct": False,
                 "tokens": 64000,
             },
-            "qualified": True,
+            "qualified": False,
             "created_at": created_at,
-            "limitations": [],
+            "limitations": [
+                "Synthetic bootstrap context is not empirical qualification evidence."
+            ],
         },
         "qualification_id",
     )
@@ -626,6 +629,7 @@ def qualification_context_documents(
         reasoning_effort=str(execution.get("reasoning_effort")),
         context_qualification=context_qualification,
         protected_qualification_ids={profile: context_qualification["qualification_id"]},
+        allow_synthetic_bootstrap=True,
     )
     prepared = compiled["receipt"]
     post_run = finalize_context_receipt(

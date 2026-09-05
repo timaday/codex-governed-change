@@ -612,6 +612,32 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 candidate_after=candidate["candidate_id"],
                 source_identity=candidate["candidate_id"],
             )
+            gate_stdout = b"BLUEPRINT_QUALITY=PASS\n"
+            gate_stderr = b""
+            gate_provenance = canonical_json_bytes({"fixture": "provenance"})
+            (evidence / "gate-stdout.bin").write_bytes(gate_stdout)
+            (evidence / "gate-stderr.bin").write_bytes(gate_stderr)
+            (evidence / "gate-provenance.json").write_bytes(gate_provenance)
+            gate_result["artifacts"] = [
+                {
+                    "stream": "stdout",
+                    "path": "artifacts/governance/gate-stdout.bin",
+                    "bytes": len(gate_stdout),
+                    "sha256": sha256_bytes(gate_stdout),
+                    "truncated": False,
+                },
+                {
+                    "stream": "stderr",
+                    "path": "artifacts/governance/gate-stderr.bin",
+                    "bytes": len(gate_stderr),
+                    "sha256": sha256_bytes(gate_stderr),
+                    "truncated": False,
+                },
+            ]
+            gate_result["provenance_statement"] = {
+                "path": "artifacts/governance/gate-provenance.json",
+                "sha256": sha256_bytes(gate_provenance),
+            }
             gate_result_path = evidence / "gate-result.json"
             gate_result_bytes = canonical_json_bytes(gate_result)
             gate_result_path.write_bytes(gate_result_bytes)
@@ -651,6 +677,19 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
+            nested_mutation_materials = {
+                "sandbox_capability": b'{"fixture":"sandbox"}\n',
+                "provenance_statement": b'{"fixture":"provenance"}\n',
+                "execution_result": b'{"fixture":"execution"}\n',
+            }
+            nested_mutation_references = {}
+            for name, data in nested_mutation_materials.items():
+                path = f"artifacts/governance/mutation-{name}.json"
+                (repository / path).write_bytes(data)
+                nested_mutation_references[name] = {
+                    "path": path,
+                    "sha256": sha256_bytes(data),
+                }
             mutant_references = []
             for index, mutant_id in enumerate(sorted(REQUIRED_CURATED_MUTANTS)):
                 mutant = dict(mutant_template)
@@ -662,6 +701,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                     mutant_id="MUTANT-" + mutant_id.upper(),
                     outcome="KILLED",
                 )
+                mutant.update(nested_mutation_references)
                 mutant = content_address(mutant, "mutant_record_id")
                 mutant_bytes = canonical_json_bytes(mutant)
                 mutant_path = evidence / f"mutant-{index}.json"
@@ -707,6 +747,23 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 prepared.stderr.decode() + prepared.stdout.decode(),
             )
             self.assertTrue(source_bundle.is_file())
+            protected_artifacts = json.loads(source_bundle.read_text())["sources"][
+                "artifacts"
+            ]
+            self.assertEqual(
+                {
+                    gate_result_ref["path"],
+                    *[reference["path"] for reference in mutant_references],
+                    *[
+                        reference["path"]
+                        for reference in nested_mutation_references.values()
+                    ],
+                    "artifacts/governance/gate-stdout.bin",
+                    "artifacts/governance/gate-stderr.bin",
+                    "artifacts/governance/gate-provenance.json",
+                },
+                {item["reference"] for item in protected_artifacts},
+            )
             verified = self.run_cli(
                 "verify", "--artifact", str(receipt), "--schema", "context-receipt",
                 "--identity-field", "receipt_id",

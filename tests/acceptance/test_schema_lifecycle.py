@@ -69,6 +69,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             "reviewer-qualification",
             "reviewer-qualification-cases",
             "reviewer-qualification-corpus",
+            "context-qualification",
             "context-receipt",
             "sandbox-capability",
             "provenance-statement",
@@ -90,6 +91,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                 "reviewer-result",
                 "reviewer-execution",
                 "rollback-evidence",
+                "context-qualification",
                 "context-receipt",
                 "sandbox-capability",
                 "provenance-statement",
@@ -112,6 +114,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         from codex_governance.context import MANDATORY_REVIEWER_CLAIMS
         from codex_governance.lifecycle import (
             EXECUTABLE_MIGRATIONS,
+            migrate_context_qualification_v1_to_v2,
             migrate_context_receipt_v1_to_v2,
             migrate_effective_policy_v1_to_v2,
             migrate_effective_policy_v2_to_v3,
@@ -515,6 +518,21 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual(rollback_v2, rebuilt_rollback)
         current("rollback-evidence", rebuilt_rollback)
         observed.add(("rollback-evidence", "1.0.0", "2.0.0"))
+
+        context_qualification_v2 = example("context-qualification")
+        evidence_class = context_qualification_v2["evidence_class"]
+        context_qualification_v1 = deepcopy(context_qualification_v2)
+        context_qualification_v1.pop("evidence_class")
+        context_qualification_v1 = addressed(
+            context_qualification_v1, "1.0.0", "qualification_id"
+        )
+        rejected_by_current("context-qualification", context_qualification_v1)
+        rebuilt_context_qualification = migrate_context_qualification_v1_to_v2(
+            context_qualification_v1, evidence_class=evidence_class
+        )
+        self.assertEqual(context_qualification_v2, rebuilt_context_qualification)
+        current("context-qualification", rebuilt_context_qualification)
+        observed.add(("context-qualification", "1.0.0", "2.0.0"))
 
         receipt_v2 = example("context-receipt")
         qualification_id = receipt_v2["context_qualification_id"]

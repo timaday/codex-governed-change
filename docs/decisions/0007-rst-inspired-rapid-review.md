@@ -12,6 +12,13 @@ Risk profiles select minimum work, not a universal duration. Low risk may skip o
 
 Checklists, HTSM, FEW HICCUPPS, elapsed time, session count, and absence of findings are guidewords or observations, never certificates. Missing, stale, obstructed, inconclusive, weakly linked, or unclear evidence remains `UNKNOWN/BLOCK`.
 
+Non-empty reference text is not linkage. Every rapid-review evidence reference
+must resolve through the protected content-addressed locator set, and admission
+must reconstruct the operational relationship graph across risks, charters,
+sessions, oracles, coverage, debrief, follow-ups and disposition. Missing,
+dangling, wrong-kind or digest-mismatched edges are `UNKNOWN`; a complete list of
+artifact kinds has no readiness authority.
+
 The new fields in `task-contract.schema.json` and `evidence-manifest.schema.json` are representation-compatible additions, so both remain at `1.0.0`. Existing artifacts remain parseable. Policy provides the fail-closed migration boundary: a task selecting rapid review cannot become ready without constructing and validating the new candidate-bound artifacts; omitted fields are never defaulted into success.
 
 ## Consequences

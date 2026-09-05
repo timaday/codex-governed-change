@@ -1,8 +1,9 @@
 {
-  "schema_version": "1.0.0",
-  "qualification_id": "sha256:a59c8ea5a2faa94784e3ed808cb189c9a78660ddc499bdb64ba20975e543ebda",
+  "schema_version": "2.0.0",
+  "qualification_id": "sha256:cd84c537d7d62ee8695c5d4a8a5d7600f2c0e98a2a44d4f9c48bb52b7faaac1a",
   "projection_version": "1.0.0",
   "profile": "STANDARD",
+  "evidence_class": "empirical",
   "baseline": {
     "critical_recall": 1.0,
     "false_passes": 0,

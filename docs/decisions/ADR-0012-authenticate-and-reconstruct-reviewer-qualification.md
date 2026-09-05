@@ -39,6 +39,12 @@ mandatory. Migration from `1.0.0` requires those targets from a separately
 protected source; they cannot be inferred from finding prose or a file-only
 evidence reference.
 
+Version `context-qualification` as `2.0.0` when `evidence_class` becomes
+mandatory. Migration from `1.0.0` requires `empirical` or
+`synthetic_bootstrap` from a separately protected source. A synthetic migration
+sets `qualified` false and records a limitation; changing its content address
+cannot turn it into empirical qualification.
+
 ## Consequences
 
 Qualification evidence is larger and requires durable normalized capture artifacts, but a

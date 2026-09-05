@@ -318,13 +318,19 @@ Requirements: all
 - Only then run one fresh live ChatGPT-authenticated Codex `gpt-5.6-sol`
   exact-candidate review and reconstruct the
   content-addressed evidence chain.
+- On representative held-out tasks, run governed and ordinary Codex arms and
+  separately retain accepted defects, correct completion, false blocks,
+  `UNKNOWN`, total tokens, elapsed time and human effort; report limitations and
+  do not use comparative benefit as admission authority.
 - Update status no further than the deterministic result; human disposition is
   separate.
 - Re-observe authoritative JSON and untracked candidate inputs through retained
   no-follow descriptors and keep one exact byte observation per command.
 
-Exit: the immutable candidate has reconstructable evidence or remains honestly
-`UNKNOWN/BLOCK` with exact missing proof.
+Exit: the immutable candidate has reconstructable operational and comparative
+evidence or remains honestly `UNKNOWN/BLOCK` with exact missing proof;
+implementation completion, operational qualification, measured benefit and
+human approval remain separate claims.
 
 ## Task controls
 

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set
 from typing import Any
 
+from codex_governance.canonical import require_sha256, verify_content_address
 from codex_governance.domain.model import DispositionState
 
 
@@ -17,25 +18,256 @@ def validate_rst_lineage(
     repository_id: str,
     task_contract_sha256: str,
     candidate_id: str,
-    artifacts: Sequence[Mapping[str, Any]],
+    artifacts: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    risk_assessment: Mapping[str, Any] | None = None,
+    risk_register: Mapping[str, Any] | None = None,
+    oracle_references: Sequence[Mapping[str, Any]] = (),
+    charters: Sequence[Mapping[str, Any]] = (),
+    sessions: Sequence[Mapping[str, Any]] = (),
+    coverage_notes: Sequence[Mapping[str, Any]] = (),
+    debrief: Mapping[str, Any] | None = None,
+    follow_ups: Sequence[Mapping[str, Any]] = (),
+    risk_disposition: Mapping[str, Any] | None = None,
+    evidence_index: Mapping[str, str] | None = None,
+    charter_digests: Mapping[str, str] | None = None,
+    debrief_digest: str | None = None,
+    mutant_ids: Set[str] = frozenset(),
+    reviewer_finding_ids: Set[str] = frozenset(),
 ) -> DispositionState:
-    kinds: set[str] = set()
-    for artifact in artifacts:
+    """Resolve the complete protected RST relationship graph."""
+    if artifacts is not None:
+        # Artifact-kind presence is intentionally never sufficient evidence.
+        return DispositionState.UNKNOWN
+    documents = [
+        risk_assessment,
+        risk_register,
+        *oracle_references,
+        *charters,
+        *sessions,
+        *coverage_notes,
+        debrief,
+        *follow_ups,
+        risk_disposition,
+    ]
+    if any(
+        not isinstance(item, Mapping)
+        or item.get("repository_id") != repository_id
+        or item.get("task_contract_sha256") != task_contract_sha256
+        or item.get("candidate_id") != candidate_id
+        for item in documents
+    ):
+        return DispositionState.UNKNOWN
+    if not all(
+        isinstance(values, Sequence) and not isinstance(values, (str, bytes))
+        for values in (oracle_references, charters, sessions, coverage_notes, follow_ups)
+    ):
+        return DispositionState.UNKNOWN
+    if not oracle_references or not charters or not sessions or not coverage_notes:
+        return DispositionState.UNKNOWN
+    try:
+        index = {
+            str(reference): require_sha256(digest)
+            for reference, digest in (evidence_index or {}).items()
+        }
+        charter_digest_by_id = {
+            str(charter_id): require_sha256(digest)
+            for charter_id, digest in (charter_digests or {}).items()
+        }
+        expected_debrief_digest = require_sha256(debrief_digest)
+    except (TypeError, ValueError):
+        return DispositionState.UNKNOWN
+
+    def unique_by(values: Sequence[Mapping[str, Any]], field: str) -> dict[str, Mapping[str, Any]] | None:
+        result: dict[str, Mapping[str, Any]] = {}
+        for value in values:
+            identity = value.get(field) if isinstance(value, Mapping) else None
+            if not isinstance(identity, str) or not identity or identity in result:
+                return None
+            result[identity] = value
+        return result
+
+    def refs_resolve(values: Any) -> bool:
         if (
-            artifact.get("repository_id") != repository_id
-            or artifact.get("task_contract_sha256") != task_contract_sha256
-            or artifact.get("candidate_id") != candidate_id
+            not isinstance(values, Sequence)
+            or isinstance(values, (str, bytes))
+            or not values
+            or not all(isinstance(value, str) for value in values)
+        ):
+            return False
+        return len(values) == len(set(values)) and all(
+            value in index for value in values
+        )
+
+    assessment_id = risk_assessment.get("assessment_id")
+    if not isinstance(assessment_id, str) or not assessment_id:
+        return DispositionState.UNKNOWN
+    charter_by_id = unique_by(charters, "charter_id")
+    session_by_id = unique_by(sessions, "session_id")
+    oracle_by_id = unique_by(oracle_references, "oracle_id")
+    coverage_by_id = unique_by(coverage_notes, "coverage_note_id")
+    follow_up_by_id = unique_by(follow_ups, "follow_up_id")
+    if any(
+        value is None
+        for value in (
+            charter_by_id,
+            session_by_id,
+            oracle_by_id,
+            coverage_by_id,
+            follow_up_by_id,
+        )
+    ):
+        return DispositionState.UNKNOWN
+    assert charter_by_id is not None
+    assert session_by_id is not None
+    assert oracle_by_id is not None
+    assert coverage_by_id is not None
+    assert follow_up_by_id is not None
+    if set(charter_digest_by_id) != set(charter_by_id):
+        return DispositionState.UNKNOWN
+    for charter_id, charter in charter_by_id.items():
+        if (
+            charter.get("risk_assessment_sha256") != assessment_id
+            or charter_digest_by_id.get(charter_id) is None
         ):
             return DispositionState.UNKNOWN
-        kind = artifact.get("kind")
-        if not isinstance(kind, str) or kind in kinds:
+
+    experiment_ids: set[str] = set()
+    finding_ids: set[str] = set()
+    residual_ids: set[str] = set()
+    for session in sessions:
+        charter_id = session.get("charter_id")
+        if (
+            charter_id not in charter_by_id
+            or session.get("charter_sha256") != charter_digest_by_id.get(charter_id)
+        ):
             return DispositionState.UNKNOWN
-        kinds.add(kind)
-    return (
-        DispositionState.READY_FOR_HUMAN
-        if REQUIRED_RST_KINDS.issubset(kinds)
-        else DispositionState.UNKNOWN
-    )
+        for collection, field, identities in (
+            (session.get("experiments"), "id", experiment_ids),
+            (session.get("findings", ()), "finding_id", finding_ids),
+            (session.get("residual_risks"), "risk_id", residual_ids),
+        ):
+            if not isinstance(collection, Sequence) or isinstance(collection, (str, bytes)):
+                return DispositionState.UNKNOWN
+            for item in collection:
+                identity = item.get(field) if isinstance(item, Mapping) else None
+                if (
+                    not isinstance(identity, str)
+                    or not identity
+                    or identity in identities
+                    or not refs_resolve(item.get("evidence_refs"))
+                ):
+                    return DispositionState.UNKNOWN
+                identities.add(identity)
+        for expansion in session.get("retrieval_expansions", ()):
+            if (
+                not isinstance(expansion, Mapping)
+                or index.get(expansion.get("reference")) != expansion.get("sha256")
+            ):
+                return DispositionState.UNKNOWN
+
+    for oracle_id, oracle in oracle_by_id.items():
+        if (
+            not verify_content_address(oracle, "oracle_id")
+            or oracle_id != oracle.get("oracle_id")
+            or index.get(oracle.get("source")) != oracle.get("source_sha256")
+        ):
+            return DispositionState.UNKNOWN
+    for coverage_id, note in coverage_by_id.items():
+        oracle_refs = note.get("oracle_refs")
+        if (
+            not verify_content_address(note, "coverage_note_id")
+            or coverage_id != note.get("coverage_note_id")
+            or note.get("session_id") not in session_by_id
+            or not isinstance(oracle_refs, Sequence)
+            or isinstance(oracle_refs, (str, bytes))
+            or not oracle_refs
+            or len(oracle_refs) != len(set(oracle_refs))
+            or not set(oracle_refs).issubset(oracle_by_id)
+        ):
+            return DispositionState.UNKNOWN
+
+    risk_ids: set[str] = set()
+    for risk in risk_register.get("risks", ()):
+        risk_id = risk.get("risk_id") if isinstance(risk, Mapping) else None
+        charter_refs = risk.get("charter_refs") if isinstance(risk, Mapping) else None
+        if (
+            not isinstance(risk_id, str)
+            or not risk_id
+            or risk_id in risk_ids
+            or not refs_resolve(risk.get("source_refs"))
+            or not isinstance(charter_refs, Sequence)
+            or isinstance(charter_refs, (str, bytes))
+            or not charter_refs
+            or not set(charter_refs).issubset(charter_by_id)
+        ):
+            return DispositionState.UNKNOWN
+        risk_ids.add(risk_id)
+    if not risk_ids or not verify_content_address(risk_register, "risk_register_id"):
+        return DispositionState.UNKNOWN
+
+    typed_sources: dict[str, set[str]] = {
+        "session": set(session_by_id),
+        "observation": experiment_ids,
+        "mutant": set(mutant_ids),
+        "reviewer_finding": set(reviewer_finding_ids) | finding_ids,
+        "debrief": {str(debrief.get("debrief_id"))},
+        "requirement": set(index),
+        "change": set(index),
+    }
+    updated_from = risk_register.get("updated_from", ())
+    if (
+        not isinstance(updated_from, Sequence)
+        or isinstance(updated_from, (str, bytes))
+        or not updated_from
+    ):
+        return DispositionState.UNKNOWN
+    for reference in updated_from:
+        if not isinstance(reference, str) or ":" not in reference:
+            return DispositionState.UNKNOWN
+        kind, identity = reference.split(":", 1)
+        if identity not in typed_sources.get(kind, set()):
+            return DispositionState.UNKNOWN
+
+    if set(debrief.get("session_refs", ())) != set(session_by_id):
+        return DispositionState.UNKNOWN
+    for field in ("product_story", "testing_story", "quality_of_testing_story"):
+        story = debrief.get(field)
+        if not isinstance(story, Mapping) or not refs_resolve(story.get("evidence_refs")):
+            return DispositionState.UNKNOWN
+    if set(debrief.get("actionable_findings", ())) != finding_ids:
+        return DispositionState.UNKNOWN
+    if set(debrief.get("residual_risks", ())) != residual_ids:
+        return DispositionState.UNKNOWN
+
+    for follow_up_id, follow_up in follow_up_by_id.items():
+        if (
+            not verify_content_address(follow_up, "follow_up_id")
+            or follow_up_id != follow_up.get("follow_up_id")
+            or follow_up.get("source_id")
+            not in typed_sources.get(str(follow_up.get("source_kind")), set())
+        ):
+            return DispositionState.UNKNOWN
+
+    if risk_disposition.get("debrief_sha256") != expected_debrief_digest:
+        return DispositionState.UNKNOWN
+    expected_item_ids = finding_ids | residual_ids
+    items = risk_disposition.get("items")
+    if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
+        return DispositionState.UNKNOWN
+    observed_item_ids: set[str] = set()
+    for item in items:
+        item_id = item.get("item_id") if isinstance(item, Mapping) else None
+        if (
+            not isinstance(item_id, str)
+            or item_id in observed_item_ids
+            or not refs_resolve(item.get("evidence_refs"))
+        ):
+            return DispositionState.UNKNOWN
+        observed_item_ids.add(item_id)
+    if observed_item_ids != expected_item_ids:
+        return DispositionState.UNKNOWN
+    return DispositionState.READY_FOR_HUMAN
 
 
 def derive_follow_ups(

@@ -70,6 +70,32 @@ def migrate_context_receipt_v1_to_v2(
     return content_address(migrated, "receipt_id")
 
 
+def migrate_context_qualification_v1_to_v2(
+    document: Mapping[str, Any], *, evidence_class: str
+) -> dict[str, Any]:
+    """Add a separately protected empirical or bootstrap evidence class."""
+    from codex_governance.canonical import content_address
+
+    migrated = _legacy_document(document, identity_field="qualification_id")
+    if "evidence_class" in migrated or evidence_class not in {
+        "empirical",
+        "synthetic_bootstrap",
+    }:
+        raise ValueError("protected context qualification evidence class is required")
+    migrated["schema_version"] = "2.0.0"
+    migrated["evidence_class"] = evidence_class
+    if evidence_class == "synthetic_bootstrap":
+        migrated["qualified"] = False
+        limitations = list(migrated.get("limitations", ()))
+        limitation = (
+            "Synthetic bootstrap context is not empirical qualification evidence."
+        )
+        if limitation not in limitations:
+            limitations.append(limitation)
+        migrated["limitations"] = limitations
+    return content_address(migrated, "qualification_id")
+
+
 def migrate_sandbox_capability_v1_to_v2(
     document: Mapping[str, Any], *, image: str, command: Sequence[str]
 ) -> dict[str, Any]:
@@ -779,6 +805,7 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-execution", "3.0.0", "4.0.0"): migrate_reviewer_execution_v3_to_v4,
     ("reviewer-execution", "4.0.0", "5.0.0"): migrate_reviewer_execution_v4_to_v5,
     ("rollback-evidence", "1.0.0", "2.0.0"): migrate_rollback_evidence_v1_to_v2,
+    ("context-qualification", "1.0.0", "2.0.0"): migrate_context_qualification_v1_to_v2,
     ("context-receipt", "1.0.0", "2.0.0"): migrate_context_receipt_v1_to_v2,
     ("sandbox-capability", "1.0.0", "2.0.0"): migrate_sandbox_capability_v1_to_v2,
     ("provenance-statement", "1.0.0", "2.0.0"): migrate_provenance_statement_v1_to_v2,
