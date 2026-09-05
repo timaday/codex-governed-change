@@ -109,8 +109,9 @@ class ContextCompilerAcceptanceTest(unittest.TestCase):
                 protected_qualification_ids=self.qualification_ids(),
                 qualification_deadline=deadline,
             )
+        self.assertIn("deadline", qualification_valid.call_args.kwargs)
         self.assertEqual(
-            deadline, qualification_valid.call_args.kwargs["deadline"]
+            deadline, qualification_valid.call_args.kwargs.get("deadline")
         )
 
     def test_protected_artifact_closure_is_derived_and_byte_resolved(self) -> None:

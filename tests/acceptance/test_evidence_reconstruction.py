@@ -3730,7 +3730,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 **verification,
                 "rollback_plan_id": limited_plan["rollback_plan_id"],
                 "rollback_plan_sha256": limited_plan_reference["sha256"],
-                "limitations": ["rollback proof incomplete"],
+                "limitations": [],
             },
             "bootstrap_verification_id",
         )

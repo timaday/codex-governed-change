@@ -834,3 +834,16 @@ and protected byte digest
 Complete deterministic, paired-control mutation and strict
 fresh review evidence must be rebound to the next immutable candidate; release
 remains blocked.
+
+Immutable candidate `44ca182` passed blueprint integrity, 107 unit tests and
+237 acceptance tests. Its complete 138-entry corpus had surviving controls for
+every operator and killed 136 mutants, but correctly returned `BLOCK`: the
+deadline-propagation operator produced an assertion-fixture error and therefore
+remained `UNKNOWN`, while the limited-bootstrap-plan operator survived because
+its selected case also limited the outer verification and did not isolate the
+plan check. This successor makes absence of the propagated deadline an ordinary
+assertion failure and keeps the limited-plan verification otherwise complete,
+so both controls pass and both exact mutants are now causally `KILLED` in
+focused rechecks. Those focused observations are not complete qualification;
+all exact-candidate gates, the full corpus and fresh review must be rebound to
+the next immutable successor. Release remains blocked.
