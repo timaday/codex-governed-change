@@ -117,6 +117,34 @@ CLI_OUTPUT_ARGUMENTS = {
 BOUNDED_COMMANDS = frozenset({"prepare-review", "review", "evaluate"})
 
 
+def _context_reviewer_identities(
+    *,
+    prompt_sha256: str,
+    schema_sha256_by_mode: Mapping[str, str],
+    launcher_sha256: str,
+    codex_cli_version: str,
+    authentication: str,
+    policy: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Build both reviewer identities only from protected or live inputs."""
+    if set(schema_sha256_by_mode) != {"conformance", "rapid_review"}:
+        raise ValueError("both protected reviewer mode schemas are required")
+    common = {
+        "prompt_sha256": prompt_sha256,
+        "launcher_sha256": launcher_sha256,
+        "codex_cli_version": codex_cli_version,
+        "authentication": authentication,
+        "model": policy["reviewer"]["model"],
+        "reasoning_effort": policy["reviewer"]["reasoning_effort"],
+        "timeout_seconds": policy["reviewer"]["timeout_seconds"],
+        "max_output_bytes": policy["reviewer"]["max_output_bytes"],
+    }
+    return {
+        mode: {**common, "schema_sha256": schema_sha256_by_mode[mode]}
+        for mode in ("conformance", "rapid_review")
+    }
+
+
 def _emit(value: Any) -> None:
     sys.stdout.buffer.write(canonical_json_bytes(value) + b"\n")
 
@@ -843,6 +871,20 @@ def _prepare_review(args: argparse.Namespace) -> int:
         "context-qualification",
         deadline=command_deadline,
     )
+    reviewer_qualifications = {
+        "conformance": _validated(
+            args.conformance_qualification,
+            args.schema_root,
+            "reviewer-qualification",
+            deadline=command_deadline,
+        ),
+        "rapid_review": _validated(
+            args.rapid_review_qualification,
+            args.schema_root,
+            "reviewer-qualification",
+            deadline=command_deadline,
+        ),
+    }
     policy_sha = sha256_canonical(policy)
     task_sha = sha256_canonical(task)
     if (
@@ -975,6 +1017,43 @@ def _prepare_review(args: argparse.Namespace) -> int:
         and _document(args.sources, deadline=command_deadline) != sources
     ):
         raise ValueError("caller context sources do not match protected reconstruction")
+    qualification_prompt_bytes = read_bounded_path_file(
+        args.qualification_prompt, deadline=command_deadline
+    )
+    qualification_reviewer_identities = _context_reviewer_identities(
+        prompt_sha256=sha256_bytes(qualification_prompt_bytes),
+        schema_sha256_by_mode={
+            mode: sha256_bytes(
+                read_bounded_path_file(
+                    args.schema_root / schema_name,
+                    deadline=command_deadline,
+                )
+            )
+            for mode, schema_name in (
+                ("conformance", "reviewer-result.schema.json"),
+                ("rapid_review", "rapid-review-session.schema.json"),
+            )
+        },
+        launcher_sha256=reviewer_launcher_sha256(deadline=command_deadline),
+        codex_cli_version=reviewer_qualifications["conformance"][
+            "codex_cli_version"
+        ],
+        authentication=reviewer_qualifications["conformance"][
+            "authentication"
+        ],
+        policy=policy,
+    )
+    if any(
+        reviewer_qualifications[mode].get("qualification_id")
+        != policy["reviewer"]["qualification_ids"][mode]
+        or {
+            field: reviewer_qualifications[mode].get(field)
+            for field in qualification_reviewer_identities[mode]
+        }
+        != qualification_reviewer_identities[mode]
+        for mode in ("conformance", "rapid_review")
+    ):
+        raise ValueError("protected reviewer qualification identity is unavailable")
     compiled = compile_context(
         sources=sources,
         candidate=observed_candidate,
@@ -1003,9 +1082,8 @@ def _prepare_review(args: argparse.Namespace) -> int:
             for item in args.verified_decision_id
         ),
         qualification_evaluated_at=args.observed_at,
-        qualification_prompt_bytes=read_bounded_path_file(
-            args.qualification_prompt, deadline=command_deadline
-        ),
+        qualification_prompt_bytes=qualification_prompt_bytes,
+        qualification_reviewer_identities=qualification_reviewer_identities,
         qualification_deadline=command_deadline,
     )
     _require_review_budget(args, "review preparation publication")
@@ -1163,6 +1241,37 @@ def _review(args: argparse.Namespace) -> int:
     )
     prompt_sha = sha256_bytes(prompt_bytes)
     schema_sha = sha256_bytes(output_schema_bytes)
+    other_mode = (
+        "rapid_review" if review_mode == "conformance" else "conformance"
+    )
+    other_schema_name = (
+        "rapid-review-session.schema.json"
+        if other_mode == "rapid_review"
+        else "reviewer-result.schema.json"
+    )
+    other_schema_bytes = _read_authority_argument(
+        args.authority_root,
+        args.schema_root / other_schema_name,
+        deadline=review_deadline,
+    )
+    codex_cli_version = observe_codex_cli_version(
+        args.codex, deadline=review_deadline
+    )
+    codex_authentication = observe_codex_authentication(
+        args.codex, deadline=review_deadline
+    )
+    qualification_reviewer_identities = _context_reviewer_identities(
+        prompt_sha256=prompt_sha,
+        schema_sha256_by_mode={
+            review_mode: schema_sha,
+            other_mode: sha256_bytes(other_schema_bytes),
+        },
+        launcher_sha256=reviewer_launcher_sha256(deadline=review_deadline),
+        codex_cli_version=codex_cli_version,
+        authentication=codex_authentication,
+        policy=policy,
+    )
+    identity = qualification_reviewer_identities[review_mode]
     expected_bindings = {
         "repository_id": policy["repository_id"],
         "candidate_id": candidate["candidate_id"],
@@ -1338,6 +1447,7 @@ def _review(args: argparse.Namespace) -> int:
         ),
         qualification_evaluated_at=str(context_sources.get("created_at")),
         qualification_prompt_bytes=prompt_bytes,
+        qualification_reviewer_identities=qualification_reviewer_identities,
         qualification_deadline=review_deadline,
     )
     context_chain_exact = bool(
@@ -1347,23 +1457,6 @@ def _review(args: argparse.Namespace) -> int:
         and receipt == reconstructed_context["receipt"]
         and reconstructed_context["state"] == "CONTEXT_READY"
     )
-    codex_cli_version = observe_codex_cli_version(
-        args.codex, deadline=review_deadline
-    )
-    codex_authentication = observe_codex_authentication(
-        args.codex, deadline=review_deadline
-    )
-    identity = {
-        "prompt_sha256": prompt_sha,
-        "schema_sha256": schema_sha,
-        "launcher_sha256": reviewer_launcher_sha256(deadline=review_deadline),
-        "codex_cli_version": codex_cli_version,
-        "authentication": codex_authentication,
-        "model": args.model,
-        "reasoning_effort": args.reasoning_effort,
-        "timeout_seconds": policy["reviewer"]["timeout_seconds"],
-        "max_output_bytes": policy["reviewer"]["max_output_bytes"],
-    }
     if (
         reviewer_qualification_state(
             identity,
@@ -1861,6 +1954,8 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--gate-summary", type=Path, required=True)
     prepare.add_argument("--mutation-summary", type=Path, required=True)
     prepare.add_argument("--context-qualification", type=Path, required=True)
+    prepare.add_argument("--conformance-qualification", type=Path, required=True)
+    prepare.add_argument("--rapid-review-qualification", type=Path, required=True)
     prepare.add_argument("--qualification-repository", type=Path, required=True)
     prepare.add_argument("--qualification-prompt", type=Path, required=True)
     prepare.add_argument("--sources", type=Path)

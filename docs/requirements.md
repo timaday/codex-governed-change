@@ -72,6 +72,28 @@ Status: normative MVP contract
 | GOV-TOKEN-003 | Every governed model invocation, including every reviewer-qualification corpus case, MUST use immutable, separately referenced source-bundle, projection, context-qualification and prepared-context-receipt artifacts and emit a separately content-addressed post-run context-execution receipt bound to the input receipt and reviewer output, with the reviewer-execution statement linking all context materials. Preparation MUST build one protected artifact closure from exact gate-manifest, mutation-record and recursively typed path/digest materials and select the effective risk profile before checking its budget and qualification. Review and admission MUST descriptor-read and independently reconstruct the same artifact closure, source inventory, repository closure, adverse-signal/profile decision, projection, source/projection identities, inclusion/exclusion reasons, token/byte/retrieval metrics and the context-qualification corpus, labels, case records, case evidence and raw executions. Every model-reported retrieval expansion in both conformance and rapid-review lanes MUST name an entry in that protected compiled retrieval index and be descriptor-read and digest-verified before finalization and again during admission; equality between two model-derived copies is not evidence. Actual CLI-reported token/cache/output usage must reconcile, and missing or unavailable source/projection/qualification/retrieval/post-run evidence MUST block. | Source-bundle/projection/prepared/final context schemas, qualification-case context determinism, protected artifact-closure/profile escalation, empirical measurement reconstruction, conformance/rapid retrieval-index unknown/wrong-digest/unavailable/model-only reports, dummy-digest/tampering, CLI JSONL usage and admission-reconciliation tests |
 | GOV-TOKEN-004 | Insufficient mandatory context budget MUST cause deterministic escalation or `CONTEXT_BUDGET_INSUFFICIENT` with `UNKNOWN/BLOCK`, never silent truncation or inferred approval. | Context-budget escalation and fail-closed tests |
 
+For GOV-055 and GOV-060, the supported RFC 3339 timestamp profile permits no
+fractional seconds or one through six fractional digits. Greater precision is
+not exactly representable by the standard-library adapter and MUST fail closed
+before conversion. Qualification reconstruction MUST therefore reject a fully
+readdressed interval whose sub-microsecond excess would otherwise be truncated
+to the protected timeout boundary.
+
+For GOV-055, GOV-TOKEN-002 and GOV-TOKEN-003, every nested baseline and
+candidate measurement record MUST exactly match a reviewer identity derived
+outside that context package. The qualification producer and review derive it
+from the live Codex runtime, protected prompt and mode schemas, trusted launcher,
+and policy model, effort and limits. Credential-free preparation and admission
+derive it from the separately protected and reconstructed conformance and
+rapid-review qualifications while independently binding the protected prompt,
+mode schemas, launcher, and policy fields. Matching only a context qualification
+content address or identities repeated inside its own measurement package is
+insufficient.
+
+For the T24 governed-versus-ordinary comparison, each retained arm interval
+MUST be rejected when its exact integer-microsecond duration exceeds the
+protected timeout. Millisecond flooring occurs only after that deadline check.
+
 GOV-063 additionally requires the reconstructed GitHub ruleset observation to
 bind the hosted pull-request parameters exactly: squash and rebase are the only
 allowed merge methods, unattributed changes require extra approval, and the

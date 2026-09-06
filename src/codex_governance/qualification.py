@@ -1507,10 +1507,22 @@ def context_qualification_evidence_valid(
     verified_decision_ids: frozenset[str],
     evaluated_at: str,
     prompt_bytes: bytes,
+    expected_reviewer_identities: Mapping[str, Mapping[str, Any]],
     deadline: float | None = None,
 ) -> bool:
     """Replay both profiles and modes behind one empirical context record."""
     try:
+        if set(expected_reviewer_identities) != {"conformance", "rapid_review"}:
+            return False
+        protected_identities = {
+            mode: dict(expected_reviewer_identities[mode])
+            for mode in ("conformance", "rapid_review")
+        }
+        if any(
+            set(identity) != set(REVIEWER_IDENTITY_FIELDS)
+            for identity in protected_identities.values()
+        ):
+            return False
         measurement = record["measurement_evidence"]
         corpus_reference = measurement["corpus"]
         label_reference = measurement["label_decision"]
@@ -1551,6 +1563,12 @@ def context_qualification_evidence_valid(
                 qualification = parse_json_bytes(record_bytes)
                 cases = parse_json_bytes(cases_bytes)
                 if not isinstance(qualification, Mapping) or not isinstance(cases, Mapping):
+                    return False
+                observed_identity = {
+                    field: qualification.get(field)
+                    for field in REVIEWER_IDENTITY_FIELDS
+                }
+                if observed_identity != protected_identities[mode]:
                     return False
                 cases_parent = normalize_repo_path(
                     str(mode_evidence["cases"]["path"])

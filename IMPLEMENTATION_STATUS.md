@@ -988,3 +988,39 @@ reviews, authority/kernel/broker rebinding, hosted real isolation and empirical
 qualification, paired comparison, protected admission reconstruction and
 separate human release approval remain required. Operational qualification,
 measured benefit and human approval remain `UNKNOWN`; release remains blocked.
+
+Immutable source candidate `d2d1288` passed blueprint validation and all 356
+deterministic tests. Its exact fresh ChatGPT-authenticated `gpt-5.6-sol` review
+returned a valid `BLOCK`: the accepted RFC 3339 grammar allowed fractional
+precision that Python silently truncated to microseconds, so a fully readdressed
+sub-microsecond timeout overrun could appear exactly on the protected boundary.
+The corresponding authority candidate `c10c7e5` passed all 87 authority tests
+and exact manifest reconstruction, but its fresh review also returned a valid
+`BLOCK`. Empirical context packages could use internally consistent nested
+reviewer identities without matching the separately protected production
+identities, and the authority-only paired comparison enforced its timeout only
+after millisecond flooring. All three findings were reproduced before repair;
+the d2/c10-bound reviews and bindings are obsolete and non-qualifying.
+
+This working-copy successor restricts the supported RFC 3339 profile to exactly
+representable zero-to-six-digit fractional seconds and rejects precision loss
+before interval reconstruction. Every nested empirical context record must now
+match both externally derived conformance and rapid-review identities:
+credential-free preparation and admission use the separately protected
+qualification records plus independently protected prompt/schema/launcher and
+policy fields, while live review derives the identity from its observed Codex
+runtime. Two new paired-control semantic operators cover the timestamp and
+context-identity defects, bringing the source corpus to 154 entries with content
+ID `sha256:a570d926fe271f472bfb791a660e0c3e8b98f1e1a64cf2873fead1673b1b38cb`
+and protected byte digest
+`sha256:634b3578c6e517f11d595ff59673bd80894799a5b210feb6ee89dc9ee69ad20f`.
+Both clean controls survived and both mutants were causally killed in focused
+checks. The authority successor separately compares exact integer microseconds
+against the paired-arm timeout before flooring and has fully readdressed
+governed and ordinary regressions plus a distinct clean-control semantic mutant.
+Exact-candidate gates, the complete mutation corpus, fresh source and authority
+reviews, authority/kernel/broker advancement, hosted real isolation and
+empirical qualification, the approved paired comparison, protected admission
+reconstruction and separate human release approval remain required. Operational
+qualification, measured benefit and human approval remain `UNKNOWN`; release
+remains blocked.

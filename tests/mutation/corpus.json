@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:c5630b640af80cea39d6da96fe4a70aaccd1af47dec1f22f1d70f74457c827b7",
+  "corpus_id": "sha256:a570d926fe271f472bfb791a660e0c3e8b98f1e1a64cf2873fead1673b1b38cb",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1113,7 +1113,7 @@
     {
       "mutant_id": "context-qualification-raw-evidence-unchecked",
       "path": "src/codex_governance/context.py",
-      "old": "                and context_qualification_evidence_valid(\n                    record=record,\n                    artifact_reader=artifact_reader,\n                    schema_root=schema_root,\n                    protected_repository_id=protected_repository_id,\n                    verified_decision_ids=verified_decision_ids,\n                    evaluated_at=evaluated_at,\n                    prompt_bytes=prompt_bytes,\n                    deadline=deadline,\n                )",
+      "old": "                and context_qualification_evidence_valid(\n                    record=record,\n                    artifact_reader=artifact_reader,\n                    schema_root=schema_root,\n                    protected_repository_id=protected_repository_id,\n                    verified_decision_ids=verified_decision_ids,\n                    evaluated_at=evaluated_at,\n                    prompt_bytes=prompt_bytes,\n                    expected_reviewer_identities=reviewer_identities,\n                    deadline=deadline,\n                )",
       "new": "                and True",
       "operator": "promote a self-addressed context aggregate without replaying its corpus labels cases and raw executions",
       "requirement_id": "GOV-TOKEN-002",
@@ -1140,8 +1140,8 @@
     {
       "mutant_id": "context-qualification-deadline-dropped",
       "path": "src/codex_governance/context.py",
-      "old": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n        deadline=qualification_deadline,\n    ):",
-      "new": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n    ):",
+      "old": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n        reviewer_identities=qualification_reviewer_identities,\n        deadline=qualification_deadline,\n    ):",
+      "new": "        evaluated_at=qualification_evaluated_at,\n        prompt_bytes=qualification_prompt_bytes,\n        reviewer_identities=qualification_reviewer_identities,\n    ):",
       "operator": "drop the caller's unchanged deadline before protected context qualification",
       "requirement_id": "GOV-025",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_context_compiler.ContextCompilerAcceptanceTest.test_context_qualification_receives_the_unchanged_review_deadline"]
@@ -1345,6 +1345,15 @@
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_context_metrics_count_reasoning_once_and_require_usage_subsets"]
     },
     {
+      "mutant_id": "context-reviewer-identity-self-asserted",
+      "path": "src/codex_governance/qualification.py",
+      "old": "                if observed_identity != protected_identities[mode]:",
+      "new": "                if False:",
+      "operator": "accept internally consistent context measurements under an identity that differs from the protected reviewer runtime",
+      "requirement_id": "GOV-TOKEN-002",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_context_measurements_match_protected_reviewer_identities"]
+    },
+    {
       "mutant_id": "public-authority-visibility-unchecked",
       "path": "src/codex_governance/evidence.py",
       "old": "                and authority_state.get(\"visibility\") == \"public\"\n                and authority_state.get(\"ref\") == authority_ref",
@@ -1352,6 +1361,15 @@
       "operator": "accept a private repository as the public protected authority",
       "requirement_id": "GOV-063",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "rfc3339-lossy-fractional-precision-accepted",
+      "path": "src/codex_governance/lifecycle.py",
+      "old": "    r\"(?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$\"",
+      "new": "    r\"(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$\"",
+      "operator": "accept fractional seconds that the adapter silently truncates before timeout reconstruction",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_reconstructs_every_human_labelled_case"]
     },
     {
       "mutant_id": "qualification-timeout-enforcement-omitted",

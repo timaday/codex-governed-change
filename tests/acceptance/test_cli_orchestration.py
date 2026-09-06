@@ -523,6 +523,7 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             self.assertFalse((repository / "artifacts/governance/scope.json").exists())
 
     def test_prepare_review_emits_schema_valid_receipt_and_budget_blocks(self) -> None:
+        from codex_governance.reviewer import reviewer_launcher_sha256
         from tests.acceptance.test_evidence_reconstruction import (
             EvidenceReconstructionAcceptanceTest,
         )
@@ -532,9 +533,19 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
         )
         qualification_fixture.setUp()
         self.addCleanup(qualification_fixture.tearDown)
-        qualification_manifest = qualification_fixture.complete_manifest()
+        qualification_manifest = qualification_fixture.complete_manifest(
+            reviewer_launcher_digest=reviewer_launcher_sha256()
+        )
         qualification_reference = qualification_manifest["context_qualification"]
         qualification_repository = qualification_fixture.repository
+        conformance_qualification_path = (
+            qualification_repository
+            / qualification_manifest["reviewer_qualification"]["path"]
+        )
+        rapid_qualification_path = (
+            qualification_repository
+            / qualification_manifest["rapid_review_qualification"]["path"]
+        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = root / "candidate"
@@ -581,6 +592,14 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
             policy["context"]["qualification_ids"]["DEEP"] = qualification[
                 "qualification_id"
             ]
+            policy["reviewer"]["qualification_ids"] = {
+                "conformance": json.loads(
+                    conformance_qualification_path.read_text(encoding="utf-8")
+                )["qualification_id"],
+                "rapid_review": json.loads(
+                    rapid_qualification_path.read_text(encoding="utf-8")
+                )["qualification_id"],
+            }
             policy["reviewer"]["qualification_label_decision_id"] = qualification[
                 "label_decision_id"
             ]
@@ -750,6 +769,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--conformance-qualification", str(conformance_qualification_path),
+                "--rapid-review-qualification", str(rapid_qualification_path),
                 "--qualification-repository", str(qualification_repository),
                 "--qualification-prompt", str(
                     self.ROOT / ".codex/review/reviewer.prompt.md"
@@ -771,6 +792,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--conformance-qualification", str(conformance_qualification_path),
+                "--rapid-review-qualification", str(rapid_qualification_path),
                 "--qualification-repository", str(qualification_repository),
                 "--qualification-prompt", str(
                     self.ROOT / ".codex/review/reviewer.prompt.md"
@@ -818,6 +841,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--conformance-qualification", str(conformance_qualification_path),
+                "--rapid-review-qualification", str(rapid_qualification_path),
                 "--qualification-repository", str(qualification_repository),
                 "--qualification-prompt", str(
                     self.ROOT / ".codex/review/reviewer.prompt.md"
@@ -843,6 +868,8 @@ class CliOrchestrationAcceptanceTest(unittest.TestCase):
                 "--task", str(task_path), "--gate-summary", str(gate_summary),
                 "--mutation-summary", str(mutation_summary),
                 "--context-qualification", str(qualification_path),
+                "--conformance-qualification", str(conformance_qualification_path),
+                "--rapid-review-qualification", str(rapid_qualification_path),
                 "--qualification-repository", str(qualification_repository),
                 "--qualification-prompt", str(
                     self.ROOT / ".codex/review/reviewer.prompt.md"

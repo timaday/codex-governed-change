@@ -146,6 +146,8 @@ jobs:
             --gate-summary "$ARTIFACT_ROOT/gate-summary.json" \
             --mutation-summary "$ARTIFACT_ROOT/mutation-summary.json" \
             --context-qualification authority/.governance/context-qualifications/DEEP.json \
+            --conformance-qualification authority/.governance/releases/v0.1.0/qualification/conformance.json \
+            --rapid-review-qualification authority/.governance/releases/v0.1.0/qualification/rapid-review.json \
             --qualification-repository authority \
             --qualification-prompt governance/.codex/review/reviewer.prompt.md \
             --candidate "$CANDIDATE" \

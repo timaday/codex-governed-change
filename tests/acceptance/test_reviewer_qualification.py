@@ -933,6 +933,82 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
             )
 
+            precision_loss_cases = deepcopy(case_evidence)
+            precision_loss_observation = precision_loss_cases["observations"][0]
+            precision_loss_execution = json.loads(
+                (
+                    root
+                    / precision_loss_observation["reviewer_execution"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            original_latency = precision_loss_execution["latency_ms"]
+            precision_loss_execution["started_at"] = "2026-08-26T10:00:00Z"
+            precision_loss_execution["ended_at"] = (
+                "2026-08-26T10:00:10.0000001Z"
+            )
+            precision_loss_execution["latency_ms"] = 10_000
+            context_execution = json.loads(
+                (
+                    root
+                    / precision_loss_observation["context_execution_receipt"][
+                        "path"
+                    ]
+                ).read_text(encoding="utf-8")
+            )
+            context_execution["created_at"] = precision_loss_execution["ended_at"]
+            context_execution["latency_ms"] = precision_loss_execution["latency_ms"]
+            context_execution = content_address(
+                context_execution, "execution_receipt_id"
+            )
+            context_reference = store(
+                "tampered/precision-loss-context-execution.json",
+                canonical_json_bytes(context_execution),
+            )
+            precision_loss_observation["context_execution_receipt"] = (
+                context_reference
+            )
+            precision_loss_execution["context_execution_receipt_sha256"] = (
+                context_reference["sha256"]
+            )
+            next(
+                item
+                for item in precision_loss_execution["materials"]
+                if item["name"] == "post-run-context"
+            )["sha256"] = context_reference["sha256"]
+            precision_loss_execution = content_address(
+                precision_loss_execution, "execution_id"
+            )
+            precision_loss_observation["reviewer_execution"] = store(
+                "tampered/precision-loss-execution.json",
+                canonical_json_bytes(precision_loss_execution),
+            )
+            precision_loss_cases = content_address(
+                precision_loss_cases, "case_evidence_id"
+            )
+            precision_loss_record = content_address(
+                record
+                | {
+                    "case_evidence_sha256": sha256_bytes(
+                        canonical_json_bytes(precision_loss_cases)
+                    ),
+                    "latency_ms": record["latency_ms"]
+                    - original_latency
+                    + 10_000,
+                },
+                "qualification_id",
+            )
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **(
+                        arguments
+                        | {
+                            "record": precision_loss_record,
+                            "case_evidence": precision_loss_cases,
+                        }
+                    )
+                )
+            )
+
             alternate_inputs_cases = deepcopy(case_evidence)
             alternate_inputs_observation = alternate_inputs_cases[
                 "observations"

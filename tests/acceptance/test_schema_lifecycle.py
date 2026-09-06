@@ -762,12 +762,13 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
     def test_complete_rfc3339_and_real_calendar_values_are_required(self) -> None:
         from codex_governance.lifecycle import parse_rfc3339
 
-        parsed = parse_rfc3339("2026-08-26T10:00:00.123+01:00")
+        parsed = parse_rfc3339("2026-08-26T10:00:00.123456+01:00")
         self.assertIsNotNone(parsed.tzinfo)
         self.assertEqual(9, parsed.astimezone(timezone.utc).hour)
         for invalid in (
             "2026-08-26T", "2026-02-30T10:00:00Z", "2026-13-01T10:00:00Z",
             "2026-08-26 10:00:00Z", "2026-08-26T25:00:00Z", "2026-08-26T10:00:00",
+            "2026-08-26T10:00:00.1234567Z",
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 parse_rfc3339(invalid)

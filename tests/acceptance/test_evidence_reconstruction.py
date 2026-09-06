@@ -173,6 +173,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         rapid_finding_defect: str | None = None,
         rapid_retrieval_defect: str | None = None,
         rst_relationship_defect: str | None = None,
+        context_identity_defect: str | None = None,
+        reviewer_launcher_digest: str | None = None,
         context_retrieval: bool = False,
     ) -> dict:
         corpus_cases = [
@@ -274,7 +276,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "schema_sha256": sha256_bytes(
                     (self.ROOT / "schemas" / schema_name).read_bytes()
                 ),
-                "launcher_sha256": "sha256:" + "5" * 64,
+                "launcher_sha256": (
+                    reviewer_launcher_digest or "sha256:" + "5" * 64
+                ),
                 "codex_cli_version": "codex-cli 0.149.1",
                 "authentication": "chatgpt",
                 "model": "gpt-5.6-sol",
@@ -726,6 +730,19 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
 
         conformance_identity = qualification_identity("conformance")
         rapid_identity = qualification_identity("rapid_review")
+        deep_conformance_identity = deepcopy(conformance_identity)
+        deep_rapid_identity = deepcopy(rapid_identity)
+        context_identity_defects = {
+            "codex_cli_version": "codex-cli 0.148.0",
+            "schema_sha256": "sha256:" + "0" * 64,
+            "launcher_sha256": "sha256:" + "0" * 64,
+            "timeout_seconds": 1799,
+            "max_output_bytes": 999999,
+        }
+        if context_identity_defect is not None:
+            replacement = context_identity_defects[context_identity_defect]
+            deep_conformance_identity[context_identity_defect] = replacement
+            deep_rapid_identity[context_identity_defect] = replacement
         conformance_bootstrap = bootstrap_qualification_record(
             identity=conformance_identity,
             corpus_sha256=corpus_sha,
@@ -736,6 +753,16 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             corpus_sha256=corpus_sha,
             label_decision_id=label_decision["decision_id"],
         )
+        deep_conformance_bootstrap = bootstrap_qualification_record(
+            identity=deep_conformance_identity,
+            corpus_sha256=corpus_sha,
+            label_decision_id=label_decision["decision_id"],
+        )
+        deep_rapid_bootstrap = bootstrap_qualification_record(
+            identity=deep_rapid_identity,
+            corpus_sha256=corpus_sha,
+            label_decision_id=label_decision["decision_id"],
+        )
         conformance_cases = case_document(
             "conformance", conformance_identity, conformance_bootstrap, None
         )
@@ -743,10 +770,13 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "rapid_review", rapid_identity, rapid_bootstrap, None
         )
         deep_conformance_cases = case_document(
-            "conformance", conformance_identity, conformance_bootstrap, "DEEP"
+            "conformance",
+            deep_conformance_identity,
+            deep_conformance_bootstrap,
+            "DEEP",
         )
         deep_rapid_cases = case_document(
-            "rapid_review", rapid_identity, rapid_bootstrap, "DEEP"
+            "rapid_review", deep_rapid_identity, deep_rapid_bootstrap, "DEEP"
         )
         conformance_cases_ref = self.write(
             "qualification/conformance-cases.json",
@@ -799,10 +829,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         qualification = qualification_record(conformance_identity, conformance_cases)
         rapid_qualification = qualification_record(rapid_identity, rapid_cases)
         deep_qualification = qualification_record(
-            conformance_identity, deep_conformance_cases
+            deep_conformance_identity, deep_conformance_cases
         )
         deep_rapid_qualification = qualification_record(
-            rapid_identity, deep_rapid_cases
+            deep_rapid_identity, deep_rapid_cases
         )
         qualification_ref = self.write(
             "qualification/conformance.json",
@@ -1482,6 +1512,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             ),
             qualification_evaluated_at=self.AT,
             qualification_prompt_bytes=self.protected_prompt_bytes,
+            qualification_reviewer_identities={
+                "conformance": deep_conformance_identity,
+                "rapid_review": deep_rapid_identity,
+            },
         )
         context_sources_ref = self.write(
             "context-sources.json",
@@ -2763,6 +2797,43 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 raw_path.unlink()
             else:
                 raw_path.write_bytes(raw_path.read_bytes() + b"tampered\n")
+            state, _ = evaluate_manifest(
+                repository=self.repository,
+                manifest=manifest,
+                schema_root=self.ROOT / "schemas",
+                protected_prompt_bytes=self.protected_prompt_bytes,
+                current_candidate=self.candidate,
+                evaluated_at="2026-08-26T12:00:00Z",
+                verified_decision_ids=self.verified_decision_ids(manifest),
+            )
+            with self.subTest(defect=defect):
+                self.assertEqual(DispositionState.UNKNOWN, state)
+
+    def test_context_measurements_match_protected_reviewer_identities(self) -> None:
+        control = self.complete_manifest()
+        control_state, control_reasons = evaluate_manifest(
+            repository=self.repository,
+            manifest=control,
+            schema_root=self.ROOT / "schemas",
+            protected_prompt_bytes=self.protected_prompt_bytes,
+            current_candidate=self.candidate,
+            evaluated_at="2026-08-26T12:00:00Z",
+            verified_decision_ids=self.verified_decision_ids(control),
+        )
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN, control_state, control_reasons
+        )
+        with self.assertRaisesRegex(
+            ValueError, "qualification is unavailable"
+        ):
+            self.complete_manifest(context_identity_defect="schema_sha256")
+        for defect in (
+            "codex_cli_version",
+            "launcher_sha256",
+            "timeout_seconds",
+            "max_output_bytes",
+        ):
+            manifest = self.complete_manifest(context_identity_defect=defect)
             state, _ = evaluate_manifest(
                 repository=self.repository,
                 manifest=manifest,

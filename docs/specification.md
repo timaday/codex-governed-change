@@ -450,9 +450,11 @@ normalized stdout/stderr capture streams; parse the final Codex JSONL agent
 message, thread and usage; schema-validate that message against the retained
 reviewer output; derive capture, cleanup, binding and execution validity from
 primitive supervisor observations; independently derive non-negative elapsed
-milliseconds from each retained RFC 3339 start/end interval using integer
-microsecond arithmetic with millisecond flooring, reject reversed or protected-
-timeout-exceeding intervals, and require that derived value to equal both the
+milliseconds from each retained RFC 3339 start/end interval using lossless
+parsing of the supported zero-to-six-digit fractional-second precision, integer
+microsecond arithmetic and millisecond flooring, reject unrepresentable
+precision, reversed intervals or protected-timeout exceedance before comparing
+latencies, and require that derived value to equal both the
 execution and post-run context latency plus the independently recomputed
 aggregate; bind the execution to the exact case plus
 prompt/schema/model/launcher/Codex/limit identity; for conformance, reconstruct and
@@ -995,6 +997,16 @@ candidate-profile conformance/rapid-review records and per-case evidence. The
 protected reader resolves those typed references and raw case artifacts and
 recomputes every metric before the profile can be selected; the aggregate fields
 are comparison outputs, never their own proof.
+
+Every nested baseline and candidate record must exactly match a reviewer
+identity derived outside the context package. The qualification producer and
+review derive the identity from the live Codex runtime, protected prompt and
+mode schemas, trusted launcher, and protected model, effort and limits.
+Credential-free preparation and admission derive both mode identities from the
+separately protected, fully reconstructed reviewer qualifications while
+independently binding the protected prompt, schemas, launcher and policy fields.
+A context content address or internally repeated identity cannot substitute for
+those bindings.
 
 Preparation constructs one deterministic protected artifact closure from the
 exact gate-manifest references, mutation-record references and their recursively

@@ -181,7 +181,9 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "rst-missing-required-follow-up-accepted",
         "context-reasoning-tokens-double-counted",
         "context-token-subsets-unchecked",
+        "context-reviewer-identity-self-asserted",
         "public-authority-visibility-unchecked",
+        "rfc3339-lossy-fractional-precision-accepted",
         "qualification-timeout-enforcement-omitted",
         "qualification-timeout-identity-omitted",
     }
