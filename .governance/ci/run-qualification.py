@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import stat
+import subprocess
 import tempfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -86,6 +88,40 @@ def _make_read_only(root: Path) -> None:
         info = path.stat()
         path.chmod(0o555 if path.is_dir() or info.st_mode & stat.S_IXUSR else 0o444)
     root.chmod(0o555)
+
+
+def _initialize_git_trust_boundary(root: Path) -> None:
+    """Create only the outer Git identity required by protected Codex."""
+    template = root.parent / ".empty-git-template"
+    template.mkdir(mode=0o700)
+    environment = {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "PATH": os.environ.get("PATH", os.defpath),
+    }
+    try:
+        initialized = subprocess.run(
+            [
+                "git",
+                "-c",
+                "init.defaultBranch=review",
+                "-C",
+                os.fspath(root),
+                "init",
+                "--quiet",
+                f"--template={template}",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            env=environment,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("qualification Git trust boundary timed out") from exc
+    if initialized.returncode != 0:
+        raise ValueError("qualification Git trust boundary is unavailable")
 
 
 def _validate_corpus(
@@ -447,6 +483,7 @@ def _run_mode(
             policy = prepared["policy"]
             candidate = prepared["candidate"]
             result_path = root / "reviewer-result.json"
+            _initialize_git_trust_boundary(root)
             command = build_reviewer_command(
                 codex_executable=codex,
                 model=MODEL,

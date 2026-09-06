@@ -3190,6 +3190,27 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(facts["observation_complete"])
         self.assertFalse(facts["execution_valid"])
 
+    def test_reviewer_retained_latency_uses_exact_wall_timestamp_interval(self) -> None:
+        self.assertEqual(
+            999,
+            reviewer_module._retained_wall_latency_ms(
+                "2026-09-05T12:00:00.000001Z",
+                "2026-09-05T12:00:01Z",
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "reversed"):
+            reviewer_module._retained_wall_latency_ms(
+                "2026-09-05T12:00:01Z",
+                "2026-09-05T12:00:00Z",
+            )
+        launcher_source = inspect.getsource(reviewer_module.launch_reviewer)
+        self.assertIn(
+            "_retained_wall_latency_ms(started_at, ended_at)", launcher_source
+        )
+        self.assertNotIn(
+            "time.monotonic() - started_monotonic", launcher_source
+        )
+
     def test_live_authority_ref_rejects_stale_workflow_commit(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "verify_live_authority_ref", CI / "verify-live-authority-ref.py"
@@ -3854,6 +3875,23 @@ class AdapterTests(unittest.TestCase):
         def fake_launch(**arguments: object) -> dict[str, object]:
             command = list(arguments["command"])
             root = Path(command[command.index("--cd") + 1])
+            trusted = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    os.fspath(root),
+                    "rev-parse",
+                    "--is-inside-work-tree",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, trusted.returncode, trusted.stderr)
+            self.assertEqual("true", trusted.stdout.strip())
+            self.assertFalse((root / "candidate" / ".git").exists())
             inputs = json.loads(
                 str(arguments["stdin_text"]).split("PERMITTED_INPUTS ", 1)[1]
             )

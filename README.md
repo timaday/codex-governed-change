@@ -28,6 +28,14 @@ do not establish quality parity, token savings, or production authorization.
 They must be replaced by protected empirical qualification for each profile
 before admission can reconstruct readiness.
 
+Every protected qualification case creates a minimal outer Git repository as
+the Codex trust boundary before launch. The case candidate remains a nested,
+read-only evidence tree and never supplies repository configuration. Retained
+reviewer `latency_ms` is the non-negative millisecond floor of its exact RFC3339
+end-minus-start interval; the monotonic clock is used only for deadlines and
+cleanup bounds. A reversed wall-clock interval makes execution observation
+incomplete and therefore cannot support qualification or readiness.
+
 T24's paired comparison is a separate, non-authorizing measurement lane. It
 uses a protected human-labelled held-out corpus and runs governed and ordinary
 Codex arms over the same case bytes with the same ChatGPT-authenticated model
