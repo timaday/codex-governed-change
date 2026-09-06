@@ -265,6 +265,14 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
   bytes proven to exist at that authority commit. The closeout and admission
   kernels reconstruct all three together; a copied manifest, stale ref,
   different commit, weakened ruleset, or limited rollback layer blocks.
+- Protected closeout preserves the RST graph consumed by admission. Risk
+  updates contain, in order, the protected requirement sources, exact changed
+  paths, session observations, surviving mutants, session findings, and
+  conformance-review findings. Every rapid-review session has one coverage
+  note and every oracle is assigned exactly once across those notes; debrief
+  residuals use risk IDs. Evidence locators include the risk assessment and
+  every oracle source. A missing, duplicated, reordered, or dangling
+  relationship is `UNKNOWN`.
 - Each candidate job verifies the actual clean checkout `HEAD` before use and
   again after candidate-executing or reviewer steps. Pre-use checks reject every
   tracked, ordinary-untracked, or ignored-untracked change. Post-execution checks

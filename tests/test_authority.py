@@ -885,7 +885,10 @@ class AuthorityContractTests(unittest.TestCase):
         ):
             self.assertIn(required, source)
         self.assertIn("validate_initial_bootstrap(", closeout)
-        self.assertIn('f"session:{session_id}"', closeout)
+        self.assertIn("derive_rst_relationships(", closeout)
+        self.assertNotIn('f"session:{session_id}"', closeout)
+        self.assertIn('"risk-assessment-source"', closeout)
+        self.assertIn('f"oracle-source-{index:03d}"', closeout)
         self.assertIn(
             'locator("governance-integrity", evidence / "promotion-verification.json")',
             closeout,
@@ -924,6 +927,291 @@ class AuthorityContractTests(unittest.TestCase):
             " ".join(rollback_gate["command"]),
         )
         self.assertEqual(target["lkg_governance_commit"], rollback_gate["command"][-1])
+
+    def test_closeout_rst_relationships_reconstruct_in_protected_kernel(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_closeout_inputs", CI / "prepare-closeout-inputs.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        from codex_governance.domain.model import DispositionState
+        from codex_governance.rst_operations import validate_rst_lineage
+
+        repository_id = "repo:example/project"
+        task_sha = "sha256:" + "a" * 64
+        candidate_id = "sha256:" + "b" * 64
+        locator_id = "sha256:" + "c" * 64
+        artifact_sha = "sha256:" + "d" * 64
+        charter_sha = "sha256:" + "e" * 64
+        debrief_sha = "sha256:" + "f" * 64
+        binding = {
+            "repository_id": repository_id,
+            "task_contract_sha256": task_sha,
+            "candidate_id": candidate_id,
+        }
+        task = {
+            "authoritative_sources": [
+                {"kind": "requirement", "path": "docs/requirements.md"},
+                {"kind": "requirement", "path": "docs/specification.md"},
+                {"kind": "architecture", "path": "docs/architecture.md"},
+            ]
+        }
+        candidate = {
+            "changed_paths": ["src/service.py", "tests/test_service.py"]
+        }
+        risk_assessment = {**binding, "assessment_id": "sha256:" + "1" * 64}
+        charter = {
+            **binding,
+            "charter_id": "CHARTER-1",
+            "risk_assessment_sha256": risk_assessment["assessment_id"],
+        }
+        sessions = []
+        for index in (1, 2):
+            sessions.append(
+                {
+                    **binding,
+                    "session_id": f"SESSION-{index}",
+                    "charter_id": "CHARTER-1",
+                    "charter_sha256": charter_sha,
+                    "experiments": [
+                        {
+                            "id": f"OBS-{index}",
+                            "surprise": False,
+                            "evidence_refs": [locator_id],
+                        }
+                    ],
+                    "findings": [],
+                    "residual_risks": [
+                        {
+                            "risk_id": f"RESIDUAL-{index}",
+                            "description": f"bounded residual {index}",
+                            "evidence_refs": [locator_id],
+                        }
+                    ],
+                    "retrieval_expansions": [],
+                }
+            )
+        oracle_sources = ("docs/requirements.md", "docs/specification.md")
+        oracles = [
+            content_address(
+                {
+                    **binding,
+                    "name": f"oracle {index}",
+                    "source": source,
+                    "source_sha256": artifact_sha,
+                },
+                "oracle_id",
+            )
+            for index, source in enumerate(oracle_sources, start=1)
+        ]
+        relationships = module.derive_rst_relationships(
+            task=task,
+            candidate=candidate,
+            sessions=sessions,
+            oracles=oracles,
+            mutation_records=[],
+            reviewer_findings=[],
+        )
+        self.assertEqual(
+            [
+                "requirement:docs/requirements.md",
+                "requirement:docs/specification.md",
+                "change:src/service.py",
+                "change:tests/test_service.py",
+                "observation:OBS-1",
+                "observation:OBS-2",
+            ],
+            relationships["risk_updates"],
+        )
+        self.assertEqual(
+            [[oracles[0]["oracle_id"]], [oracles[1]["oracle_id"]]],
+            relationships["coverage_oracle_refs"],
+        )
+        self.assertEqual(
+            ["RESIDUAL-1", "RESIDUAL-2"], relationships["residual_ids"]
+        )
+        self.assertEqual(
+            [
+                "artifacts/governance/completion/evidence/risk-assessment.json",
+                *oracle_sources,
+            ],
+            relationships["source_paths"],
+        )
+        relationship_sessions = deepcopy(sessions)
+        relationship_sessions[0]["findings"] = [
+            {
+                "finding_id": "SESSION-FINDING-1",
+                "severity": "medium",
+                "evidence_refs": [locator_id],
+            }
+        ]
+        relationship_sessions[1]["findings"] = [
+            {
+                "finding_id": "SESSION-FINDING-2",
+                "severity": "low",
+                "evidence_refs": [locator_id],
+            }
+        ]
+        complete_relationships = module.derive_rst_relationships(
+            task=task,
+            candidate=candidate,
+            sessions=relationship_sessions,
+            oracles=oracles,
+            mutation_records=[
+                {"mutant_id": "MUTANT-KILLED", "outcome": "KILLED"},
+                {"mutant_id": "MUTANT-SURVIVED", "outcome": "SURVIVED"},
+            ],
+            reviewer_findings=[
+                {"finding_id": "CONFORMANCE-FINDING", "severity": "high"}
+            ],
+        )
+        self.assertEqual(
+            [
+                "requirement:docs/requirements.md",
+                "requirement:docs/specification.md",
+                "change:src/service.py",
+                "change:tests/test_service.py",
+                "observation:OBS-1",
+                "observation:OBS-2",
+                "mutant:MUTANT-SURVIVED",
+                "reviewer_finding:SESSION-FINDING-1",
+                "reviewer_finding:SESSION-FINDING-2",
+                "reviewer_finding:CONFORMANCE-FINDING",
+            ],
+            complete_relationships["risk_updates"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "source_kind": "mutant",
+                    "source_id": "MUTANT-SURVIVED",
+                    "required": True,
+                },
+                {
+                    "source_kind": "reviewer_finding",
+                    "source_id": "SESSION-FINDING-1",
+                    "required": False,
+                },
+                {
+                    "source_kind": "reviewer_finding",
+                    "source_id": "SESSION-FINDING-2",
+                    "required": False,
+                },
+                {
+                    "source_kind": "reviewer_finding",
+                    "source_id": "CONFORMANCE-FINDING",
+                    "required": True,
+                },
+            ],
+            complete_relationships["feedback_edges"],
+        )
+
+        coverage = [
+            content_address(
+                {
+                    **binding,
+                    "session_id": session["session_id"],
+                    "oracle_refs": oracle_refs,
+                },
+                "coverage_note_id",
+            )
+            for session, oracle_refs in zip(
+                sessions, relationships["coverage_oracle_refs"], strict=True
+            )
+        ]
+        story = {"evidence_refs": [locator_id]}
+        debrief = {
+            **binding,
+            "debrief_id": "DEBRIEF-1",
+            "session_refs": [item["session_id"] for item in sessions],
+            "product_story": story,
+            "testing_story": story,
+            "quality_of_testing_story": story,
+            "actionable_findings": [],
+            "residual_risks": relationships["residual_ids"],
+        }
+        risk_register = content_address(
+            {
+                **binding,
+                "risks": [
+                    {
+                        "risk_id": "RISK-1",
+                        "source_refs": [relationships["source_paths"][0]],
+                        "charter_refs": ["CHARTER-1"],
+                    }
+                ],
+                "updated_from": relationships["risk_updates"],
+            },
+            "risk_register_id",
+        )
+        risk_disposition = {
+            **binding,
+            "debrief_sha256": debrief_sha,
+            "items": [
+                {"item_id": identity, "evidence_refs": [locator_id]}
+                for identity in relationships["residual_ids"]
+            ],
+        }
+        lineage = {
+            **binding,
+            "risk_assessment": risk_assessment,
+            "risk_register": risk_register,
+            "oracle_references": oracles,
+            "charters": [charter],
+            "sessions": sessions,
+            "coverage_notes": coverage,
+            "debrief": debrief,
+            "follow_ups": [],
+            "risk_disposition": risk_disposition,
+            "evidence_index": {
+                locator_id: artifact_sha,
+                **{path: artifact_sha for path in relationships["source_paths"]},
+            },
+            "requirement_sources": relationships["requirement_sources"],
+            "change_sources": relationships["change_sources"],
+            "charter_digests": {"CHARTER-1": charter_sha},
+            "debrief_digest": debrief_sha,
+            "mutation_records": [],
+            "reviewer_findings": [],
+        }
+        self.assertEqual(
+            DispositionState.READY_FOR_HUMAN, validate_rst_lineage(**lineage)
+        )
+
+        legacy_updates = deepcopy(lineage)
+        register = dict(legacy_updates["risk_register"])
+        register["updated_from"] = ["session:SESSION-1", "session:SESSION-2"]
+        legacy_updates["risk_register"] = content_address(
+            register, "risk_register_id"
+        )
+        legacy_coverage = deepcopy(lineage)
+        all_oracles = [item["oracle_id"] for item in oracles]
+        legacy_coverage["coverage_notes"] = [
+            content_address(
+                {**dict(note), "oracle_refs": all_oracles}, "coverage_note_id"
+            )
+            for note in legacy_coverage["coverage_notes"]
+        ]
+        legacy_residuals = deepcopy(lineage)
+        legacy_residuals["debrief"]["residual_risks"] = [
+            "bounded residual 1",
+            "bounded residual 2",
+        ]
+        missing_sources = deepcopy(lineage)
+        for path in relationships["source_paths"]:
+            missing_sources["evidence_index"].pop(path)
+        for legacy in (
+            legacy_updates,
+            legacy_coverage,
+            legacy_residuals,
+            missing_sources,
+        ):
+            with self.subTest(legacy=legacy):
+                self.assertEqual(
+                    DispositionState.UNKNOWN, validate_rst_lineage(**legacy)
+                )
 
     def test_production_manifest_adapter_reaches_assembler_and_evaluator(self) -> None:
         source = (CI / "prepare-manifest-input.py").read_text(encoding="utf-8")
