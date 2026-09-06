@@ -315,7 +315,11 @@ def _run_ordinary_case(
 
 
 def _copy_governed_tasks(
-    *, corpus: Mapping[str, Any], qualification_output: Path, output: Path
+    *,
+    corpus: Mapping[str, Any],
+    qualification_output: Path,
+    output: Path,
+    expected_identity: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     case_evidence = load_json(qualification_output / "conformance-cases.json")
     observations = case_evidence.get("observations")
@@ -379,6 +383,7 @@ def _copy_governed_tasks(
                 case=case,
                 artifacts=references,
                 artifact_reader=lambda reference: _reader(output, reference),
+                expected_identity=expected_identity,
             )
         )
     return tasks
@@ -431,39 +436,6 @@ def main() -> None:
     cli_version = observe_codex_cli_version(args.codex)
     if cli_version != args.expected_codex_version:
         raise ValueError("Codex CLI version is not the protected comparison identity")
-    qualification = _qualification_module()
-    governed_output = args.output / "governed-qualification"
-    qualification._run_mode(
-        mode="conformance",
-        corpus=corpus,
-        label_decision=decision,
-        prompt_path=args.prompt,
-        schema_path=args.governed_schema,
-        codex=args.codex,
-        cli_version=cli_version,
-        authentication=authentication,
-        timeout_seconds=args.timeout_seconds,
-        max_output_bytes=args.max_output_bytes,
-        workflow_run_id=args.workflow_run_id,
-        workflow_attempt=args.workflow_attempt,
-        output=governed_output,
-        requested_profile="STANDARD",
-    )
-    governed_tasks = _copy_governed_tasks(
-        corpus=corpus, qualification_output=governed_output, output=args.output
-    )
-    ordinary_tasks = [
-        _run_ordinary_case(
-            case=case,
-            codex=args.codex,
-            authentication=authentication,
-            schema_path=args.ordinary_schema,
-            timeout_seconds=args.timeout_seconds,
-            max_output_bytes=args.max_output_bytes,
-            output=args.output,
-        )
-        for case in corpus["cases"]
-    ]
     identity = {
         "model": MODEL,
         "reasoning_effort": REASONING_EFFORT,
@@ -483,6 +455,42 @@ def main() -> None:
         "workflow_run_id": args.workflow_run_id,
         "workflow_attempt": args.workflow_attempt,
     }
+    qualification = _qualification_module()
+    governed_output = args.output / "governed-qualification"
+    qualification._run_mode(
+        mode="conformance",
+        corpus=corpus,
+        label_decision=decision,
+        prompt_path=args.prompt,
+        schema_path=args.governed_schema,
+        codex=args.codex,
+        cli_version=cli_version,
+        authentication=authentication,
+        timeout_seconds=args.timeout_seconds,
+        max_output_bytes=args.max_output_bytes,
+        workflow_run_id=args.workflow_run_id,
+        workflow_attempt=args.workflow_attempt,
+        output=governed_output,
+        requested_profile="STANDARD",
+    )
+    governed_tasks = _copy_governed_tasks(
+        corpus=corpus,
+        qualification_output=governed_output,
+        output=args.output,
+        expected_identity=identity,
+    )
+    ordinary_tasks = [
+        _run_ordinary_case(
+            case=case,
+            codex=args.codex,
+            authentication=authentication,
+            schema_path=args.ordinary_schema,
+            timeout_seconds=args.timeout_seconds,
+            max_output_bytes=args.max_output_bytes,
+            output=args.output,
+        )
+        for case in corpus["cases"]
+    ]
     document = build_comparison_document(
         corpus=corpus,
         decision=decision,

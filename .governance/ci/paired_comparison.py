@@ -17,11 +17,17 @@ from common import (
 )
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.portability import stream_contains_shaped_value
-from codex_governance.qualification import qualification_case_classes_complete
+from codex_governance.qualification import (
+    qualification_candidate_document,
+    qualification_case_classes_complete,
+    qualification_task_document,
+)
 from codex_governance.reviewer import (
     parse_codex_jsonl_evidence,
+    reviewer_argv_sha256,
     reviewer_observation_facts,
     reviewer_stream_is_portable,
+    sanitized_invocation_descriptor,
 )
 from codex_governance.schema import validate_instance
 
@@ -85,12 +91,14 @@ def ordinary_candidate_id(case: Mapping[str, Any]) -> str:
 
 def _governed_primitive_valid(
     *,
+    case: Mapping[str, Any],
     source: Mapping[str, Any],
     result: Mapping[str, Any],
     references: Mapping[str, Mapping[str, str]],
     observed: Mapping[str, bytes],
     parsed_stream: Mapping[str, Any],
     usage: Mapping[str, Any],
+    expected_identity: Mapping[str, Any] | None = None,
 ) -> bool:
     """Reconstruct governed execution validity instead of trusting its summary."""
     schema = load_json(REVIEWER_EXECUTION_SCHEMA)
@@ -126,9 +134,104 @@ def _governed_primitive_valid(
         "model": source.get("model"),
         "context_receipt_sha256": source.get("input_context_receipt_sha256"),
     }
+    try:
+        expected_task_sha256 = sha256_bytes(
+            canonical_bytes(
+                qualification_task_document(
+                    repository_id=str(source.get("repository_id")), case=case
+                )
+            )
+        )
+        expected_candidate = qualification_candidate_document(
+            repository_id=str(source.get("repository_id")),
+            case=case,
+            effective_policy_sha256=str(source.get("effective_policy_sha256")),
+        )
+        materials = source.get("materials")
+        if not isinstance(materials, list) or any(
+            not isinstance(item, Mapping) for item in materials
+        ):
+            return False
+        expected_material_names = [
+            "task-contract",
+            "effective-policy",
+            "candidate",
+            "reviewer-prompt",
+            "permitted-inputs",
+            "output-schema",
+            "launcher",
+            "qualification",
+            "context-source-bundle",
+            "context-projection",
+            "context-qualification",
+            "prepared-context",
+            "post-run-context",
+        ]
+        if [item.get("name") for item in materials] != expected_material_names:
+            return False
+        material_by_name = {
+            item.get("name"): item.get("sha256") for item in materials
+        }
+        expected_materials = {
+            "task-contract": source.get("task_contract_sha256"),
+            "effective-policy": source.get("effective_policy_sha256"),
+            "candidate": source.get("candidate_id"),
+            "reviewer-prompt": source.get("prompt_sha256"),
+            "output-schema": source.get("output_schema_sha256"),
+            "launcher": source.get("launcher_sha256"),
+            "qualification": source.get("qualification_id"),
+            "prepared-context": source.get("input_context_receipt_sha256"),
+            "post-run-context": source.get("context_execution_receipt_sha256"),
+        }
+        identity_matches = True
+        if expected_identity is not None:
+            identity_matches = bool(
+                source.get("model") == expected_identity.get("model")
+                and source.get("reasoning_effort")
+                == expected_identity.get("reasoning_effort")
+                and source.get("authentication")
+                == expected_identity.get("authentication")
+                and source.get("prompt_sha256")
+                == expected_identity.get("governed_prompt_sha256")
+                and source.get("output_schema_sha256")
+                == expected_identity.get("governed_schema_sha256")
+                and source.get("tools")
+                == [
+                    {
+                        "name": "codex-cli",
+                        "version": expected_identity.get("codex_cli_version"),
+                    }
+                ]
+                and source.get("workflow")
+                == {
+                    "system": "github-actions-qualification",
+                    "run_id": expected_identity.get("workflow_run_id"),
+                    "attempt": expected_identity.get("workflow_attempt"),
+                }
+            )
+    except (TypeError, ValueError):
+        return False
     return bool(
-        all(source.get(name) == value for name, value in summary_fields.items())
+        identity_matches
+        and source.get("invocation")
+        == sanitized_invocation_descriptor(
+            model=str(source.get("model")),
+            reasoning_effort=str(source.get("reasoning_effort")),
+            prompt_sha256=str(source.get("prompt_sha256")),
+        )
+        and source.get("argv_sha256")
+        == reviewer_argv_sha256(
+            model=str(source.get("model")),
+            reasoning_effort=str(source.get("reasoning_effort")),
+        )
+        and all(source.get(name) == value for name, value in summary_fields.items())
         and all(result.get(name) == value for name, value in output_bindings.items())
+        and source.get("task_contract_sha256") == expected_task_sha256
+        and source.get("candidate_id") == expected_candidate.get("candidate_id")
+        and all(
+            material_by_name.get(name) == value
+            for name, value in expected_materials.items()
+        )
         and source.get("review_mode") == "conformance"
         and source.get("candidate_id")
         == source.get("candidate_before")
@@ -321,6 +424,7 @@ def reconstruct_task(
     case: Mapping[str, Any],
     artifacts: Mapping[str, Mapping[str, str]],
     artifact_reader: Callable[[Mapping[str, str]], bytes],
+    expected_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Derive a task score from its retained result, execution and streams."""
     references = {
@@ -370,12 +474,14 @@ def reconstruct_task(
         ):
             raise ValueError("governed primitive execution does not reconstruct")
         primitive_valid = _governed_primitive_valid(
+            case=case,
             source=source,
             result=result,
             references=references,
             observed=observed,
             parsed_stream=parsed_stream,
             usage=usage,
+            expected_identity=expected_identity,
         )
     else:
         ordinary_observation = primitive.get("reviewer_observation")
@@ -601,6 +707,7 @@ def comparison_document_valid(
                     case=case,
                     artifacts=task["artifacts"],
                     artifact_reader=artifact_reader,
+                    expected_identity=expected_identity,
                 )
                 for case, task in zip(corpus["cases"], tasks, strict=True)
             ]

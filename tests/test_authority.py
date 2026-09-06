@@ -40,6 +40,7 @@ from common import (  # noqa: E402
 from bootstrap import validate_initial_bootstrap  # noqa: E402
 from qualification_verifier import validate_qualification_bundle  # noqa: E402
 from paired_comparison import (  # noqa: E402
+    _governed_primitive_valid,
     build_comparison_document,
     comparison_document_valid,
     human_effort_record_valid,
@@ -1631,11 +1632,25 @@ class AdapterTests(unittest.TestCase):
             else []
         )
         digest = lambda value: "sha256:" + value * 64
+        governed_repository = "repo:timaday/codex-governed-change-qualification"
+        governed_policy = digest("2")
+        governed_task = sha256_bytes(
+            canonical_bytes(
+                qualification_module.qualification_task_document(
+                    repository_id=governed_repository, case=case
+                )
+            )
+        )
+        governed_candidate = qualification_module.qualification_candidate_document(
+            repository_id=governed_repository,
+            case=case,
+            effective_policy_sha256=governed_policy,
+        )["candidate_id"]
         governed_bindings = {
-            "repository_id": "repo:qualification/case",
-            "task_contract_sha256": digest("1"),
-            "effective_policy_sha256": digest("2"),
-            "candidate_id": digest("3"),
+            "repository_id": governed_repository,
+            "task_contract_sha256": governed_task,
+            "effective_policy_sha256": governed_policy,
+            "candidate_id": governed_candidate,
             "reviewer_prompt_sha256": digest("4"),
             "qualification_id": digest("5"),
             "model": "gpt-5.6-sol",
@@ -1774,14 +1789,38 @@ class AdapterTests(unittest.TestCase):
                         "reviewer_prompt_sha256": governed_bindings["reviewer_prompt_sha256"],
                         "environment_values_recorded": False,
                     },
-                    "argv_sha256": digest("b"),
+                    "argv_sha256": reviewer_module.reviewer_argv_sha256(
+                        model=governed_bindings["model"],
+                        reasoning_effort="xhigh",
+                    ),
                     "executed_argv_sha256": digest("9"),
                     "stdin_sha256": digest("c"),
                     "codex_thread_id": "comparison-thread",
-                    "workflow": {"system": "fixture", "run_id": "1", "attempt": 1},
+                    "workflow": {
+                        "system": "github-actions-qualification",
+                        "run_id": "1",
+                        "attempt": 1,
+                    },
                     "limits": {"timeout_seconds": 60, "max_output_bytes": 100000},
                     "tools": [{"name": "codex-cli", "version": "codex-cli 0.149.1"}],
-                    "materials": [{"name": "candidate", "sha256": governed_bindings["candidate_id"]}],
+                    "materials": [
+                        {"name": name, "sha256": value}
+                        for name, value in (
+                            ("task-contract", governed_bindings["task_contract_sha256"]),
+                            ("effective-policy", governed_bindings["effective_policy_sha256"]),
+                            ("candidate", governed_bindings["candidate_id"]),
+                            ("reviewer-prompt", governed_bindings["reviewer_prompt_sha256"]),
+                            ("permitted-inputs", digest("d")),
+                            ("output-schema", digest("7")),
+                            ("launcher", digest("8")),
+                            ("qualification", governed_bindings["qualification_id"]),
+                            ("context-source-bundle", digest("e")),
+                            ("context-projection", digest("f")),
+                            ("context-qualification", digest("0")),
+                            ("prepared-context", governed_bindings["context_receipt_sha256"]),
+                            ("post-run-context", digest("a")),
+                        )
+                    ],
                     "environment_keys": ["PATH"],
                     "started_at": "2026-09-05T12:00:00Z",
                     "ended_at": "2026-09-05T12:00:01Z",
@@ -1921,8 +1960,8 @@ class AdapterTests(unittest.TestCase):
                 "governed_profile": "STANDARD",
                 "codex_cli_version": "codex-cli 0.149.1",
                 "authentication": "chatgpt",
-                "governed_prompt_sha256": "sha256:" + "1" * 64,
-                "governed_schema_sha256": "sha256:" + "2" * 64,
+                "governed_prompt_sha256": "sha256:" + "4" * 64,
+                "governed_schema_sha256": "sha256:" + "7" * 64,
                 "ordinary_schema_sha256": "sha256:" + "3" * 64,
                 "ordinary_prompt_version": "1.0.0",
                 "same_case_bytes": True,
@@ -1931,7 +1970,7 @@ class AdapterTests(unittest.TestCase):
                 "authority_repository": "timaday/codex-governed-change",
                 "authority_ref": "refs/heads/governance-authority",
                 "authority_sha": "a" * 40,
-                "workflow_run_id": "123",
+                "workflow_run_id": "1",
                 "workflow_attempt": 1,
             },
             governed_tasks=arms["governed"],
@@ -2058,6 +2097,104 @@ class AdapterTests(unittest.TestCase):
                     for name in ("result", "execution", "stdout", "stderr")
                 },
             )
+
+    def test_governed_comparison_primitive_is_bound_to_exact_case_candidate(self) -> None:
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        references, artifacts = self._comparison_artifacts(case, "governed")
+        observed = {
+            name: artifacts[references[name]["path"]]
+            for name in ("result", "stdout", "stderr")
+        }
+        wrapper = json.loads(artifacts[references["execution"]["path"]])
+        source = wrapper["primitive"]["reviewer_execution"]
+        result = json.loads(observed["result"])
+        parsed_stream = reviewer_module.parse_codex_jsonl_evidence(
+            observed["stdout"]
+        )
+        usage = {name: wrapper[name] for name in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        )}
+        arguments = {
+            "case": case,
+            "source": source,
+            "result": result,
+            "references": references,
+            "observed": observed,
+            "parsed_stream": parsed_stream,
+            "usage": usage,
+            "expected_identity": {
+                "model": source["model"],
+                "reasoning_effort": source["reasoning_effort"],
+                "authentication": source["authentication"],
+                "governed_prompt_sha256": source["prompt_sha256"],
+                "governed_schema_sha256": source["output_schema_sha256"],
+                "codex_cli_version": source["tools"][0]["version"],
+                "workflow_run_id": source["workflow"]["run_id"],
+                "workflow_attempt": source["workflow"]["attempt"],
+            },
+        }
+        self.assertTrue(_governed_primitive_valid(**arguments))
+        replacement = "sha256:" + "f" * 64
+        source["candidate_id"] = replacement
+        source["candidate_before"] = replacement
+        source["candidate_after"] = replacement
+        result["candidate_id"] = replacement
+        for material in source["materials"]:
+            if material["name"] == "candidate":
+                material["sha256"] = replacement
+        self.assertFalse(_governed_primitive_valid(**arguments))
+
+    def test_governed_comparison_primitive_is_bound_to_protected_identity(self) -> None:
+        corpus, _decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        references, artifacts = self._comparison_artifacts(case, "governed")
+        wrapper = json.loads(artifacts[references["execution"]["path"]])
+        source = wrapper["primitive"]["reviewer_execution"]
+        result = json.loads(artifacts[references["result"]["path"]])
+        observed = {
+            name: artifacts[references[name]["path"]]
+            for name in ("result", "stdout", "stderr")
+        }
+        arguments = {
+            "case": case,
+            "source": source,
+            "result": result,
+            "references": references,
+            "observed": observed,
+            "parsed_stream": reviewer_module.parse_codex_jsonl_evidence(
+                observed["stdout"]
+            ),
+            "usage": {
+                name: wrapper[name]
+                for name in (
+                    "input_tokens",
+                    "cached_input_tokens",
+                    "output_tokens",
+                    "reasoning_output_tokens",
+                )
+            },
+            "expected_identity": {
+                "model": source["model"],
+                "reasoning_effort": source["reasoning_effort"],
+                "authentication": source["authentication"],
+                "governed_prompt_sha256": source["prompt_sha256"],
+                "governed_schema_sha256": source["output_schema_sha256"],
+                "codex_cli_version": source["tools"][0]["version"],
+                "workflow_run_id": source["workflow"]["run_id"],
+                "workflow_attempt": source["workflow"]["attempt"],
+            },
+        }
+        self.assertTrue(_governed_primitive_valid(**arguments))
+        arguments["expected_identity"] = dict(arguments["expected_identity"])
+        arguments["expected_identity"]["model"] = "different-model"
+        self.assertFalse(_governed_primitive_valid(**arguments))
+        arguments["expected_identity"]["model"] = source["model"]
+        source["materials"] = list(reversed(source["materials"]))
+        self.assertFalse(_governed_primitive_valid(**arguments))
 
     def test_paired_comparison_rejects_readdressed_primitive_and_machine_value(self) -> None:
         corpus, decision = self._comparison_fixture()
