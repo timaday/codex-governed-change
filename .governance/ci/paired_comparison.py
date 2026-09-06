@@ -30,6 +30,7 @@ from codex_governance.qualification import (
     qualification_task_document,
 )
 from codex_governance.reviewer import (
+    REVIEWER_ENVIRONMENT_ALLOWLIST,
     build_reviewer_stdin,
     parse_codex_jsonl_evidence,
     reviewer_argv_sha256,
@@ -77,6 +78,47 @@ GOVERNED_CONTEXT_ARTIFACTS = frozenset(
         "permitted_inputs",
     }
 )
+
+
+def _expected_environment_keys(expected_identity: Mapping[str, Any]) -> list[str]:
+    """Return the one sorted, protected key-only environment identity."""
+    keys = expected_identity.get("environment_keys")
+    if (
+        not isinstance(keys, list)
+        or any(
+            not isinstance(name, str)
+            or not name
+            or name not in REVIEWER_ENVIRONMENT_ALLOWLIST
+            for name in keys
+        )
+        or keys != sorted(set(keys))
+    ):
+        raise ValueError("comparison environment identity is invalid")
+    return keys
+
+
+def _elapsed_milliseconds(
+    started_at: Any, ended_at: Any, timeout_seconds: Any
+) -> int:
+    """Derive elapsed milliseconds by flooring the exact RFC3339 interval."""
+    if (
+        not isinstance(timeout_seconds, (int, float))
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds <= 0
+    ):
+        raise ValueError("comparison timing limit is invalid")
+    started = parse_rfc3339(str(started_at))
+    ended = parse_rfc3339(str(ended_at))
+    interval = ended - started
+    if interval.total_seconds() < 0:
+        raise ValueError("comparison timing interval is negative")
+    elapsed_ms = (
+        (interval.days * 86_400 + interval.seconds) * 1_000
+        + interval.microseconds // 1_000
+    )
+    if elapsed_ms > int(timeout_seconds * 1_000):
+        raise ValueError("comparison timing exceeds its protected deadline")
+    return elapsed_ms
 
 
 def _required_artifacts(arm: str) -> frozenset[str]:
@@ -318,6 +360,12 @@ def _governed_primitive_valid(
                 permitted_inputs=permitted_inputs,
             ).encode("utf-8")
         )
+        environment_keys = _expected_environment_keys(expected_identity)
+        elapsed_ms = _elapsed_milliseconds(
+            source.get("started_at"),
+            source.get("ended_at"),
+            expected_identity.get("timeout_seconds"),
+        )
     except (KeyError, OSError, TypeError, UnicodeError, ValueError):
         return False
     return bool(
@@ -345,6 +393,8 @@ def _governed_primitive_valid(
             "timeout_seconds": expected_identity.get("timeout_seconds"),
             "max_output_bytes": expected_identity.get("max_output_bytes"),
         }
+        and source.get("environment_keys") == environment_keys
+        and source.get("latency_ms") == elapsed_ms
         and source.get("invocation")
         == sanitized_invocation_descriptor(
             model=str(identity["model"]),
@@ -588,8 +638,12 @@ def _ordinary_primitive_valid(
     try:
         schema = load_json(ORDINARY_RESULT_SCHEMA)
         prompt = ordinary_prompt(case)
-        started = parse_rfc3339(str(control["started_at"]))
-        ended = parse_rfc3339(str(control["ended_at"]))
+        environment_keys = _expected_environment_keys(expected_identity)
+        elapsed_ms = _elapsed_milliseconds(
+            control.get("started_at"),
+            control.get("ended_at"),
+            expected_identity.get("timeout_seconds"),
+        )
         derived = reviewer_observation_facts(observation)
     except (KeyError, OSError, TypeError, ValueError):
         return False
@@ -670,15 +724,8 @@ def _ordinary_primitive_valid(
             "timeout_seconds": expected_identity.get("timeout_seconds"),
             "max_output_bytes": expected_identity.get("max_output_bytes"),
         }
-        and isinstance(control.get("environment_keys"), list)
-        and all(
-            isinstance(name, str) and name
-            for name in control.get("environment_keys", ())
-        )
-        and len(set(control.get("environment_keys", ())))
-        == len(control.get("environment_keys", ()))
-        and ended >= started
-        and control.get("latency_ms") == execution.get("elapsed_ms")
+        and control.get("environment_keys") == environment_keys
+        and control.get("latency_ms") == elapsed_ms == execution.get("elapsed_ms")
         and control.get("output_sha256") == references["result"]["sha256"]
         and control.get("stdout_sha256") == references["stdout"]["sha256"]
         and control.get("stderr_sha256") == references["stderr"]["sha256"]
@@ -972,6 +1019,7 @@ def comparison_document_valid(
     try:
         timeout_seconds = expected_identity.get("timeout_seconds")
         max_output_bytes = expected_identity.get("max_output_bytes")
+        _expected_environment_keys(expected_identity)
         if (
             not isinstance(timeout_seconds, (int, float))
             or isinstance(timeout_seconds, bool)

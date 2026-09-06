@@ -469,8 +469,9 @@ def main() -> None:
         authority_ref=args.authority_ref,
         evaluated_at=evaluated_at,
     )
-    authentication = observe_codex_authentication(args.codex)
-    cli_version = observe_codex_cli_version(args.codex)
+    environment = build_reviewer_environment(os.environ)
+    authentication = observe_codex_authentication(args.codex, environment=environment)
+    cli_version = observe_codex_cli_version(args.codex, environment=environment)
     if cli_version != args.expected_codex_version:
         raise ValueError("Codex CLI version is not the protected comparison identity")
     identity = {
@@ -486,6 +487,7 @@ def main() -> None:
         "ordinary_prompt_version": "1.0.0",
         "timeout_seconds": args.timeout_seconds,
         "max_output_bytes": args.max_output_bytes,
+        "environment_keys": sorted(environment),
         "same_case_bytes": True,
         "labels_excluded_from_prompts": True,
         "execution_controls": "matched_sanitized_read_only",

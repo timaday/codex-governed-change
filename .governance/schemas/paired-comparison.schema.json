@@ -38,6 +38,7 @@
         "ordinary_prompt_version",
         "timeout_seconds",
         "max_output_bytes",
+        "environment_keys",
         "same_case_bytes",
         "labels_excluded_from_prompts",
         "execution_controls",
@@ -60,6 +61,11 @@
         "ordinary_prompt_version": {"const": "1.0.0"},
         "timeout_seconds": {"type": "number", "minimum": 0},
         "max_output_bytes": {"type": "integer", "minimum": 1},
+        "environment_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
         "same_case_bytes": {"const": true},
         "labels_excluded_from_prompts": {"const": true},
         "execution_controls": {"const": "matched_sanitized_read_only"},

@@ -36,9 +36,15 @@ arm is ephemeral, read-only and stripped of machine/user configuration, hooks
 and child agents; the ordinary arm differs by receiving only the bounded review
 request and candidate, without the governed context, qualification identity or
 admission machinery. The governed arm uses the protected `STANDARD` context
-profile. Each arm retains reconstructable per-case disposition, exact expected-finding
-matching, accepted defects, correct completions, false blocks, `UNKNOWN`
-outcomes, input/cached/output/reasoning tokens and elapsed time. Total tokens
+profile. One sorted key-only sanitized environment identity is derived through
+the protected reviewer allowlist and must exactly match every execution in both
+arms; environment values are never retained. Each arm retains reconstructable
+per-case disposition, exact expected-finding matching, accepted defects, correct
+completions, false blocks, `UNKNOWN` outcomes, input/cached/output/reasoning
+tokens and elapsed time. Elapsed milliseconds are the floor of the exact
+RFC3339 end-minus-start interval and may not exceed the protected execution
+deadline; reported latency and task/aggregate values must equal that derivation.
+Total tokens
 mean input plus output; reasoning tokens remain a reported subset of output and
 are not added a second time. Retained model
 streams are normalized before publication so runner paths, environment values,

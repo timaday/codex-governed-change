@@ -1636,6 +1636,7 @@ class AdapterTests(unittest.TestCase):
             "ordinary_prompt_version": "1.0.0",
             "timeout_seconds": 60,
             "max_output_bytes": 100000,
+            "environment_keys": ["PATH"],
             "same_case_bytes": True,
             "labels_excluded_from_prompts": True,
             "execution_controls": "matched_sanitized_read_only",
@@ -1713,7 +1714,7 @@ class AdapterTests(unittest.TestCase):
             "output_tokens": 3,
             "reasoning_output_tokens": 1,
             "latency_ms": 25,
-            "ended_at": "2026-09-05T12:00:01Z",
+            "ended_at": "2026-09-05T12:00:00.025Z",
             "limitations": [],
         }
         preliminary_context = qualification_module.qualification_context_documents(
@@ -2052,7 +2053,7 @@ class AdapterTests(unittest.TestCase):
                     ],
                     "environment_keys": ["PATH"],
                     "started_at": "2026-09-05T12:00:00Z",
-                    "ended_at": "2026-09-05T12:00:01Z",
+                    "ended_at": "2026-09-05T12:00:00.025Z",
                     "latency_ms": 25,
                     "return_code": 0,
                     "timed_out": False,
@@ -2177,7 +2178,7 @@ class AdapterTests(unittest.TestCase):
                     },
                     "environment_keys": ["PATH"],
                     "started_at": "2026-09-05T12:00:00Z",
-                    "ended_at": "2026-09-05T12:00:01Z",
+                    "ended_at": "2026-09-05T12:00:00.025Z",
                     "latency_ms": 25,
                     "output_sha256": refs["result"]["sha256"],
                     "stdout_sha256": refs["stdout"]["sha256"],
@@ -2494,7 +2495,16 @@ class AdapterTests(unittest.TestCase):
         references, artifacts = self._comparison_artifacts(
             corpus, decision, case, "ordinary"
         )
-        for field in ("model", "prompt_sha256", "output_schema_sha256", "limits"):
+        for field in (
+            "model",
+            "prompt_sha256",
+            "output_schema_sha256",
+            "limits",
+            "environment_keys",
+            "elapsed",
+            "timestamp",
+            "deadline",
+        ):
             with self.subTest(field=field):
                 changed_references = deepcopy(references)
                 changed_artifacts = dict(artifacts)
@@ -2516,11 +2526,22 @@ class AdapterTests(unittest.TestCase):
                     control["invocation"]["reviewer_prompt_sha256"] = replacement
                 elif field == "output_schema_sha256":
                     control[field] = "sha256:" + "e" * 64
-                else:
+                elif field == "limits":
                     control[field] = {
                         "timeout_seconds": 61,
                         "max_output_bytes": 100000,
                     }
+                elif field == "environment_keys":
+                    control[field] = ["UNPROTECTED_KEY"]
+                elif field == "elapsed":
+                    control["latency_ms"] = 12_345
+                    execution["elapsed_ms"] = 12_345
+                elif field == "timestamp":
+                    control["ended_at"] = "2026-09-05T12:00:00.026Z"
+                else:
+                    control["ended_at"] = "2026-09-05T12:01:01Z"
+                    control["latency_ms"] = 61_000
+                    execution["elapsed_ms"] = 61_000
                 execution = content_address(execution, "execution_id")
                 execution_bytes = canonical_bytes(execution)
                 changed_artifacts[execution_reference["path"]] = execution_bytes
@@ -2533,6 +2554,49 @@ class AdapterTests(unittest.TestCase):
                         decision=decision,
                         artifacts=changed_references,
                         artifact_reader=lambda ref: changed_artifacts[ref["path"]],
+                        expected_identity=identity,
+                    )
+
+    def test_governed_comparison_rejects_environment_and_timing_substitution(
+        self,
+    ) -> None:
+        corpus, decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        identity = self._comparison_identity()
+        for field in ("environment_keys", "elapsed", "timestamp", "deadline"):
+            with self.subTest(field=field):
+                references, artifacts = self._comparison_artifacts(
+                    corpus, decision, case, "governed"
+                )
+                execution_reference = references["execution"]
+                execution = json.loads(artifacts[execution_reference["path"]])
+                source = execution["primitive"]["reviewer_execution"]
+                if field == "environment_keys":
+                    source[field] = ["UNPROTECTED_KEY"]
+                elif field == "elapsed":
+                    source["latency_ms"] = 12_345
+                    execution["elapsed_ms"] = 12_345
+                elif field == "timestamp":
+                    source["ended_at"] = "2026-09-05T12:00:00.026Z"
+                else:
+                    source["ended_at"] = "2026-09-05T12:01:01Z"
+                    source["latency_ms"] = 61_000
+                    execution["elapsed_ms"] = 61_000
+                execution["primitive"]["reviewer_execution"] = content_address(
+                    source, "execution_id"
+                )
+                execution = content_address(execution, "execution_id")
+                execution_bytes = canonical_bytes(execution)
+                artifacts[execution_reference["path"]] = execution_bytes
+                execution_reference["sha256"] = sha256_bytes(execution_bytes)
+                with self.assertRaisesRegex(ValueError, "summary differs"):
+                    reconstruct_task(
+                        arm="governed",
+                        case=case,
+                        corpus=corpus,
+                        decision=decision,
+                        artifacts=references,
+                        artifact_reader=lambda ref: artifacts[ref["path"]],
                         expected_identity=identity,
                     )
 
@@ -2702,6 +2766,9 @@ class AdapterTests(unittest.TestCase):
         identity = self._comparison_identity()
         identity["timeout_seconds"] = 5
         identity["max_output_bytes"] = 100_000
+        identity["environment_keys"] = sorted(
+            reviewer_module.build_reviewer_environment(os.environ)
+        )
         case = corpus["cases"][0]
         candidate_id = ordinary_candidate_id(case)
         with tempfile.TemporaryDirectory() as directory:
