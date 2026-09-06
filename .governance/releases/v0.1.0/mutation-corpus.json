@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:e9ea0ef8b47ce58295ed6c463c1a50b4fb2d6e7712723b6f57c938842c66d395",
+  "corpus_id": "sha256:c5630b640af80cea39d6da96fe4a70aaccd1af47dec1f22f1d70f74457c827b7",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1352,6 +1352,24 @@
       "operator": "accept a private repository as the public protected authority",
       "requirement_id": "GOV-063",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
+    },
+    {
+      "mutant_id": "qualification-timeout-enforcement-omitted",
+      "path": "src/codex_governance/qualification.py",
+      "old": "    if elapsed_microseconds > timeout_seconds * 1_000_000:\n        raise ValueError(\"qualification execution exceeded its protected timeout\")",
+      "new": "    if False:\n        raise ValueError(\"qualification execution exceeded its protected timeout\")",
+      "operator": "trust a self-consistent retained latency beyond the protected reviewer timeout",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_qualification_latency_is_derived_and_timeout_bounded"]
+    },
+    {
+      "mutant_id": "qualification-timeout-identity-omitted",
+      "path": "src/codex_governance/qualification.py",
+      "old": "    \"timeout_seconds\",\n    \"max_output_bytes\",",
+      "new": "    \"max_output_bytes\",",
+      "operator": "reuse a qualification after the protected reviewer timeout changes",
+      "requirement_id": "GOV-055",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_exact_qualified_prompt_schema_model_launcher_is_required"]
     }
   ]
 }

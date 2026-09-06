@@ -32,7 +32,7 @@ env:
   AUTHENTICATED_ACTOR: ${{ github.actor }}
   APPROVED_DECISION_IDS: ${{ inputs.approved_decision_ids }}
   INITIAL_TARGET_REPOSITORY: timaday/codex-governed-change
-  INITIAL_TARGET_HEAD: ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca
+  INITIAL_TARGET_HEAD: d2d12881507aff41d8ec429865573eacfad64670
   PYTHONUTF8: "1"
   PYTHONDONTWRITEBYTECODE: "1"
 
@@ -554,7 +554,7 @@ jobs:
               observe_codex_cli_version,
           )
 
-          if observe_codex_cli_version("codex") != "codex-cli 0.149.1":
+          if observe_codex_cli_version("codex") != "codex-cli 0.153.0":
               raise SystemExit("protected Codex CLI version is unavailable")
           if observe_codex_authentication("codex") != "chatgpt":
               raise SystemExit("ChatGPT-authenticated Codex is unavailable")

@@ -47,6 +47,8 @@ REVIEWER_IDENTITY_FIELDS = (
     "authentication",
     "model",
     "reasoning_effort",
+    "timeout_seconds",
+    "max_output_bytes",
 )
 MANDATORY_QUALIFICATION_CASE_CLASSES = frozenset(
     {"seeded_defect", "prompt_injection", "clean_control"}
@@ -55,6 +57,31 @@ QUALIFICATION_BASE_COMMIT = "06091d05162787593f48a54fbfcee5b84c2b7d0b"
 QUALIFICATION_CREATED_AT = "2026-08-26T10:00:00Z"
 QUALIFICATION_GATE_ID = "qualification-context"
 CONTEXT_TOKEN_BUDGETS = {"COMPACT": 8000, "STANDARD": 24000, "DEEP": 64000}
+
+
+def _qualification_elapsed_milliseconds(
+    started_at: Any, ended_at: Any, *, timeout_seconds: Any
+) -> int:
+    """Derive one retained wall interval without trusting supplied latency."""
+    if (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds < 1
+    ):
+        raise ValueError("protected qualification timeout is invalid")
+    started = parse_rfc3339(started_at)
+    ended = parse_rfc3339(ended_at)
+    elapsed = ended - started
+    elapsed_microseconds = (
+        elapsed.days * 86_400_000_000
+        + elapsed.seconds * 1_000_000
+        + elapsed.microseconds
+    )
+    if elapsed_microseconds < 0:
+        raise ValueError("qualification execution interval is reversed")
+    if elapsed_microseconds > timeout_seconds * 1_000_000:
+        raise ValueError("qualification execution exceeded its protected timeout")
+    return elapsed_microseconds // 1_000
 
 
 def qualification_case_classes_complete(cases: Sequence[Any]) -> bool:
@@ -680,7 +707,7 @@ def bootstrap_qualification_record(
         raise ValueError("qualification identity fields are incomplete")
     return content_address(
         {
-            "schema_version": "3.0.0",
+            "schema_version": "4.0.0",
             **dict(identity),
             "corpus_sha256": require_sha256(corpus_sha256),
             "label_decision_id": require_sha256(label_decision_id),
@@ -991,6 +1018,21 @@ def qualification_evidence_valid(
             return False
         if not isinstance(result, Mapping) or not isinstance(execution, Mapping):
             return False
+        try:
+            derived_latency_ms = _qualification_elapsed_milliseconds(
+                execution.get("started_at"),
+                execution.get("ended_at"),
+                timeout_seconds=identity["timeout_seconds"],
+            )
+            max_output_bytes = identity["max_output_bytes"]
+            if (
+                not isinstance(max_output_bytes, int)
+                or isinstance(max_output_bytes, bool)
+                or max_output_bytes < 1
+            ):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
         observed = _observed_disposition(mode, result)
         expected = case["expected_disposition"]
         task = qualification_task_document(
@@ -1183,6 +1225,20 @@ def qualification_evidence_valid(
         if not isinstance(primitive, Mapping):
             return False
         derived = reviewer_observation_facts(primitive)
+        output_bounds_match = bool(
+            isinstance(primitive.get("stdout"), Mapping)
+            and isinstance(primitive["stdout"].get("bytes_observed"), int)
+            and not isinstance(primitive["stdout"].get("bytes_observed"), bool)
+            and primitive["stdout"]["bytes_observed"] <= max_output_bytes
+            and isinstance(primitive.get("stderr"), Mapping)
+            and isinstance(primitive["stderr"].get("bytes_observed"), int)
+            and not isinstance(primitive["stderr"].get("bytes_observed"), bool)
+            and primitive["stderr"]["bytes_observed"] <= max_output_bytes
+            and isinstance(primitive.get("output"), Mapping)
+            and isinstance(primitive["output"].get("bytes"), int)
+            and not isinstance(primitive["output"].get("bytes"), bool)
+            and primitive["output"]["bytes"] <= max_output_bytes
+        )
         stream_lengths_match = bool(
             isinstance(primitive.get("stdout"), Mapping)
             and primitive["stdout"].get("bytes_normalized")
@@ -1249,6 +1305,14 @@ def qualification_evidence_valid(
             or execution.get("qualification_id") != bootstrap["qualification_id"]
             or execution.get("model") != identity["model"]
             or execution.get("reasoning_effort") != identity["reasoning_effort"]
+            or execution.get("limits")
+            != {
+                "timeout_seconds": identity["timeout_seconds"],
+                "max_output_bytes": max_output_bytes,
+            }
+            or execution.get("latency_ms") != derived_latency_ms
+            or parsed_context["context_execution_receipt"].get("latency_ms")
+            != derived_latency_ms
             or execution.get("argv_sha256") != expected_argv_sha256
             or execution.get("executed_argv_sha256")
             != primitive.get("supervisor", {}).get("executed_argv_sha256")
@@ -1291,6 +1355,7 @@ def qualification_evidence_valid(
             or final_message != result
             or not usage_matches
             or not stream_lengths_match
+            or not output_bounds_match
             or not reviewer_stream_is_portable(artifacts["stdout"])
             or artifacts["stderr"] != b""
             or execution.get("limitations") != []
@@ -1306,7 +1371,7 @@ def qualification_evidence_valid(
                 "expected_disposition": expected,
                 "observed_disposition": observed,
                 "expected_finding_detected": expected_finding_detected,
-                "latency_ms": execution["latency_ms"],
+                "latency_ms": derived_latency_ms,
             }
         )
     critical = [

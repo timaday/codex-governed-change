@@ -35,6 +35,11 @@ reviewer `latency_ms` is the non-negative millisecond floor of its exact RFC3339
 end-minus-start interval; the monotonic clock is used only for deadlines and
 cleanup bounds. A reversed wall-clock interval makes execution observation
 incomplete and therefore cannot support qualification or readiness.
+Protected reviewer timeout and maximum output bytes are also part of each
+qualification identity. Qualification reconstruction independently derives
+every retained execution interval, rejects reversed or over-timeout evidence,
+checks observed stream/output sizes against the protected limit, and requires
+the execution, post-run context and aggregate latency values to agree exactly.
 
 T24's paired comparison is a separate, non-authorizing measurement lane. It
 uses a protected human-labelled held-out corpus and runs governed and ordinary

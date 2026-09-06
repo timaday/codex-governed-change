@@ -592,14 +592,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca", target["head_sha"])
+        self.assertEqual("d2d12881507aff41d8ec429865573eacfad64670", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca",
+            "d2d12881507aff41d8ec429865573eacfad64670",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -741,7 +741,7 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", workflow)
         self.assertNotIn("CODEX_API_KEY", workflow)
         self.assertIn("gpt-5.6-sol", workflow)
-        self.assertIn("codex-cli 0.149.1", workflow)
+        self.assertIn("codex-cli 0.153.0", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotIn("contents: write", workflow)
         self.assertIn("verify-bundle.py", workflow)
@@ -1304,10 +1304,12 @@ class AuthorityContractTests(unittest.TestCase):
             "prompt_sha256": sha256_bytes(prompt.read_bytes()),
             "schema_sha256": sha256_bytes(schema.read_bytes()),
             "launcher_sha256": module.reviewer_launcher_sha256(),
-            "codex_cli_version": "codex-cli 0.149.1",
+            "codex_cli_version": "codex-cli 0.153.0",
             "authentication": "chatgpt",
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
+            "timeout_seconds": 1800,
+            "max_output_bytes": 4_000_000,
         }
         bootstrap = qualification_module.bootstrap_qualification_record(
             identity=identity,
@@ -1621,7 +1623,7 @@ class AdapterTests(unittest.TestCase):
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
             "governed_profile": "STANDARD",
-            "codex_cli_version": "codex-cli 0.149.1",
+            "codex_cli_version": "codex-cli 0.153.0",
             "authentication": "chatgpt",
             "governed_prompt_sha256": sha256_bytes(
                 (ROOT / "kernel/.codex/review/reviewer.prompt.md").read_bytes()
@@ -1678,6 +1680,8 @@ class AdapterTests(unittest.TestCase):
             "authentication": comparison_identity["authentication"],
             "model": comparison_identity["model"],
             "reasoning_effort": comparison_identity["reasoning_effort"],
+            "timeout_seconds": comparison_identity["timeout_seconds"],
+            "max_output_bytes": comparison_identity["max_output_bytes"],
         }
         corpus_sha = sha256_bytes(canonical_bytes(corpus))
         bootstrap = qualification_module.bootstrap_qualification_record(
@@ -2265,6 +2269,16 @@ class AdapterTests(unittest.TestCase):
                 load_json(ROOT / ".governance/schemas/paired-comparison.schema.json"),
             ),
         )
+        fractional_timeout = deepcopy(document)
+        fractional_timeout["identity"]["timeout_seconds"] = 0.5
+        fractional_timeout = content_address(fractional_timeout, "comparison_id")
+        self.assertNotEqual(
+            [],
+            validate_instance(
+                fractional_timeout,
+                load_json(ROOT / ".governance/schemas/paired-comparison.schema.json"),
+            ),
+        )
         self.assertTrue(
             comparison_document_valid(
                 document,
@@ -2828,7 +2842,7 @@ class AdapterTests(unittest.TestCase):
         spec.loader.exec_module(module)
         corpus, decision = self._comparison_fixture()
         identity = self._comparison_identity()
-        identity["timeout_seconds"] = 0.05
+        identity["timeout_seconds"] = 1
         identity["max_output_bytes"] = 100_000
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2855,7 +2869,7 @@ class AdapterTests(unittest.TestCase):
                     codex=str(executable),
                     expected_identity=identity,
                     schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
-                    timeout_seconds=0.05,
+                    timeout_seconds=1,
                     max_output_bytes=100_000,
                     output=root / "evidence",
                 )
@@ -4129,7 +4143,7 @@ class AdapterTests(unittest.TestCase):
                 "return_code": 0,
                 "started_at": "2026-09-02T00:00:00Z",
                 "ended_at": "2026-09-02T00:00:01Z",
-                "latency_ms": 1,
+                "latency_ms": 1000,
                 "candidate_before": inputs["candidate_id"],
                 "candidate_after": inputs["candidate_id"],
                 "environment_keys": ["PATH"],
@@ -4179,7 +4193,7 @@ class AdapterTests(unittest.TestCase):
                         prompt_path=ROOT / "kernel/.codex/review/reviewer.prompt.md",
                         schema_path=ROOT / "kernel/schemas" / schema,
                         codex=sys.executable,
-                        cli_version="codex-cli 0.149.1",
+                        cli_version="codex-cli 0.153.0",
                         authentication="chatgpt",
                         timeout_seconds=60,
                         max_output_bytes=1_000_000,
@@ -4224,7 +4238,7 @@ class AdapterTests(unittest.TestCase):
                     prompt_path=ROOT / "kernel/.codex/review/reviewer.prompt.md",
                     schema_path=ROOT / "kernel/schemas/reviewer-result.schema.json",
                     codex=sys.executable,
-                    cli_version="codex-cli 0.149.1",
+                    cli_version="codex-cli 0.153.0",
                     authentication="chatgpt",
                     timeout_seconds=60,
                     max_output_bytes=1_000_000,
@@ -4241,6 +4255,8 @@ class AdapterTests(unittest.TestCase):
             policy["reviewer"]["qualification_ids"] = {
                 mode: record["qualification_id"] for mode, record in records.items()
             }
+            policy["reviewer"]["timeout_seconds"] = 60
+            policy["reviewer"]["max_output_bytes"] = 1_000_000
             policy_path = root / "policy.json"
             write_json(policy_path, policy)
             arguments = {
@@ -4253,9 +4269,14 @@ class AdapterTests(unittest.TestCase):
                 "policy_path": policy_path,
                 "authenticated_label_decision_id": decision["decision_id"],
                 "artifact_root": root / "raw",
+                "expected_timeout_seconds": 60,
+                "expected_max_output_bytes": 1_000_000,
             }
             validated = validate_qualification_bundle(**arguments)
             self.assertEqual(corpus_sha, validated["corpus_sha256"])
+            wrong_limits = {**arguments, "expected_timeout_seconds": 61}
+            with self.assertRaisesRegex(ValueError, "protected policy"):
+                validate_qualification_bundle(**wrong_limits)
             raw = next((root / "raw/conformance").glob("*/stdout.bin"))
             raw.write_bytes(raw.read_bytes() + b"tampered")
             reset_authoritative_read_session()

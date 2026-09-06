@@ -37,7 +37,7 @@ from codex_governance.reviewer import reviewer_launcher_sha256  # noqa: E402
 
 MODEL = "gpt-5.6-sol"
 REASONING_EFFORT = "xhigh"
-CODEX_CLI_VERSION = "codex-cli 0.149.1"
+CODEX_CLI_VERSION = "codex-cli 0.153.0"
 EXPECTED_CASE_IDS = (
     "Q-CANDIDATE-UNTRACKED-001",
     "Q-REVIEWER-RULE-LEAK-002",
@@ -69,7 +69,18 @@ def validate_qualification_bundle(
     policy_path: Path | None,
     authenticated_label_decision_id: str,
     artifact_root: Path,
+    expected_timeout_seconds: int,
+    expected_max_output_bytes: int,
 ) -> dict[str, str]:
+    if (
+        not isinstance(expected_timeout_seconds, int)
+        or isinstance(expected_timeout_seconds, bool)
+        or expected_timeout_seconds < 1
+        or not isinstance(expected_max_output_bytes, int)
+        or isinstance(expected_max_output_bytes, bool)
+        or expected_max_output_bytes < 1
+    ):
+        raise ValueError("protected qualification limits are invalid")
     corpus = _object(corpus_path, "qualification corpus")
     label_decision = _object(label_decision_path, "qualification label decision")
     records = {
@@ -147,6 +158,8 @@ def validate_qualification_bundle(
             "authentication": "chatgpt",
             "model": MODEL,
             "reasoning_effort": REASONING_EFFORT,
+            "timeout_seconds": expected_timeout_seconds,
+            "max_output_bytes": expected_max_output_bytes,
         },
         "rapid_review": {
             "prompt_sha256": prompt_sha256,
@@ -163,6 +176,8 @@ def validate_qualification_bundle(
             "authentication": "chatgpt",
             "model": MODEL,
             "reasoning_effort": REASONING_EFFORT,
+            "timeout_seconds": expected_timeout_seconds,
+            "max_output_bytes": expected_max_output_bytes,
         },
     }
     policy = _object(policy_path, "effective policy") if policy_path else None
@@ -178,6 +193,10 @@ def validate_qualification_bundle(
         != decision_id
         or policy.get("reviewer", {}).get("model") != MODEL
         or policy.get("reviewer", {}).get("reasoning_effort") != REASONING_EFFORT
+        or policy.get("reviewer", {}).get("timeout_seconds")
+        != expected_timeout_seconds
+        or policy.get("reviewer", {}).get("max_output_bytes")
+        != expected_max_output_bytes
     ):
         raise ValueError("protected policy does not bind the exact qualification corpus")
 
@@ -234,6 +253,8 @@ def main() -> None:
     parser.add_argument("--policy", type=Path)
     parser.add_argument("--authenticated-label-decision-id", required=True)
     parser.add_argument("--artifact-root", type=Path, required=True)
+    parser.add_argument("--expected-timeout-seconds", type=int, required=True)
+    parser.add_argument("--expected-max-output-bytes", type=int, required=True)
     args = parser.parse_args()
     result = validate_qualification_bundle(
         corpus_path=args.corpus,
@@ -245,6 +266,8 @@ def main() -> None:
         policy_path=args.policy,
         authenticated_label_decision_id=args.authenticated_label_decision_id,
         artifact_root=args.artifact_root,
+        expected_timeout_seconds=args.expected_timeout_seconds,
+        expected_max_output_bytes=args.expected_max_output_bytes,
     )
     print(canonical_bytes(result).decode("utf-8"))
 

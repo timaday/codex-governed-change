@@ -433,7 +433,7 @@ def _run_mode(
     codex: str,
     cli_version: str,
     authentication: str,
-    timeout_seconds: float,
+    timeout_seconds: int,
     max_output_bytes: int,
     workflow_run_id: str,
     workflow_attempt: int,
@@ -452,6 +452,8 @@ def _run_mode(
         "authentication": authentication,
         "model": MODEL,
         "reasoning_effort": REASONING_EFFORT,
+        "timeout_seconds": timeout_seconds,
+        "max_output_bytes": max_output_bytes,
     }
     bootstrap = bootstrap_qualification_record(
         identity=identity,
@@ -713,7 +715,7 @@ def _run_mode(
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     case_evidence = content_address(
         {
-            "schema_version": "5.0.0",
+            "schema_version": "6.0.0",
             "mode": mode,
             "evaluation_repository_id": EVALUATION_REPOSITORY_ID,
             "corpus_sha256": corpus_sha,
@@ -725,7 +727,7 @@ def _run_mode(
     )
     record = content_address(
         {
-            "schema_version": "3.0.0",
+            "schema_version": "4.0.0",
             **identity,
             "corpus_sha256": corpus_sha,
             "label_decision_id": label_decision["decision_id"],
@@ -856,7 +858,7 @@ def main() -> None:
     )
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--workflow-attempt", type=int, required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=900)
+    parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--max-output-bytes", type=int, default=4_000_000)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -921,6 +923,8 @@ def main() -> None:
         policy_path=None,
         authenticated_label_decision_id=decision["decision_id"],
         artifact_root=args.output / "raw",
+        expected_timeout_seconds=args.timeout_seconds,
+        expected_max_output_bytes=args.max_output_bytes,
     )
     profile_metrics: dict[str, dict[str, dict[str, Any]]] = {}
     records_by_profile: dict[str, dict[str, dict[str, Any]]] = {}

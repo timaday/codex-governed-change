@@ -47,7 +47,7 @@ jobs:
 
       - name: Require exact ChatGPT-authenticated Codex identity
         run: |
-          test "$(codex --version)" = "codex-cli 0.149.1"
+          test "$(codex --version)" = "codex-cli 0.153.0"
           test "$(codex login status 2>&1)" = "Logged in using ChatGPT"
 
       - name: Run exact reviewer and context-profile corpus
@@ -62,7 +62,7 @@ jobs:
           --human-label-decision .governance/releases/v0.1.0/qualification/human-label-decision.json
           --prompt kernel/.codex/review/reviewer.prompt.md
           --schema-root kernel/schemas
-          --expected-codex-version "codex-cli 0.149.1"
+          --expected-codex-version "codex-cli 0.153.0"
           --model gpt-5.6-sol
           --reasoning-effort xhigh
           --actor "$GITHUB_ACTOR"
@@ -70,7 +70,7 @@ jobs:
           --authority-ref "$AUTHORITY_REF"
           --workflow-run-id "$GITHUB_RUN_ID"
           --workflow-attempt "$GITHUB_RUN_ATTEMPT"
-          --timeout-seconds 900
+          --timeout-seconds 1800
           --max-output-bytes 4000000
           --output "$RUNNER_TEMP/qualification-results"
 
@@ -90,7 +90,7 @@ jobs:
           --corpus-schema kernel/schemas/reviewer-qualification-corpus.schema.json
           --decision-schema .governance/schemas/paired-comparison-label-decision.schema.json
           --comparison-schema .governance/schemas/paired-comparison.schema.json
-          --expected-codex-version "codex-cli 0.149.1"
+          --expected-codex-version "codex-cli 0.153.0"
           --model gpt-5.6-sol
           --reasoning-effort xhigh
           --actor "$GITHUB_ACTOR"

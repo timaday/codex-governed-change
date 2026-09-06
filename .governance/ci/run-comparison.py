@@ -149,7 +149,7 @@ def _run_ordinary_case(
     codex: str,
     expected_identity: Mapping[str, Any],
     schema_path: Path,
-    timeout_seconds: float,
+    timeout_seconds: int,
     max_output_bytes: int,
     output: Path,
 ) -> dict[str, Any]:
@@ -446,7 +446,7 @@ def main() -> None:
     parser.add_argument("--authority-sha", required=True)
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--workflow-attempt", type=int, required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=900)
+    parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--max-output-bytes", type=int, default=4_000_000)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

@@ -102,7 +102,7 @@ def _elapsed_milliseconds(
 ) -> int:
     """Derive elapsed milliseconds by flooring the exact RFC3339 interval."""
     if (
-        not isinstance(timeout_seconds, (int, float))
+        not isinstance(timeout_seconds, int)
         or isinstance(timeout_seconds, bool)
         or timeout_seconds <= 0
     ):
@@ -116,7 +116,7 @@ def _elapsed_milliseconds(
         (interval.days * 86_400 + interval.seconds) * 1_000
         + interval.microseconds // 1_000
     )
-    if elapsed_ms > int(timeout_seconds * 1_000):
+    if elapsed_ms > timeout_seconds * 1_000:
         raise ValueError("comparison timing exceeds its protected deadline")
     return elapsed_ms
 
@@ -241,6 +241,8 @@ def _governed_primitive_valid(
             "authentication": expected_identity["authentication"],
             "model": expected_identity["model"],
             "reasoning_effort": expected_identity["reasoning_effort"],
+            "timeout_seconds": expected_identity["timeout_seconds"],
+            "max_output_bytes": expected_identity["max_output_bytes"],
         }
         if (
             identity["prompt_sha256"] != sha256_bytes(prompt_bytes)
@@ -1021,7 +1023,7 @@ def comparison_document_valid(
         max_output_bytes = expected_identity.get("max_output_bytes")
         _expected_environment_keys(expected_identity)
         if (
-            not isinstance(timeout_seconds, (int, float))
+            not isinstance(timeout_seconds, int)
             or isinstance(timeout_seconds, bool)
             or timeout_seconds <= 0
             or not isinstance(max_output_bytes, int)

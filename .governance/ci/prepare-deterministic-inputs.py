@@ -434,6 +434,8 @@ def main() -> None:
         policy_path=policy_path,
         authenticated_label_decision_id=authenticated_label_decision_id,
         artifact_root=qualification / "raw",
+        expected_timeout_seconds=policy["reviewer"]["timeout_seconds"],
+        expected_max_output_bytes=policy["reviewer"]["max_output_bytes"],
     )
     context_reference_digests: dict[str, str] = {}
 
