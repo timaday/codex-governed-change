@@ -1024,3 +1024,28 @@ empirical qualification, the approved paired comparison, protected admission
 reconstruction and separate human release approval remain required. Operational
 qualification, measured benefit and human approval remain `UNKNOWN`; release
 remains blocked.
+
+Immutable source candidate `7f851e3` passed blueprint validation and all 357
+deterministic tests, but its strict ChatGPT-authenticated Codex review correctly
+remained `UNKNOWN` before model execution: the protected Codex runtime rejected
+`uniqueItems` in the model-facing conformance output schema. No reviewer result
+or token usage was available, so that attempt is not qualification evidence and
+all candidate and authority bindings to `7f851e3` are obsolete.
+
+This working-copy successor removes only the unsupported transport keyword from
+the model-facing schema and retains JSON-equality uniqueness for reviewed
+surfaces, affected closure and claims in deterministic semantic validation
+before qualification or admission. A focused Codex transport probe accepts the
+successor schema. A new clean-control semantic operator kills omission of that
+post-validator, bringing the source corpus to 155 entries with content ID
+`sha256:d9ae2724db2cd25e21a0ba7e8778dd95ca6cfaedd54fe36f135d749ca64f348d`
+and protected byte digest
+`sha256:6e3bc18e592caf24ae1b553882c447d35eb51770d69f790a1718f835cd5ce8a0`.
+The focused 49-test schema, reviewer-isolation, lifecycle, mutation-governance
+and public-portability set passes. This status mutation invalidates those
+working-copy observations. Exact-candidate gates, the complete mutation corpus,
+fresh source and authority reviews, authority/kernel/broker advancement, hosted
+real isolation and empirical qualification, the approved paired comparison,
+protected admission reconstruction and separate human release approval remain
+required. Operational qualification, measured benefit and human approval remain
+`UNKNOWN`; release remains blocked.

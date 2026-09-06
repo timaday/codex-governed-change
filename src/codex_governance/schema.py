@@ -446,6 +446,15 @@ def validate_semantics(instance: Any, schema_name: str) -> list[str]:
 
             if not verify_candidate_identity(instance):
                 errors.append("$/candidate_id: candidate identity does not reconstruct")
+        if schema_name == "reviewer-result":
+            for name in ("reviewed_surfaces", "affected_closure", "claims"):
+                values = instance.get(name)
+                if isinstance(values, list) and any(
+                    _json_equal(left, right)
+                    for index, left in enumerate(values)
+                    for right in values[index + 1 :]
+                ):
+                    errors.append(f"$/{name}: items must be unique")
         if schema_name == "context-qualification":
             empirical_fields = {
                 "corpus_sha256", "label_decision_id", "measurement_evidence"

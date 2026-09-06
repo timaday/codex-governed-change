@@ -186,6 +186,7 @@ REQUIRED_CURATED_MUTANTS = frozenset(
         "rfc3339-lossy-fractional-precision-accepted",
         "qualification-timeout-enforcement-omitted",
         "qualification-timeout-identity-omitted",
+        "reviewer-result-semantic-uniqueness-omitted",
     }
 )
 

@@ -16,6 +16,7 @@ class ReviewerIsolationAcceptanceTest(unittest.TestCase):
         def inspect(node: object) -> None:
             if not isinstance(node, dict):
                 return
+            self.assertNotIn("uniqueItems", node)
             if "properties" in node:
                 properties = node["properties"]
                 self.assertIsInstance(properties, dict)

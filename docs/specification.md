@@ -1108,6 +1108,13 @@ expressions outside that proven intersection are malformed
 subset schemas rather than being interpreted with Python-specific semantics.
 Unsupported keywords and malformed subset schemas fail closed before instance
 validation.
+Codex-facing output schemas are a narrower transport contract and contain only
+keywords accepted by the protected Codex structured-output runtime. Invariants
+that the runtime does not accept in that schema, including JSON-equality
+uniqueness of conformance reviewed surfaces, affected closure and claims, are
+checked by deterministic semantic validation immediately after parsing and
+before qualification or admission. Moving an invariant to that post-validator
+does not weaken it and does not make model self-assertion authoritative.
 An old document is accepted only
 as migration input and never as current admission evidence. Syntax validation is
 followed by semantic validation including complete RFC 3339 parsing, time

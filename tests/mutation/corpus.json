@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:a570d926fe271f472bfb791a660e0c3e8b98f1e1a64cf2873fead1673b1b38cb",
+  "corpus_id": "sha256:d9ae2724db2cd25e21a0ba7e8778dd95ca6cfaedd54fe36f135d749ca64f348d",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1388,6 +1388,15 @@
       "operator": "reuse a qualification after the protected reviewer timeout changes",
       "requirement_id": "GOV-055",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_exact_qualified_prompt_schema_model_launcher_is_required"]
+    },
+    {
+      "mutant_id": "reviewer-result-semantic-uniqueness-omitted",
+      "path": "src/codex_governance/schema.py",
+      "old": "                if isinstance(values, list) and any(\n                    _json_equal(left, right)\n                    for index, left in enumerate(values)\n                    for right in values[index + 1 :]\n                ):",
+      "new": "                if False:",
+      "operator": "accept duplicate conformance surfaces, closure entries or claims after removing the unsupported model-facing schema keyword",
+      "requirement_id": "GOV-060",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.unit.test_schema_adapter.SchemaAdapterTest.test_model_facing_reviewer_uniqueness_is_deterministically_validated"]
     }
   ]
 }

@@ -276,7 +276,26 @@ class SchemaAdapterTest(unittest.TestCase):
         defects.append(unsupported)
         for document in defects:
             with self.subTest(document=document):
-                self.assertTrue(validate_instance(document, schema))
+                self.assertTrue(
+                    validate_instance(document, schema)
+                    or validate_semantics(document, "reviewer-result")
+                )
+
+    def test_model_facing_reviewer_uniqueness_is_deterministically_validated(self) -> None:
+        schema = load_json(Path("schemas/reviewer-result.schema.json"))
+        example = load_json(Path("examples/reviewer-result.json"))
+        self.assertNotIn("uniqueItems", Path("schemas/reviewer-result.schema.json").read_text())
+        for field in ("reviewed_surfaces", "affected_closure", "claims"):
+            duplicate = deepcopy(example)
+            duplicate[field].append(deepcopy(duplicate[field][0]))
+            with self.subTest(field=field):
+                self.assertFalse(
+                    any("items must be unique" in error for error in validate_instance(duplicate, schema))
+                )
+                self.assertIn(
+                    f"$/{field}: items must be unique",
+                    validate_semantics(duplicate, "reviewer-result"),
+                )
 
     def test_semantic_identity_and_lifecycle_validation_fails_closed(self) -> None:
         candidate = load_json(Path("examples/candidate.json"))

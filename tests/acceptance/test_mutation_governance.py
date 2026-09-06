@@ -211,6 +211,7 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "rfc3339-lossy-fractional-precision-accepted",
             "qualification-timeout-enforcement-omitted",
             "qualification-timeout-identity-omitted",
+            "reviewer-result-semantic-uniqueness-omitted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))
