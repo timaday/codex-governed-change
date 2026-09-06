@@ -697,19 +697,22 @@ disposition-to-debrief/item links. Every relationship sequence is unique.
 The coverage graph contains exactly one note per session and every protected
 oracle occurs exactly once across those notes; an uncovered session/oracle or a
 second note for one session is not complete coverage. The risk register's exact
-update sequence is derived from the protected requirement sources, candidate
-changed paths, every direct observation, every surviving mutant, and every
-session or conformance reviewer finding. Type-valid subsets and unrelated
-type-valid identities do not satisfy that graph.
+update sequence is derived in canonical order from the protected requirement
+sources, candidate changed paths, every direct observation in session/experiment
+order, every surviving mutant in mutation-record order, every session finding
+in session/finding order, and every conformance reviewer finding in its protected
+order. Type-valid subsets, permutations and unrelated type-valid identities do
+not satisfy that graph.
 Requirement and change update identities come from separate exact protected
-sets derived from the authenticated task sources and candidate paths. The
+sequences derived from the authenticated task sources and candidate paths. The
 untyped evidence-locator index cannot cause one identity to be accepted as
 both kinds.
-Admission derives the exact typed follow-up edge set from surprising
-observations, surviving mutants and every reviewer finding, then requires the
-submitted follow-up graph to match it exactly; severity controls whether the
-work is mandatory, not whether the feedback edge exists. A missing, duplicate,
-extra, dangling, stale, digest-mismatched or wrong-kind relationship is
+Admission derives the exact typed follow-up edge sequence from surprising
+observations, surviving mutants, session findings and conformance reviewer
+findings in that canonical protected order, then requires the submitted
+follow-up graph to match it exactly; severity controls whether the work is
+mandatory, not whether the feedback edge exists. A missing, duplicate, extra,
+reordered, dangling, stale, digest-mismatched or wrong-kind relationship is
 `UNKNOWN`; non-empty prose or a complete set of RST artifact kinds cannot
 preserve readiness.
 

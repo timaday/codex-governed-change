@@ -254,10 +254,10 @@ producer's raw-file inventory is derived from those exact references rather than
 a fixed file count.
 
 Operational RST tests require unique session, debrief, actionable, residual and
-risk-update references. The relationship graph must equal the feedback edges
-derived from surprising experiments, surviving mutants and every reviewer
-finding; an empty, duplicate or extra edge set blocks even when all referenced
-documents otherwise exist.
+risk-update references. The relationship graph must equal the ordered feedback
+edge sequence derived from surprising experiments, surviving mutants, session
+findings and conformance reviewer findings; an empty, duplicate, permuted or
+extra sequence blocks even when all referenced documents otherwise exist.
 
 Governance-integrity tests mutate each previous-LKG TCB class, including trusted
 Python implementation sources, and require both governance authorization and an
@@ -548,9 +548,9 @@ disposition evidence locator in turn with a non-empty missing ID and require
 session/charter, coverage/session/oracle, debrief/session/residual-risk,
 follow-up/source, oracle path/digest and disposition/debrief/item edge. Require
 exactly one coverage note per session, every protected oracle exactly once, and
-the exact protected requirement/change/observation/surviving-mutant/finding
-risk-update set. Valid subsets, uncovered nodes and duplicate edges remain
-`UNKNOWN`. A bare
+the exact ordered protected requirement/change/observation/surviving-mutant/
+session-finding/conformance-finding risk-update sequence. Valid subsets,
+permutations, uncovered nodes and duplicate edges remain `UNKNOWN`. A bare
 complete artifact-kind set is a red control, not readiness evidence.
 
 ## Context compiler and reviewer qualification

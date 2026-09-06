@@ -260,14 +260,14 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
                 register = clean["risk_register"]
                 register.pop("risk_register_id")
                 register["updated_from"] = [
+                    f"{kind}:{identity}",
                     "observation:OBS-1",
                     "reviewer_finding:FINDING-1",
-                    f"{kind}:{identity}",
                 ]
                 clean["risk_register"] = content_address(
                     register, "risk_register_id"
                 )
-                clean[keyword] = frozenset({identity})
+                clean[keyword] = [identity]
                 self.assertEqual(
                     DispositionState.READY_FOR_HUMAN,
                     validate_rst_lineage(**clean),
@@ -373,6 +373,19 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
                     "follow_up_id",
                 )
             )
+        follow_up_by_source = {
+            (item["source_kind"], item["source_id"]): item
+            for item in clean["follow_ups"]
+        }
+        clean["follow_ups"] = [
+            follow_up_by_source[source]
+            for source in (
+                ("observation", "OBS-1"),
+                ("mutant", "MUT-1"),
+                ("reviewer_finding", "FINDING-1"),
+                ("reviewer_finding", "FINDING-2"),
+            )
+        ]
         expected_updates = [
             "requirement:docs/requirements.md",
             "change:src/service.py",
@@ -392,7 +405,7 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
         reordered = deepcopy(clean)
         reordered["follow_ups"] = list(reversed(reordered["follow_ups"]))
         self.assertEqual(
-            DispositionState.READY_FOR_HUMAN,
+            DispositionState.UNKNOWN,
             validate_rst_lineage(**reordered),
         )
         missing_required = deepcopy(clean)
@@ -409,6 +422,7 @@ class RstOperationsAcceptanceTest(unittest.TestCase):
         for name, updates in (
             ("missing", expected_updates[:-1]),
             ("extra-valid", [*expected_updates, "session:SESSION-1"]),
+            ("reordered", list(reversed(expected_updates))),
         ):
             with self.subTest(name=name):
                 variant = deepcopy(clean)
