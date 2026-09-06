@@ -43,6 +43,7 @@ from codex_governance.gate import (
     _posix_process_group_exited,
     _terminate_process_tree,
 )
+from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.portability import SHAPED_VALUE_PATTERNS
 from codex_governance.schema import (
     SchemaValidationError,
@@ -129,6 +130,49 @@ def _runtime_prefix(executable: Path) -> Path:
     return parent.parent if parent.name.lower() in {"bin", "scripts"} else parent
 
 
+def _path_contains(parent: Path, child: Path) -> bool:
+    return parent == child or parent in child.parents
+
+
+def _trusted_operating_system_homes() -> tuple[Path, ...]:
+    """Resolve the current account home without trusting process environment."""
+    values: list[str] = []
+    if os.name == "posix":
+        try:
+            import pwd
+
+            values.append(pwd.getpwuid(os.getuid()).pw_dir)
+        except (KeyError, OSError, ImportError):
+            return ()
+    elif os.name == "nt":
+        try:
+            import ctypes
+
+            buffer = ctypes.create_unicode_buffer(32768)
+            result = ctypes.windll.shell32.SHGetFolderPathW(
+                None, 0x0028, None, 0, buffer
+            )
+            if result != 0:
+                return ()
+            values.append(buffer.value)
+        except (AttributeError, OSError, ValueError):
+            return ()
+    else:
+        return ()
+    homes: set[Path] = set()
+    for value in values:
+        if not isinstance(value, str) or not value:
+            return ()
+        home = Path(value)
+        if not home.is_absolute():
+            return ()
+        try:
+            homes.add(home.resolve(strict=True))
+        except OSError:
+            return ()
+    return tuple(sorted(homes, key=os.fspath))
+
+
 def resolve_reviewer_runtime_read_roots(
     codex_executable: str, *, environment: Mapping[str, str] | None = None
 ) -> tuple[Path, ...]:
@@ -145,33 +189,91 @@ def resolve_reviewer_runtime_read_roots(
         raise ValueError("Codex executable is unavailable on the sanitized PATH")
 
     executable_paths = {Path(executable).resolve()}
-    node = shutil.which("node", path=search_path)
-    if node is not None:
-        executable_paths.add(Path(node).resolve())
+    if Path(codex_executable).name == "codex":
+        node = shutil.which("node", path=search_path)
+        if node is not None:
+            executable_paths.add(Path(node).resolve())
 
-    home_value = source.get("HOME") or source.get("USERPROFILE")
-    home = Path(home_value).resolve() if isinstance(home_value, str) and home_value else None
+    homes = set(_trusted_operating_system_homes())
+    if not homes:
+        raise ValueError("trusted operating-system home is unavailable")
+    for key in ("HOME", "USERPROFILE"):
+        home_value = source.get(key)
+        if home_value is None:
+            continue
+        if not isinstance(home_value, str) or not home_value:
+            raise ValueError("reviewer environment home is unsafe")
+        home = Path(home_value)
+        if not home.is_absolute():
+            raise ValueError("reviewer environment home is unsafe")
+        homes.add(home.resolve(strict=False))
+    home_drive = source.get("HOMEDRIVE")
+    home_path = source.get("HOMEPATH")
+    if home_drive is not None or home_path is not None:
+        if not all(
+            isinstance(value, str) and value
+            for value in (home_drive, home_path)
+        ):
+            raise ValueError("reviewer environment home is unsafe")
+        combined_home = Path(str(home_drive) + str(home_path))
+        if not combined_home.is_absolute():
+            raise ValueError("reviewer environment home is unsafe")
+        homes.add(combined_home.resolve(strict=False))
     roots = []
     for executable_path in executable_paths:
         candidate = _runtime_prefix(executable_path)
-        if home is not None and candidate == home:
-            candidate = executable_path.parent
-        if not candidate.is_absolute() or candidate == Path(candidate.anchor):
+        candidate = candidate.resolve()
+        if (
+            not candidate.is_absolute()
+            or candidate == Path(candidate.anchor)
+            or any(
+                _path_contains(candidate, home)
+                or _path_contains(home, candidate)
+                for home in homes
+            )
+        ):
             raise ValueError("reviewer runtime read root is unsafe")
         roots.append(candidate)
-    return tuple(sorted(set(roots), key=os.fspath))
+    ordered = sorted(set(roots), key=lambda path: (len(path.parts), os.fspath(path)))
+    return tuple(
+        root
+        for index, root in enumerate(ordered)
+        if not any(_path_contains(parent, root) for parent in ordered[:index])
+    )
 
 
-def build_reviewer_permission_profile(runtime_read_roots: Sequence[Path]) -> str:
+def build_reviewer_permission_profile(
+    runtime_read_roots: Sequence[Path], *, review_root: Path | None = None
+) -> str:
     """Build a path-safe inline profile without persisting host path values."""
+    ordered_roots = sorted(
+        {Path(path).resolve(strict=False) for path in runtime_read_roots},
+        key=lambda path: (len(path.parts), os.fspath(path)),
+    )
+    roots = tuple(
+        root
+        for index, root in enumerate(ordered_roots)
+        if not any(
+            _path_contains(parent, root) for parent in ordered_roots[:index]
+        )
+    )
+    resolved_review_root = (
+        Path(review_root).resolve(strict=False) if review_root is not None else None
+    )
+    for root in roots:
+        if not root.is_absolute() or root == Path(root.anchor):
+            raise ValueError("reviewer runtime read root is unsafe")
+        if resolved_review_root is not None and (
+            _path_contains(root, resolved_review_root)
+            or _path_contains(resolved_review_root, root)
+        ):
+            raise ValueError("reviewer runtime read root overlaps the review harness")
     entries = [
         '":root"="deny"',
         '":minimal"="read"',
         '":workspace_roots"={"."="read"}',
     ]
-    for root in sorted({Path(path) for path in runtime_read_roots}, key=os.fspath):
-        if not root.is_absolute() or root == Path(root.anchor):
-            raise ValueError("reviewer runtime read root is unsafe")
+    for root in roots:
         entries.append(f'{json.dumps(os.fspath(root))}="read"')
     return (
         'permissions={governed_reviewer={extends=":read-only",filesystem={'
@@ -271,8 +373,9 @@ def _validate_portable_reviewer_command(
     ]
     if len(permission_indexes) != 1:
         raise ValueError("reviewer command permission profile is unavailable")
+    review_root = Path(command[command.index("--cd") + 1])
     expected_permission_profile = build_reviewer_permission_profile(
-        resolve_reviewer_runtime_read_roots(command[0])
+        resolve_reviewer_runtime_read_roots(command[0]), review_root=review_root
     )
     if normalized[permission_indexes[0]] != expected_permission_profile:
         raise ValueError("reviewer command permission profile is not exact")
@@ -299,7 +402,8 @@ def build_reviewer_command(
     ):
         raise ValueError("reviewer executable, model and effort are required")
     permission_profile = build_reviewer_permission_profile(
-        resolve_reviewer_runtime_read_roots(codex_executable)
+        resolve_reviewer_runtime_read_roots(codex_executable),
+        review_root=review_root,
     )
     return [
         codex_executable,
@@ -1144,6 +1248,18 @@ REVIEWER_LAUNCHER_FILES = (
 )
 
 
+def _retained_wall_latency_ms(started_at: str, ended_at: str) -> int:
+    """Derive the exact retained millisecond interval without float rounding."""
+    interval = parse_rfc3339(ended_at) - parse_rfc3339(started_at)
+    microseconds = (
+        (interval.days * 86_400 + interval.seconds) * 1_000_000
+        + interval.microseconds
+    )
+    if microseconds < 0:
+        raise ValueError("reviewer wall-clock interval is reversed")
+    return microseconds // 1_000
+
+
 def _stop_reviewer_supervisor(
     process: subprocess.Popen[bytes], *, deadline: float
 ) -> bool:
@@ -1948,7 +2064,11 @@ def launch_reviewer(
     if not after_observed:
         observation_complete = False
     ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    latency_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
+    try:
+        latency_ms = _retained_wall_latency_ms(started_at, ended_at)
+    except ValueError:
+        latency_ms = 0
+        observation_complete = False
     output_bytes = b""
     output_present = False
     output_regular = False

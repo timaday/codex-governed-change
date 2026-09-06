@@ -48,8 +48,15 @@ class FreeTopologyAuthorityTest(unittest.TestCase):
         self.assertEqual(1, reviewed_pr["required_approving_review_count"])
         self.assertTrue(reviewed_pr["require_last_push_approval"])
         for parameters in (sole_pr, reviewed_pr):
+            self.assertEqual(
+                ["squash", "rebase"], parameters["allowed_merge_methods"]
+            )
             self.assertTrue(parameters["dismiss_stale_reviews_on_push"])
+            self.assertTrue(
+                parameters["require_extra_approval_for_unattributed_changes"]
+            )
             self.assertTrue(parameters["required_review_thread_resolution"])
+            self.assertEqual([], parameters["required_reviewers"])
 
     def test_private_broker_contract_has_no_paid_or_public_runner_dependency(self) -> None:
         broker = self.document(".governance/private-broker.json")

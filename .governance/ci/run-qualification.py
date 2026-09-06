@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import stat
+import subprocess
 import tempfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -24,13 +26,20 @@ from common import (
     write_once,
 )
 from qualification_verifier import validate_qualification_bundle
+from codex_governance.canonical import require_sha256, sha256_canonical
+from codex_governance.context import (
+    CONTEXT_PROFILES,
+)
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.qualification import (
+    REVIEWER_IDENTITY_FIELDS,
     bootstrap_qualification_record,
     qualification_case_classes_complete,
     qualification_candidate_document,
     qualification_charter_document,
+    context_qualification_evidence_valid,
     qualification_context_documents,
+    qualification_evidence_locators,
     qualification_expected_finding_detected,
     qualification_gate_documents,
     qualification_policy_document,
@@ -54,6 +63,7 @@ REASONING_EFFORT = "xhigh"
 EVALUATION_REPOSITORY_ID = "repo:timaday/codex-governed-change-qualification"
 EXPECTED_DISPOSITIONS = {"BLOCK", "NO_BLOCKING_FINDING_OBSERVED"}
 QUALIFICATION_ARTIFACT_PREFIX = "qualification"
+CONTEXT_TOKEN_BUDGETS = {"COMPACT": 8000, "STANDARD": 24000, "DEEP": 64000}
 
 
 def _safe_relative(value: Any) -> str:
@@ -79,6 +89,40 @@ def _make_read_only(root: Path) -> None:
         info = path.stat()
         path.chmod(0o555 if path.is_dir() or info.st_mode & stat.S_IXUSR else 0o444)
     root.chmod(0o555)
+
+
+def _initialize_git_trust_boundary(root: Path) -> None:
+    """Create only the outer Git identity required by protected Codex."""
+    template = root.parent / ".empty-git-template"
+    template.mkdir(mode=0o700)
+    environment = {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "PATH": os.environ.get("PATH", os.defpath),
+    }
+    try:
+        initialized = subprocess.run(
+            [
+                "git",
+                "-c",
+                "init.defaultBranch=review",
+                "-C",
+                os.fspath(root),
+                "init",
+                "--quiet",
+                f"--template={template}",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            env=environment,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("qualification Git trust boundary timed out") from exc
+    if initialized.returncode != 0:
+        raise ValueError("qualification Git trust boundary is unavailable")
 
 
 def _validate_corpus(
@@ -185,6 +229,7 @@ def classify_observed_disposition(
     return "UNKNOWN"
 
 
+
 def _prepare_case(
     *,
     root: Path,
@@ -193,6 +238,7 @@ def _prepare_case(
     prompt_path: Path,
     schema_path: Path,
     bootstrap: Mapping[str, Any],
+    requested_profile: str | None,
 ) -> dict[str, Any]:
     candidate_root = root / "candidate"
     candidate_root.mkdir(parents=True)
@@ -231,14 +277,14 @@ def _prepare_case(
         task_contract_sha256=task_sha,
         candidate_id=candidate_id,
     )
-    preliminary_context = qualification_context_documents(
-        mode=mode,
-        case=case,
-        task=task,
-        policy=policy,
-        candidate=candidate,
-        reviewer_output_sha256="sha256:" + "0" * 64,
-        execution={
+    context_arguments = {
+        "mode": mode,
+        "case": case,
+        "task": task,
+        "policy": policy,
+        "candidate": candidate,
+        "reviewer_output_sha256": "sha256:" + "0" * 64,
+        "execution": {
             "model": MODEL,
             "reasoning_effort": REASONING_EFFORT,
             "usage_observed": True,
@@ -250,6 +296,9 @@ def _prepare_case(
             "ended_at": "2026-08-26T10:00:00Z",
             "limitations": [],
         },
+    }
+    preliminary_context = qualification_context_documents(
+        requested_profile=requested_profile, **context_arguments
     )
     risk = {"case_id": case["case_id"], "kind": "qualification-risk"}
     charter = qualification_charter_document(
@@ -257,7 +306,8 @@ def _prepare_case(
         candidate_id=candidate_id,
         case=case,
     )
-    prefix = f"qualification/{mode}/{case['case_id']}"
+    profile_prefix = "" if requested_profile is None else requested_profile + "/"
+    prefix = f"qualification/{profile_prefix}{mode}/{case['case_id']}"
     evidence = root.joinpath(*prefix.split("/"))
     documents = {
         "task-contract.json": task,
@@ -384,12 +434,13 @@ def _run_mode(
     codex: str,
     cli_version: str,
     authentication: str,
-    timeout_seconds: float,
+    timeout_seconds: int,
     max_output_bytes: int,
     workflow_run_id: str,
     workflow_attempt: int,
     output: Path,
-) -> dict[str, Any]:
+    requested_profile: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     prompt_sha = sha256_bytes(read_bytes_once(prompt_path))
     schema_sha = sha256_bytes(read_bytes_once(schema_path))
     launcher_sha = reviewer_launcher_sha256()
@@ -402,6 +453,8 @@ def _run_mode(
         "authentication": authentication,
         "model": MODEL,
         "reasoning_effort": REASONING_EFFORT,
+        "timeout_seconds": timeout_seconds,
+        "max_output_bytes": max_output_bytes,
     }
     bootstrap = bootstrap_qualification_record(
         identity=identity,
@@ -409,6 +462,7 @@ def _run_mode(
         label_decision_id=label_decision["decision_id"],
     )
     observations: list[dict[str, Any]] = []
+    execution_metrics: list[dict[str, int]] = []
     total_latency = 0
     for case in corpus["cases"]:
         with tempfile.TemporaryDirectory(prefix="governed-qualification-") as directory:
@@ -425,12 +479,14 @@ def _run_mode(
                 prompt_path=prompt,
                 schema_path=schema,
                 bootstrap=bootstrap,
+                requested_profile=requested_profile,
             )
             permitted = prepared["permitted"]
             task = prepared["task"]
             policy = prepared["policy"]
             candidate = prepared["candidate"]
             result_path = root / "reviewer-result.json"
+            _initialize_git_trust_boundary(root)
             command = build_reviewer_command(
                 codex_executable=codex,
                 model=MODEL,
@@ -475,21 +531,50 @@ def _run_mode(
             launched["argv_sha256"] = reviewer_argv_sha256(
                 model=MODEL, reasoning_effort=REASONING_EFFORT
             )
+            observed_usage: dict[str, int] = {}
+            if launched.get("usage_observed") is not True:
+                raise ValueError("qualification token usage was not observed")
+            for name in (
+                "input_tokens",
+                "cached_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            ):
+                value = launched.get(name)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    raise ValueError("qualification token usage is unavailable")
+                observed_usage[name] = value
+            if (
+                observed_usage["cached_input_tokens"]
+                > observed_usage["input_tokens"]
+                or observed_usage["reasoning_output_tokens"]
+                > observed_usage["output_tokens"]
+            ):
+                raise ValueError("qualification token usage is inconsistent")
+            execution_metrics.append(observed_usage)
+            context_arguments = {
+                "mode": mode,
+                "case": case,
+                "task": task,
+                "policy": policy,
+                "candidate": candidate,
+                "reviewer_output_sha256": launched["output_sha256"],
+                "execution": launched,
+            }
             context_documents = qualification_context_documents(
-                mode=mode,
-                case=case,
-                task=task,
-                policy=policy,
-                candidate=candidate,
-                reviewer_output_sha256=launched["output_sha256"],
-                execution=launched,
+                requested_profile=requested_profile, **context_arguments
             )
             if (
                 context_documents["context_receipt"]
                 != prepared["preliminary_context"]["context_receipt"]
             ):
                 raise ValueError("qualification prepared context drifted")
-            artifact_directory = output / "raw" / mode / str(case["case_id"])
+            artifact_parts = (
+                (mode, str(case["case_id"]))
+                if requested_profile is None
+                else (requested_profile, mode, str(case["case_id"]))
+            )
+            artifact_directory = output.joinpath("raw", *artifact_parts)
             artifact_directory.mkdir(parents=True, exist_ok=True)
 
             def store(name: str, data: bytes) -> dict[str, str]:
@@ -497,12 +582,7 @@ def _run_mode(
                 destination.write_bytes(data)
                 return {
                     "path": "/".join(
-                        (
-                            QUALIFICATION_ARTIFACT_PREFIX,
-                            mode,
-                            str(case["case_id"]),
-                            name,
-                        )
+                        (QUALIFICATION_ARTIFACT_PREFIX, *artifact_parts, name)
                     ),
                     "sha256": sha256_bytes(data),
                 }
@@ -636,7 +716,7 @@ def _run_mode(
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     case_evidence = content_address(
         {
-            "schema_version": "5.0.0",
+            "schema_version": "6.0.0",
             "mode": mode,
             "evaluation_repository_id": EVALUATION_REPOSITORY_ID,
             "corpus_sha256": corpus_sha,
@@ -648,7 +728,7 @@ def _run_mode(
     )
     record = content_address(
         {
-            "schema_version": "3.0.0",
+            "schema_version": "4.0.0",
             **identity,
             "corpus_sha256": corpus_sha,
             "label_decision_id": label_decision["decision_id"],
@@ -675,7 +755,89 @@ def _run_mode(
     case_name = "conformance-cases.json" if mode == "conformance" else "rapid-review-cases.json"
     write_once(output / case_name, case_evidence)
     write_once(output / ("conformance.json" if mode == "conformance" else "rapid-review.json"), record)
-    return record
+    total_tokens = sum(
+        int(item.get("input_tokens", 0))
+        + int(item.get("output_tokens", 0))
+        for item in execution_metrics
+    )
+    return record, {
+        "critical_cases": len(critical),
+        "critical_detected": critical_detected,
+        "false_passes": false_passes,
+        "false_blocks": false_blocks,
+        "unknowns": unknowns,
+        "traceable_cases": critical_detected,
+        "traceability_cases": len(critical),
+        "tokens": total_tokens,
+    }
+
+
+def _combine_context_metrics(mode_metrics: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """Aggregate both review modes without accepting missing or partial metrics."""
+    if set(mode_metrics) != {"conformance", "rapid_review"}:
+        raise ValueError("both context qualification modes are required")
+    values = list(mode_metrics.values())
+    critical_cases = sum(int(item["critical_cases"]) for item in values)
+    critical_detected = sum(int(item["critical_detected"]) for item in values)
+    cases = sum(int(item["traceability_cases"]) for item in values)
+    traceable_cases = sum(int(item["traceable_cases"]) for item in values)
+    if critical_cases < 1 or cases < 1:
+        raise ValueError("context qualification metrics are empty")
+    return {
+        "critical_recall": critical_detected / critical_cases,
+        "false_passes": sum(int(item["false_passes"]) for item in values),
+        "traceability": traceable_cases / cases,
+        "disposition_correct": bool(
+            critical_detected == critical_cases
+            and traceable_cases == cases
+            and all(int(item["false_blocks"]) == 0 for item in values)
+            and all(int(item["unknowns"]) == 0 for item in values)
+        ),
+        "tokens": sum(int(item["tokens"]) for item in values),
+    }
+
+
+def _context_qualification_record(
+    *,
+    profile: str,
+    baseline: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    created_at: str,
+    corpus_sha256: str,
+    label_decision_id: str,
+    measurement_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Create an empirical profile record; assurance parity is mandatory."""
+    if profile not in CONTEXT_PROFILES:
+        raise ValueError("context qualification profile is invalid")
+    baseline_value = dict(baseline)
+    candidate_value = dict(candidate)
+    assurance_parity = bool(
+        baseline_value["disposition_correct"] is True
+        and candidate_value["disposition_correct"] is True
+        and candidate_value["critical_recall"] >= baseline_value["critical_recall"]
+        and candidate_value["false_passes"] <= baseline_value["false_passes"]
+        and candidate_value["traceability"] >= baseline_value["traceability"]
+    )
+    return content_address(
+        {
+            "schema_version": "3.0.0",
+            "projection_version": "1.0.0",
+            "profile": profile,
+            "evidence_class": "empirical",
+            "corpus_sha256": require_sha256(corpus_sha256),
+            "label_decision_id": require_sha256(label_decision_id),
+            "measurement_evidence": dict(measurement_evidence),
+            "baseline": baseline_value,
+            "candidate": candidate_value,
+            "qualified": assurance_parity,
+            "created_at": created_at,
+            "limitations": [
+                "Eight-case protected labelled corpus; comparative results do not establish causality."
+            ],
+        },
+        "qualification_id",
+    )
 
 
 def main() -> None:
@@ -697,7 +859,7 @@ def main() -> None:
     )
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--workflow-attempt", type=int, required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=900)
+    parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--max-output-bytes", type=int, default=4_000_000)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -734,9 +896,9 @@ def main() -> None:
         "conformance": args.schema_root / "reviewer-result.schema.json",
         "rapid_review": args.schema_root / "rapid-review-session.schema.json",
     }
-    records = {}
+    records: dict[str, dict[str, Any]] = {}
     for mode, schema in schemas.items():
-        records[mode] = _run_mode(
+        records[mode], _unused_metrics = _run_mode(
             mode=mode,
             corpus=corpus,
             label_decision=decision,
@@ -750,7 +912,190 @@ def main() -> None:
             workflow_run_id=args.workflow_run_id,
             workflow_attempt=args.workflow_attempt,
             output=args.output,
+            requested_profile=None,
         )
+    validate_qualification_bundle(
+        corpus_path=args.corpus,
+        label_decision_path=args.human_label_decision,
+        conformance_record_path=args.output / "conformance.json",
+        conformance_cases_path=args.output / "conformance-cases.json",
+        rapid_record_path=args.output / "rapid-review.json",
+        rapid_cases_path=args.output / "rapid-review-cases.json",
+        policy_path=None,
+        authenticated_label_decision_id=decision["decision_id"],
+        artifact_root=args.output / "raw",
+        expected_timeout_seconds=args.timeout_seconds,
+        expected_max_output_bytes=args.max_output_bytes,
+    )
+    profile_metrics: dict[str, dict[str, dict[str, Any]]] = {}
+    records_by_profile: dict[str, dict[str, dict[str, Any]]] = {}
+    cases_by_profile: dict[str, dict[str, dict[str, Any]]] = {}
+    for profile in CONTEXT_PROFILES:
+        profile_metrics[profile] = {}
+        records_by_profile[profile] = {}
+        cases_by_profile[profile] = {}
+        profile_output = args.output / "context-variants" / profile
+        for mode, schema in schemas.items():
+            variant_record, metrics = _run_mode(
+                mode=mode,
+                corpus=corpus,
+                label_decision=decision,
+                prompt_path=args.prompt,
+                schema_path=schema,
+                codex=args.codex,
+                cli_version=cli_version,
+                authentication=authentication,
+                timeout_seconds=args.timeout_seconds,
+                max_output_bytes=args.max_output_bytes,
+                workflow_run_id=args.workflow_run_id,
+                workflow_attempt=args.workflow_attempt,
+                output=profile_output,
+                requested_profile=profile,
+            )
+            profile_metrics[profile][mode] = metrics
+            records_by_profile[profile][mode] = variant_record
+            cases_by_profile[profile][mode] = load_json(
+                profile_output
+                / (
+                    "conformance-cases.json"
+                    if mode == "conformance"
+                    else "rapid-review-cases.json"
+                )
+            )
+    combined_metrics = {
+        profile: _combine_context_metrics(profile_metrics[profile])
+        for profile in CONTEXT_PROFILES
+    }
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    context_records = {
+        profile: _context_qualification_record(
+            profile=profile,
+            baseline=combined_metrics["DEEP"],
+            candidate=combined_metrics[profile],
+            created_at=created_at,
+            corpus_sha256=sha256_bytes(read_bytes_once(args.corpus)),
+            label_decision_id=decision["decision_id"],
+            measurement_evidence={
+                "corpus": {
+                    "path": ".governance/releases/v0.1.0/qualification/corpus.json",
+                    "sha256": sha256_bytes(read_bytes_once(args.corpus)),
+                },
+                "label_decision": {
+                    "path": ".governance/releases/v0.1.0/qualification/human-label-decision.json",
+                    "sha256": sha256_bytes(
+                        read_bytes_once(args.human_label_decision)
+                    ),
+                },
+                "baseline": {
+                    "profile": "DEEP",
+                    "conformance": {
+                        "record": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/conformance.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile["DEEP"]["conformance"]
+                            )),
+                        },
+                        "cases": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/conformance-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile["DEEP"]["conformance"]
+                            )),
+                        },
+                    },
+                    "rapid_review": {
+                        "record": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/rapid-review.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile["DEEP"]["rapid_review"]
+                            )),
+                        },
+                        "cases": {
+                            "path": ".governance/releases/v0.1.0/qualification/evidence/context-variants/DEEP/rapid-review-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile["DEEP"]["rapid_review"]
+                            )),
+                        },
+                    },
+                },
+                "candidate": {
+                    "profile": profile,
+                    "conformance": {
+                        "record": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/conformance.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile[profile]["conformance"]
+                            )),
+                        },
+                        "cases": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/conformance-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile[profile]["conformance"]
+                            )),
+                        },
+                    },
+                    "rapid_review": {
+                        "record": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/rapid-review.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                records_by_profile[profile]["rapid_review"]
+                            )),
+                        },
+                        "cases": {
+                            "path": f".governance/releases/v0.1.0/qualification/evidence/context-variants/{profile}/rapid-review-cases.json",
+                            "sha256": sha256_bytes(canonical_bytes(
+                                cases_by_profile[profile]["rapid_review"]
+                            )),
+                        },
+                    },
+                },
+            },
+        )
+        for profile in CONTEXT_PROFILES
+    }
+    context_output = args.output / "context-qualifications"
+    context_output.mkdir(parents=True, exist_ok=True)
+
+    def context_artifact_reader(reference: Mapping[str, Any]) -> bytes:
+        path = _safe_relative(reference.get("path"))
+        expected = require_sha256(reference.get("sha256"))
+        fixed = {
+            ".governance/releases/v0.1.0/qualification/corpus.json": args.corpus,
+            ".governance/releases/v0.1.0/qualification/human-label-decision.json": args.human_label_decision,
+        }
+        source = fixed.get(path)
+        if source is None:
+            prefix = ".governance/releases/v0.1.0/qualification/evidence/"
+            if not path.startswith(prefix):
+                raise ValueError("context measurement reference is outside its package")
+            source = args.output.joinpath(*path[len(prefix):].split("/"))
+        data = read_bytes_once(source)
+        if sha256_bytes(data) != expected:
+            raise ValueError("context measurement reference digest mismatch")
+        return data
+
+    for profile, record in context_records.items():
+        write_once(context_output / f"{profile}.json", record)
+        load_and_validate_once(
+            context_output / f"{profile}.json",
+            args.schema_root / "context-qualification.schema.json",
+        )
+        if not context_qualification_evidence_valid(
+            record=record,
+            artifact_reader=context_artifact_reader,
+            schema_root=args.schema_root,
+            protected_repository_id="repo:timaday/codex-governed-change",
+            verified_decision_ids=frozenset({decision["decision_id"]}),
+            evaluated_at=created_at,
+            prompt_bytes=read_bytes_once(args.prompt),
+            expected_reviewer_identities={
+                mode: {
+                    field: record.get(field)
+                    for field in REVIEWER_IDENTITY_FIELDS
+                }
+                for mode, record in records.items()
+            },
+        ):
+            raise ValueError("context qualification evidence does not reconstruct")
     write_once(
         args.output / "summary.json",
         {
@@ -763,21 +1108,20 @@ def main() -> None:
             "authentication": authentication,
             "conformance_qualification_id": records["conformance"]["qualification_id"],
             "rapid_review_qualification_id": records["rapid_review"]["qualification_id"],
-            "qualified": all(record["qualified"] for record in records.values()),
+            "context_qualification_ids": {
+                profile: context_records[profile]["qualification_id"]
+                for profile in CONTEXT_PROFILES
+            },
+            "qualified": bool(
+                all(record["qualified"] for record in records.values())
+                and all(record["qualified"] for record in context_records.values())
+            ),
         },
     )
-    validate_qualification_bundle(
-        corpus_path=args.corpus,
-        label_decision_path=args.human_label_decision,
-        conformance_record_path=args.output / "conformance.json",
-        conformance_cases_path=args.output / "conformance-cases.json",
-        rapid_record_path=args.output / "rapid-review.json",
-        rapid_cases_path=args.output / "rapid-review-cases.json",
-        policy_path=None,
-        authenticated_label_decision_id=decision["decision_id"],
-        artifact_root=args.output / "raw",
-    )
-    if not all(record["qualified"] for record in records.values()):
+    if not (
+        all(record["qualified"] for record in records.values())
+        and all(record["qualified"] for record in context_records.values())
+    ):
         raise SystemExit(2)
 
 

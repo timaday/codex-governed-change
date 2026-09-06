@@ -36,10 +36,12 @@ from codex_governance.canonical import (
 )
 from codex_governance.configuration import load_effective_policy, resolve_effective_configuration
 from codex_governance.context import (
+    build_protected_context_artifacts,
     build_protected_context_sources,
     build_repository_inventory,
     compile_context,
     finalize_context_receipt,
+    verify_protected_context_artifacts,
 )
 from codex_governance.domain.model import DispositionState
 from codex_governance.evidence import (
@@ -50,6 +52,7 @@ from codex_governance.evidence import (
     candidate_prefix,
     evaluate_manifest,
     load_referenced_json,
+    read_reference,
     repository_reference,
 )
 from codex_governance.gate import run_gate
@@ -111,6 +114,35 @@ CLI_OUTPUT_ARGUMENTS = {
     "import-reviewer-result": ("destination",),
     "evaluate": ("output",),
 }
+BOUNDED_COMMANDS = frozenset({"prepare-review", "review", "evaluate"})
+
+
+def _context_reviewer_identities(
+    *,
+    prompt_sha256: str,
+    schema_sha256_by_mode: Mapping[str, str],
+    launcher_sha256: str,
+    codex_cli_version: str,
+    authentication: str,
+    policy: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Build both reviewer identities only from protected or live inputs."""
+    if set(schema_sha256_by_mode) != {"conformance", "rapid_review"}:
+        raise ValueError("both protected reviewer mode schemas are required")
+    common = {
+        "prompt_sha256": prompt_sha256,
+        "launcher_sha256": launcher_sha256,
+        "codex_cli_version": codex_cli_version,
+        "authentication": authentication,
+        "model": policy["reviewer"]["model"],
+        "reasoning_effort": policy["reviewer"]["reasoning_effort"],
+        "timeout_seconds": policy["reviewer"]["timeout_seconds"],
+        "max_output_bytes": policy["reviewer"]["max_output_bytes"],
+    }
+    return {
+        mode: {**common, "schema_sha256": schema_sha256_by_mode[mode]}
+        for mode in ("conformance", "rapid_review")
+    }
 
 
 def _emit(value: Any) -> None:
@@ -119,6 +151,7 @@ def _emit(value: Any) -> None:
 
 def _cli_output_authority(args: argparse.Namespace) -> tuple[Path, str]:
     repository = args.repository
+    command_deadline = getattr(args, "_review_deadline", None)
     if args.command == "scope":
         task = _validated(args.task, args.schema_root, "task-contract")
         policy = load_effective_policy(
@@ -135,14 +168,19 @@ def _cli_output_authority(args: argparse.Namespace) -> tuple[Path, str]:
         evidence_root = normalize_repo_path(os.fspath(args.evidence_root))
     elif args.command == "evaluate":
         _protected_schema_root, manifest, policy = _admission_manifest_policy(
-            args
+            args, deadline=command_deadline
         )
         evidence_root = normalize_repo_path(policy["evidence_root"])
     elif args.command == "review":
         policy = _review_policy(args)
         evidence_root = normalize_repo_path(policy["evidence_root"])
     else:
-        policy = _validated(args.policy, args.schema_root, "effective-policy")
+        policy = _validated(
+            args.policy,
+            args.schema_root,
+            "effective-policy",
+            deadline=command_deadline,
+        )
         evidence_root = normalize_repo_path(policy["evidence_root"])
     return repository, evidence_root
 
@@ -238,15 +276,27 @@ def _retain_reviewer_output(
         raise ValueError("reviewer output representation digest mismatch")
 
 
-def _document(path: Path) -> dict[str, Any]:
-    value = load_json(path)
+def _document(
+    path: Path, *, deadline: float | None = None
+) -> dict[str, Any]:
+    value = load_json(path, deadline=deadline)
     if not isinstance(value, dict):
         raise ValueError("JSON document must be an object")
     return value
 
 
-def _validated(path: Path, schema_root: Path, name: str) -> dict[str, Any]:
-    value = load_and_validate(path, schema_root / f"{name}.schema.json")
+def _validated(
+    path: Path,
+    schema_root: Path,
+    name: str,
+    *,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    value = load_and_validate(
+        path,
+        schema_root / f"{name}.schema.json",
+        deadline=deadline,
+    )
     if not isinstance(value, dict):
         raise ValueError("validated document must be an object")
     return value
@@ -320,29 +370,42 @@ def _admission_schema_root(args: argparse.Namespace) -> Path:
 
 
 def _admission_validated(
-    args: argparse.Namespace, path: Path, name: str
+    args: argparse.Namespace,
+    path: Path,
+    name: str,
+    *,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Validate one candidate document only with retained authority schemas."""
     relative = _repository_argument_path(args.repository, path)
     instance = args.repository.absolute().joinpath(*relative.split("/"))
-    return _validated(instance, _admission_schema_root(args), name)
+    return _validated(
+        instance,
+        _admission_schema_root(args),
+        name,
+        deadline=deadline,
+    )
 
 
 def _admission_manifest_policy(
     args: argparse.Namespace,
+    *,
+    deadline: float | None = None,
 ) -> tuple[Path, dict[str, Any], dict[str, Any]]:
     """Retain the protected admission manifest, policy, and schema root."""
+    _require_active_deadline(deadline, "admission authority reconstruction")
     cached = getattr(args, "_admission_manifest_policy_documents", None)
     if cached is not None:
         return cached
     protected_schema_root = _admission_schema_root(args)
     manifest = _admission_validated(
-        args, args.manifest, "evidence-manifest"
+        args, args.manifest, "evidence-manifest", deadline=deadline
     )
     policy = load_referenced_json(
         repository=args.repository,
         reference=manifest["effective_policy"],
         schema_path=protected_schema_root / "effective-policy.schema.json",
+        deadline=deadline,
     )
     cached = (protected_schema_root, manifest, policy)
     args._admission_manifest_policy_documents = cached
@@ -351,6 +414,7 @@ def _admission_manifest_policy(
 
 def _review_policy(args: argparse.Namespace) -> dict[str, Any]:
     """Read and validate the review policy once through its two declared roots."""
+    _require_review_budget(args, "review policy reconstruction")
     cached = getattr(args, "_review_policy_document", None)
     if isinstance(cached, dict):
         return cached
@@ -780,12 +844,47 @@ def _run_gates(args: argparse.Namespace) -> int:
 
 
 def _prepare_review(args: argparse.Namespace) -> int:
-    policy = _validated(args.policy, args.schema_root, "effective-policy")
-    task = _validated(args.task, args.schema_root, "task-contract")
-    candidate = _validated(args.candidate, args.schema_root, "candidate")
-    qualification = _validated(
-        args.context_qualification, args.schema_root, "context-qualification"
+    command_deadline = _bounded_command_deadline(args, "review preparation")
+    policy = _validated(
+        args.policy,
+        args.schema_root,
+        "effective-policy",
+        deadline=command_deadline,
     )
+    if args.timeout_seconds != policy["reviewer"]["timeout_seconds"]:
+        raise ValueError("preparation timeout does not match protected policy")
+    task = _validated(
+        args.task,
+        args.schema_root,
+        "task-contract",
+        deadline=command_deadline,
+    )
+    candidate = _validated(
+        args.candidate,
+        args.schema_root,
+        "candidate",
+        deadline=command_deadline,
+    )
+    qualification = _validated(
+        args.context_qualification,
+        args.schema_root,
+        "context-qualification",
+        deadline=command_deadline,
+    )
+    reviewer_qualifications = {
+        "conformance": _validated(
+            args.conformance_qualification,
+            args.schema_root,
+            "reviewer-qualification",
+            deadline=command_deadline,
+        ),
+        "rapid_review": _validated(
+            args.rapid_review_qualification,
+            args.schema_root,
+            "reviewer-qualification",
+            deadline=command_deadline,
+        ),
+    }
     policy_sha = sha256_canonical(policy)
     task_sha = sha256_canonical(task)
     if (
@@ -797,18 +896,16 @@ def _prepare_review(args: argparse.Namespace) -> int:
         raise ValueError("context policy and candidate binding mismatch")
     context_policy = policy["context"]
     profile_rank = {"COMPACT": 0, "STANDARD": 1, "DEEP": 2}
-    expected_budget = context_policy[f"{args.profile.lower()}_tokens"]
     if (
         context_policy.get("projection_version") != qualification.get("projection_version")
-        or qualification.get("qualification_id")
-        != context_policy.get("qualification_ids", {}).get(args.profile)
         or profile_rank[args.profile] < profile_rank[context_policy["default_profile"]]
-        or args.token_budget != expected_budget
         or args.model != policy["reviewer"]["model"]
         or args.reasoning_effort != policy["reviewer"]["reasoning_effort"]
     ):
         raise ValueError("context profile, budget, model, or qualification is not protected")
-    adapter = GitCliRepositoryAdapter(args.repository)
+    adapter = GitCliRepositoryAdapter(
+        args.repository, deadline=command_deadline
+    )
     observed_candidate = adapter.identify(
         repository_id=policy["repository_id"],
         mode=candidate["mode"],
@@ -827,8 +924,9 @@ def _prepare_review(args: argparse.Namespace) -> int:
         args.repository,
         affected_closure=affected_closure,
         changed_paths=observed_candidate["changed_paths"],
+        deadline=command_deadline,
     )
-    gate_summary = _document(args.gate_summary)
+    gate_summary = _document(args.gate_summary, deadline=command_deadline)
     if (
         gate_summary.get("repository_id") != policy["repository_id"]
         or gate_summary.get("candidate_id") != observed_candidate["candidate_id"]
@@ -838,12 +936,14 @@ def _prepare_review(args: argparse.Namespace) -> int:
         repository=args.repository,
         reference=gate_summary["gate_manifest"],
         schema_path=args.schema_root / "gate-manifest.schema.json",
+        deadline=command_deadline,
     )
     gate_results = [
         load_referenced_json(
             repository=args.repository,
             reference=item["reference"],
             schema_path=args.schema_root / "gate-result.schema.json",
+            deadline=command_deadline,
         )
         for item in gate_manifest["gate_results"]
     ]
@@ -860,12 +960,15 @@ def _prepare_review(args: argparse.Namespace) -> int:
         ]
     ):
         raise ValueError("gate summary does not reconstruct exactly")
-    mutation_summary = _document(args.mutation_summary)
+    mutation_summary = _document(
+        args.mutation_summary, deadline=command_deadline
+    )
     mutation_records = [
         load_referenced_json(
             repository=args.repository,
             reference=reference,
             schema_path=args.schema_root / "mutant-record.schema.json",
+            deadline=command_deadline,
         )
         for reference in mutation_summary.get("mutant_records", ())
     ]
@@ -887,6 +990,17 @@ def _prepare_review(args: argparse.Namespace) -> int:
         )
     ):
         raise ValueError("mutation summary is incomplete or not exact-candidate PASS")
+    artifacts = build_protected_context_artifacts(
+        gate_references=[
+            item["reference"] for item in gate_manifest["gate_results"]
+        ],
+        gate_results=gate_results,
+        mutation_references=mutation_summary.get("mutant_records", ()),
+        mutation_records=mutation_records,
+    )
+    verify_protected_context_artifacts(
+        args.repository, artifacts, deadline=command_deadline
+    )
     sources = build_protected_context_sources(
         candidate=observed_candidate,
         task=task,
@@ -896,9 +1010,50 @@ def _prepare_review(args: argparse.Namespace) -> int:
         gate_results=gate_results,
         mutation_records=mutation_records,
         created_at=args.observed_at,
+        artifacts=artifacts,
     )
-    if args.sources is not None and _document(args.sources) != sources:
+    if (
+        args.sources is not None
+        and _document(args.sources, deadline=command_deadline) != sources
+    ):
         raise ValueError("caller context sources do not match protected reconstruction")
+    qualification_prompt_bytes = read_bounded_path_file(
+        args.qualification_prompt, deadline=command_deadline
+    )
+    qualification_reviewer_identities = _context_reviewer_identities(
+        prompt_sha256=sha256_bytes(qualification_prompt_bytes),
+        schema_sha256_by_mode={
+            mode: sha256_bytes(
+                read_bounded_path_file(
+                    args.schema_root / schema_name,
+                    deadline=command_deadline,
+                )
+            )
+            for mode, schema_name in (
+                ("conformance", "reviewer-result.schema.json"),
+                ("rapid_review", "rapid-review-session.schema.json"),
+            )
+        },
+        launcher_sha256=reviewer_launcher_sha256(deadline=command_deadline),
+        codex_cli_version=reviewer_qualifications["conformance"][
+            "codex_cli_version"
+        ],
+        authentication=reviewer_qualifications["conformance"][
+            "authentication"
+        ],
+        policy=policy,
+    )
+    if any(
+        reviewer_qualifications[mode].get("qualification_id")
+        != policy["reviewer"]["qualification_ids"][mode]
+        or {
+            field: reviewer_qualifications[mode].get(field)
+            for field in qualification_reviewer_identities[mode]
+        }
+        != qualification_reviewer_identities[mode]
+        for mode in ("conformance", "rapid_review")
+    ):
+        raise ValueError("protected reviewer qualification identity is unavailable")
     compiled = compile_context(
         sources=sources,
         candidate=observed_candidate,
@@ -910,7 +1065,28 @@ def _prepare_review(args: argparse.Namespace) -> int:
         reasoning_effort=args.reasoning_effort,
         context_qualification=qualification,
         protected_qualification_ids=context_policy["qualification_ids"],
+        protected_token_budgets={
+            profile: context_policy[f"{profile.lower()}_tokens"]
+            for profile in profile_rank
+        },
+        minimum_profile=context_policy["default_profile"],
+        qualification_artifact_reader=lambda reference: read_reference(
+            repository=args.qualification_repository,
+            reference=reference,
+            deadline=command_deadline,
+        ),
+        qualification_schema_root=args.schema_root,
+        qualification_repository_id=policy["repository_id"],
+        qualification_verified_decision_ids=frozenset(
+            require_sha256(item, name="verified qualification decision")
+            for item in args.verified_decision_id
+        ),
+        qualification_evaluated_at=args.observed_at,
+        qualification_prompt_bytes=qualification_prompt_bytes,
+        qualification_reviewer_identities=qualification_reviewer_identities,
+        qualification_deadline=command_deadline,
     )
+    _require_review_budget(args, "review preparation publication")
     _write_cli_output(args, "sources_output", compiled["source_bundle"])
     _write_cli_output(args, "projection_output", compiled["projection"])
     _write_cli_output(args, "receipt_output", compiled["receipt"])
@@ -999,12 +1175,9 @@ def _composite_review_candidate_supplier(
 
 
 def _review(args: argparse.Namespace) -> int:
-    review_deadline = getattr(args, "_review_deadline", None)
-    if not isinstance(review_deadline, float):
-        review_deadline = time.monotonic() + args.timeout_seconds
-        args._review_deadline = review_deadline
-    if time.monotonic() >= review_deadline:
-        raise TimeoutError("review deadline expired before input reconstruction")
+    review_deadline = _bounded_command_deadline(
+        args, "review input reconstruction"
+    )
     schema_cache: dict[str, Mapping[str, Any]] = dict(
         getattr(args, "_review_schema_cache", {})
     )
@@ -1042,6 +1215,11 @@ def _review(args: argparse.Namespace) -> int:
         "candidate",
     )
     policy = _review_policy(args)
+    if (
+        args.timeout_seconds != policy["reviewer"]["timeout_seconds"]
+        or args.max_output_bytes != policy["reviewer"]["max_output_bytes"]
+    ):
+        raise ValueError("review limits do not match protected policy")
     permitted_bytes = _read_repository_argument(
         args.repository, args.permitted_inputs, deadline=review_deadline
     )
@@ -1063,6 +1241,37 @@ def _review(args: argparse.Namespace) -> int:
     )
     prompt_sha = sha256_bytes(prompt_bytes)
     schema_sha = sha256_bytes(output_schema_bytes)
+    other_mode = (
+        "rapid_review" if review_mode == "conformance" else "conformance"
+    )
+    other_schema_name = (
+        "rapid-review-session.schema.json"
+        if other_mode == "rapid_review"
+        else "reviewer-result.schema.json"
+    )
+    other_schema_bytes = _read_authority_argument(
+        args.authority_root,
+        args.schema_root / other_schema_name,
+        deadline=review_deadline,
+    )
+    codex_cli_version = observe_codex_cli_version(
+        args.codex, deadline=review_deadline
+    )
+    codex_authentication = observe_codex_authentication(
+        args.codex, deadline=review_deadline
+    )
+    qualification_reviewer_identities = _context_reviewer_identities(
+        prompt_sha256=prompt_sha,
+        schema_sha256_by_mode={
+            review_mode: schema_sha,
+            other_mode: sha256_bytes(other_schema_bytes),
+        },
+        launcher_sha256=reviewer_launcher_sha256(deadline=review_deadline),
+        codex_cli_version=codex_cli_version,
+        authentication=codex_authentication,
+        policy=policy,
+    )
+    identity = qualification_reviewer_identities[review_mode]
     expected_bindings = {
         "repository_id": policy["repository_id"],
         "candidate_id": candidate["candidate_id"],
@@ -1112,21 +1321,142 @@ def _review(args: argparse.Namespace) -> int:
     qualification = evidence_document(
         "reviewer_qualification_path", "reviewer-qualification"
     )
-    codex_cli_version = observe_codex_cli_version(
-        args.codex, deadline=review_deadline
+    declared_artifacts = context_sources.get("sources", {}).get("artifacts")
+    if not isinstance(declared_artifacts, list):
+        raise ValueError("protected context artifact index is unavailable")
+    resolved_artifact_bytes = verify_protected_context_artifacts(
+        args.repository,
+        declared_artifacts,
+        deadline=review_deadline,
     )
-    codex_authentication = observe_codex_authentication(
-        args.codex, deadline=review_deadline
-    )
-    identity = {
-        "prompt_sha256": prompt_sha,
-        "schema_sha256": schema_sha,
-        "launcher_sha256": reviewer_launcher_sha256(deadline=review_deadline),
-        "codex_cli_version": codex_cli_version,
-        "authentication": codex_authentication,
-        "model": args.model,
-        "reasoning_effort": args.reasoning_effort,
+    prepared_evidence.update(resolved_artifact_bytes)
+    artifact_by_reference = {
+        item.get("reference"): item
+        for item in declared_artifacts
+        if isinstance(item, Mapping)
     }
+    if len(artifact_by_reference) != len(declared_artifacts):
+        raise ValueError("protected context artifact index is ambiguous")
+    gate_references = [
+        item["reference"] for item in gate_manifest.get("gate_results", ())
+    ]
+    gate_results = []
+    for reference in gate_references:
+        descriptor = artifact_by_reference.get(reference.get("path"))
+        if (
+            descriptor is None
+            or descriptor.get("sha256") != reference.get("sha256")
+        ):
+            raise ValueError("protected gate result is absent from context")
+        gate_results.append(
+            validated_bytes(
+                resolved_artifact_bytes[reference["path"]], "gate-result"
+            )
+        )
+    mutation_references = [
+        {"path": item["reference"], "sha256": item["sha256"]}
+        for item in declared_artifacts
+        if isinstance(item, Mapping)
+        and isinstance(item.get("summary"), Mapping)
+        and item["summary"].get("kind") == "mutant_record"
+    ]
+    mutation_records = [
+        validated_bytes(
+            resolved_artifact_bytes[reference["path"]], "mutant-record"
+        )
+        for reference in mutation_references
+    ]
+    expected_mutant_ids = {
+        "MUTANT-" + mutant.upper() for mutant in REQUIRED_CURATED_MUTANTS
+    }
+    if (
+        len(mutation_records) != len(expected_mutant_ids)
+        or {record.get("mutant_id") for record in mutation_records}
+        != expected_mutant_ids
+        or any(
+            record.get("repository_id") != policy["repository_id"]
+            or record.get("candidate_id") != candidate["candidate_id"]
+            or record.get("effective_policy_sha256") != policy_sha
+            or record.get("task_contract_sha256")
+            != permitted.get("task_contract_sha256")
+            or record.get("outcome") != "KILLED"
+            for record in mutation_records
+        )
+    ):
+        raise ValueError("protected mutation context is incomplete")
+    reconstructed_artifacts = build_protected_context_artifacts(
+        gate_references=gate_references,
+        gate_results=gate_results,
+        mutation_references=mutation_references,
+        mutation_records=mutation_records,
+    )
+    affected_closure = GitCliRepositoryAdapter(
+        args.repository, deadline=review_deadline
+    ).conservative_affected_closure(
+        candidate=candidate,
+        evidence_root=policy["evidence_root"],
+    )
+    repository_inventory = build_repository_inventory(
+        args.repository,
+        affected_closure=affected_closure,
+        changed_paths=candidate["changed_paths"],
+        deadline=review_deadline,
+    )
+    reconstructed_sources = build_protected_context_sources(
+        candidate=candidate,
+        task=task,
+        policy=policy,
+        repository_inventory=repository_inventory,
+        affected_closure=affected_closure,
+        gate_results=gate_results,
+        mutation_records=mutation_records,
+        created_at=context_sources.get("created_at"),
+        artifacts=reconstructed_artifacts,
+    )
+    context_policy = policy["context"]
+    reconstructed_context = compile_context(
+        sources=reconstructed_sources,
+        candidate=candidate,
+        requested_profile=context_sources.get("requested_profile"),
+        token_budget=context_sources.get("token_budget"),
+        changed_paths=candidate["changed_paths"],
+        affected_closure=affected_closure,
+        model=context_sources.get("model"),
+        reasoning_effort=context_sources.get("reasoning_effort"),
+        context_qualification=context_qualification,
+        protected_qualification_ids=context_policy["qualification_ids"],
+        protected_token_budgets={
+            profile: context_policy[f"{profile.lower()}_tokens"]
+            for profile in ("COMPACT", "STANDARD", "DEEP")
+        },
+        minimum_profile=context_policy["default_profile"],
+        qualification_artifact_reader=lambda reference: read_reference(
+            repository=(
+                args.repository
+                / policy["evidence_root"]
+                / "context-qualification-authority"
+            ),
+            reference=reference,
+            deadline=review_deadline,
+        ),
+        qualification_schema_root=args.authority_root / args.schema_root,
+        qualification_repository_id=policy["repository_id"],
+        qualification_verified_decision_ids=frozenset(
+            require_sha256(item, name="verified qualification decision")
+            for item in args.verified_decision_id
+        ),
+        qualification_evaluated_at=str(context_sources.get("created_at")),
+        qualification_prompt_bytes=prompt_bytes,
+        qualification_reviewer_identities=qualification_reviewer_identities,
+        qualification_deadline=review_deadline,
+    )
+    context_chain_exact = bool(
+        declared_artifacts == reconstructed_artifacts
+        and context_sources == reconstructed_context["source_bundle"]
+        and context_projection == reconstructed_context["projection"]
+        and receipt == reconstructed_context["receipt"]
+        and reconstructed_context["state"] == "CONTEXT_READY"
+    )
     if (
         reviewer_qualification_state(
             identity,
@@ -1142,6 +1472,7 @@ def _review(args: argparse.Namespace) -> int:
         is not DispositionState.READY_FOR_HUMAN
         or permitted.get("reviewer_qualification_id")
         != qualification.get("qualification_id")
+        or not context_chain_exact
         or permitted_policy != policy
         or task.get("repository_id") != policy["repository_id"]
         or task.get("base_commit") != candidate["base_commit"]
@@ -1172,8 +1503,6 @@ def _review(args: argparse.Namespace) -> int:
         or receipt.get("model") != args.model
         or receipt.get("reasoning_effort") != args.reasoning_effort
         or receipt.get("truncation_status") == "CONTEXT_BUDGET_INSUFFICIENT"
-        or args.timeout_seconds != policy["reviewer"]["timeout_seconds"]
-        or args.max_output_bytes != policy["reviewer"]["max_output_bytes"]
         or args.attempt < 1
         or not args.run_id
     ):
@@ -1443,9 +1772,21 @@ def _import_reviewer(args: argparse.Namespace) -> int:
 
 
 def _evaluate(args: argparse.Namespace) -> int:
-    protected_schema_root, manifest, policy = _admission_manifest_policy(args)
-    declared_candidate = _admission_validated(args, args.candidate, "candidate")
-    candidate = GitCliRepositoryAdapter(args.repository).identify(
+    command_deadline = _bounded_command_deadline(args, "admission")
+    protected_schema_root, manifest, policy = _admission_manifest_policy(
+        args, deadline=command_deadline
+    )
+    if args.timeout_seconds != policy["reviewer"]["timeout_seconds"]:
+        raise ValueError("admission timeout does not match protected policy")
+    declared_candidate = _admission_validated(
+        args,
+        args.candidate,
+        "candidate",
+        deadline=command_deadline,
+    )
+    candidate = GitCliRepositoryAdapter(
+        args.repository, deadline=command_deadline
+    ).identify(
         repository_id=manifest["repository_id"],
         mode=declared_candidate["mode"],
         base_commit=declared_candidate["base_commit"],
@@ -1454,7 +1795,7 @@ def _evaluate(args: argparse.Namespace) -> int:
         evidence_root=policy["evidence_root"],
     )
     protected_prompt_bytes = _read_authority_argument(
-        args.authority_root, args.prompt
+        args.authority_root, args.prompt, deadline=command_deadline
     )
     state, reasons = evaluate_manifest(
         repository=args.repository,
@@ -1467,6 +1808,12 @@ def _evaluate(args: argparse.Namespace) -> int:
             require_sha256(item, name="verified_decision_id")
             for item in args.verified_decision_id
         ),
+        qualification_repository=(
+            args.repository
+            / policy["evidence_root"]
+            / "context-qualification-authority"
+        ),
+        deadline=command_deadline,
     )
     disposition = {
         "schema_version": "1.0.0",
@@ -1491,6 +1838,7 @@ def _evaluate(args: argparse.Namespace) -> int:
         "evaluated_at": args.evaluated_at,
         "producer_version": PRODUCER_VERSION,
     }
+    _require_review_budget(args, "admission publication")
     _write_cli_output(args, "output", disposition)
     _emit(disposition)
     return _state_exit(state)
@@ -1606,13 +1954,19 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--gate-summary", type=Path, required=True)
     prepare.add_argument("--mutation-summary", type=Path, required=True)
     prepare.add_argument("--context-qualification", type=Path, required=True)
+    prepare.add_argument("--conformance-qualification", type=Path, required=True)
+    prepare.add_argument("--rapid-review-qualification", type=Path, required=True)
+    prepare.add_argument("--qualification-repository", type=Path, required=True)
+    prepare.add_argument("--qualification-prompt", type=Path, required=True)
     prepare.add_argument("--sources", type=Path)
     prepare.add_argument("--candidate", type=Path, required=True)
     prepare.add_argument("--profile", choices=("COMPACT", "STANDARD", "DEEP"), required=True)
     prepare.add_argument("--token-budget", type=int, required=True)
     prepare.add_argument("--model", required=True)
     prepare.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh"), required=True)
+    prepare.add_argument("--verified-decision-id", action="append", default=[])
     prepare.add_argument("--observed-at", required=True)
+    prepare.add_argument("--timeout-seconds", type=float, default=1800)
     prepare.add_argument("--sources-output", required=True)
     prepare.add_argument("--projection-output", required=True)
     prepare.add_argument("--receipt-output", required=True)
@@ -1659,6 +2013,7 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--attempt", type=int, default=1)
     review.add_argument("--model", required=True)
     review.add_argument("--reasoning-effort", choices=("high", "xhigh"), default="xhigh")
+    review.add_argument("--verified-decision-id", action="append", default=[])
     review.add_argument("--timeout-seconds", type=float, default=1800)
     review.add_argument("--max-output-bytes", type=int, default=1_000_000)
     review.set_defaults(handler=_review)
@@ -1684,6 +2039,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--candidate", type=Path, required=True)
     evaluate.add_argument("--evaluated-at", required=True)
     evaluate.add_argument("--verified-decision-id", action="append", default=[])
+    evaluate.add_argument("--timeout-seconds", type=float, default=1800)
     evaluate.add_argument("--output", required=True)
     evaluate.set_defaults(handler=_evaluate)
 
@@ -1712,10 +2068,17 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one bounded use case with stable fail-closed exit codes."""
     args = _parser().parse_args(argv)
-    if args.command == "review":
-        args._review_deadline = time.monotonic() + args.timeout_seconds
     with authoritative_json_session(), authoritative_reference_session():
         try:
+            if args.command in BOUNDED_COMMANDS:
+                timeout_seconds = getattr(args, "timeout_seconds", None)
+                if (
+                    not isinstance(timeout_seconds, (int, float))
+                    or isinstance(timeout_seconds, bool)
+                    or not 0 < timeout_seconds < float("inf")
+                ):
+                    raise ValueError("bounded command timeout must be finite and positive")
+                args._review_deadline = time.monotonic() + float(timeout_seconds)
             _require_review_budget(args, "pipeline lock selection")
             lock = _pipeline_lock_for(args)
             with lock:
@@ -1750,12 +2113,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _require_review_budget(args: argparse.Namespace, operation: str) -> None:
-    """Fail closed when pre-launch review orchestration exhausts its bound."""
+    """Fail closed when bounded governance orchestration exhausts its limit."""
     deadline = getattr(args, "_review_deadline", None)
-    if args.command == "review" and (
+    if args.command in BOUNDED_COMMANDS and (
         not isinstance(deadline, float) or time.monotonic() >= deadline
     ):
-        raise TimeoutError(f"review deadline expired during {operation}")
+        raise TimeoutError(f"bounded command deadline expired during {operation}")
+
+
+def _require_active_deadline(
+    deadline: float | None, operation: str
+) -> None:
+    if deadline is None:
+        return
+    if (
+        not isinstance(deadline, float)
+        or not 0 < deadline < float("inf")
+        or time.monotonic() >= deadline
+    ):
+        raise TimeoutError(f"bounded command deadline expired during {operation}")
+
+
+def _bounded_command_deadline(
+    args: argparse.Namespace, operation: str
+) -> float:
+    _require_review_budget(args, operation)
+    deadline = getattr(args, "_review_deadline", None)
+    if not isinstance(deadline, float):
+        raise TimeoutError(f"bounded command deadline unavailable during {operation}")
+    return deadline
 
 
 def _pipeline_lock_for(args: argparse.Namespace):
@@ -1780,7 +2166,12 @@ def _pipeline_lock_for(args: argparse.Namespace):
         "hook",
     }
     if args.command in policy_commands:
-        policy = _validated(args.policy, args.schema_root, "effective-policy")
+        policy = _validated(
+            args.policy,
+            args.schema_root,
+            "effective-policy",
+            deadline=getattr(args, "_review_deadline", None),
+        )
         return PipelineLock(
             repository=args.repository,
             evidence_root=policy["evidence_root"],
@@ -1792,7 +2183,7 @@ def _pipeline_lock_for(args: argparse.Namespace):
         )
     if args.command == "evaluate":
         _protected_schema_root, _manifest, policy = _admission_manifest_policy(
-            args
+            args, deadline=getattr(args, "_review_deadline", None)
         )
         return PipelineLock(
             repository=args.repository,

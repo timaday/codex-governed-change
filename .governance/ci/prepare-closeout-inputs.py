@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from bootstrap import validate_initial_bootstrap
+from codex_governance.canonical import normalize_repo_path
+from codex_governance.rst_operations import derive_follow_ups
 from common import (
     content_address,
+    copy_json_once,
     ensure_within,
     load_and_validate_once,
     load_json,
@@ -18,6 +23,11 @@ from common import (
     sha256_bytes,
     verify_decision_source_assertion,
     write_once,
+)
+
+
+RISK_ASSESSMENT_REFERENCE = (
+    "artifacts/governance/completion/evidence/risk-assessment.json"
 )
 
 
@@ -34,6 +44,142 @@ CLAIM_RULES = {
 }
 
 
+def _unique_strings(values: Sequence[Any], label: str) -> list[str]:
+    if isinstance(values, (str, bytes)):
+        raise ValueError(f"{label} must be a sequence")
+    result: list[str] = []
+    observed: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value or value in observed:
+            raise ValueError(f"{label} must contain unique non-empty strings")
+        result.append(value)
+        observed.add(value)
+    return result
+
+
+def _item_ids(
+    values: Sequence[Mapping[str, Any]], field: str, label: str
+) -> list[str]:
+    if isinstance(values, (str, bytes)) or any(
+        not isinstance(value, Mapping) for value in values
+    ):
+        raise ValueError(f"{label} must contain objects")
+    return _unique_strings([value.get(field) for value in values], label)
+
+
+def derive_rst_relationships(
+    *,
+    task: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    sessions: Sequence[Mapping[str, Any]],
+    oracles: Sequence[Mapping[str, Any]],
+    mutation_records: Sequence[Mapping[str, Any]],
+    reviewer_findings: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Derive the exact ordered RST relationships consumed by admission."""
+    if any(
+        isinstance(values, (str, bytes))
+        for values in (sessions, oracles, mutation_records, reviewer_findings)
+    ):
+        raise ValueError("RST relationship inputs must be sequences")
+    requirement_sources = _unique_strings(
+        [
+            normalize_repo_path(source.get("path"))
+            for source in task.get("authoritative_sources", ())
+            if isinstance(source, Mapping) and source.get("kind") == "requirement"
+        ],
+        "requirement sources",
+    )
+    change_sources = _unique_strings(
+        [normalize_repo_path(path) for path in candidate.get("changed_paths", ())],
+        "changed paths",
+    )
+    session_ids = _item_ids(sessions, "session_id", "rapid-review sessions")
+    oracle_ids = _item_ids(oracles, "oracle_id", "oracle references")
+    if len(session_ids) != len(oracle_ids):
+        raise ValueError(
+            "protected closeout requires one uniquely assigned oracle per session"
+        )
+    observations = [
+        experiment
+        for session in sessions
+        for experiment in session.get("experiments", ())
+    ]
+    session_findings = [
+        finding
+        for session in sessions
+        for finding in session.get("findings", ())
+    ]
+    residual_risks = [
+        residual
+        for session in sessions
+        for residual in session.get("residual_risks", ())
+    ]
+    observation_ids = _item_ids(observations, "id", "session observations")
+    session_finding_ids = _item_ids(
+        session_findings, "finding_id", "session findings"
+    )
+    residual_ids = _item_ids(residual_risks, "risk_id", "residual risks")
+    mutant_ids = _item_ids(mutation_records, "mutant_id", "mutation records")
+    reviewer_finding_ids = _item_ids(
+        reviewer_findings, "finding_id", "conformance-review findings"
+    )
+    surviving_mutant_ids = [
+        mutant_id
+        for mutant_id, record in zip(mutant_ids, mutation_records, strict=True)
+        if record.get("outcome") == "SURVIVED"
+    ]
+    risk_updates = [
+        *(f"requirement:{identity}" for identity in requirement_sources),
+        *(f"change:{identity}" for identity in change_sources),
+        *(f"observation:{identity}" for identity in observation_ids),
+        *(f"mutant:{identity}" for identity in surviving_mutant_ids),
+        *(f"reviewer_finding:{identity}" for identity in session_finding_ids),
+        *(f"reviewer_finding:{identity}" for identity in reviewer_finding_ids),
+    ]
+    _unique_strings(risk_updates, "risk-register updates")
+    oracle_source_paths = _unique_strings(
+        [normalize_repo_path(oracle.get("source")) for oracle in oracles],
+        "oracle source paths",
+    )
+    feedback_edges = derive_follow_ups(
+        observations=observations,
+        mutants=mutation_records,
+        reviewer_findings=[*session_findings, *reviewer_findings],
+    )
+    return {
+        "requirement_sources": requirement_sources,
+        "change_sources": change_sources,
+        "session_ids": session_ids,
+        "observations": observations,
+        "session_findings": session_findings,
+        "residual_risks": residual_risks,
+        "residual_ids": residual_ids,
+        "risk_updates": risk_updates,
+        "coverage_oracle_refs": [[oracle_id] for oracle_id in oracle_ids],
+        "feedback_edges": feedback_edges,
+        "oracle_source_paths": oracle_source_paths,
+        "source_paths": [RISK_ASSESSMENT_REFERENCE, *oracle_source_paths],
+    }
+
+
+def load_mutation_records(
+    repository: Path, evidence: Path, mutation: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    references = mutation.get("mutant_records", ())
+    if not isinstance(references, Sequence) or isinstance(references, (str, bytes)):
+        raise ValueError("mutation record references must be a sequence")
+    for reference in references:
+        if not isinstance(reference, Mapping):
+            raise ValueError("mutation record reference must be an object")
+        path = require_json_within(repository, evidence, reference.get("path"))
+        if sha256_bytes(read_bytes_once(path)) != reference.get("sha256"):
+            raise ValueError("mutation record reference does not reconstruct")
+        records.append(load_json(path))
+    return records
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate", type=Path, required=True)
@@ -44,14 +190,20 @@ def main() -> None:
     repository = args.candidate.resolve()
     evidence = ensure_within(repository, args.evidence)
     authority_root = Path(__file__).resolve().parents[2]
+    authority_manifest_path = evidence / "authority-manifest.json"
+    copy_json_once(authority_root / "MANIFEST.json", authority_manifest_path)
+    authority_state_path = evidence / "authority-state.json"
+    authority_state = load_json(authority_state_path)
     schema_root = authority_root / "kernel" / "schemas"
     candidate = load_json(evidence / "candidate.json")
+    task = load_json(evidence / "task-contract.json")
     task_sha = sha256_bytes(read_bytes_once(evidence / "task-contract.json"))
     policy_sha = sha256_bytes(read_bytes_once(evidence / "effective-policy.json"))
     policy = load_json(evidence / "effective-policy.json")
     risk = load_json(evidence / "risk-assessment.json")
     gate_summary = load_json(evidence / "gate-summary.json")
     mutation = load_json(evidence / "mutation-summary.json")
+    mutation_records = load_mutation_records(repository, evidence, mutation)
     reviewer = load_json(evidence / "reviewer-result.json")
     qualifications = [
         load_json(evidence / "reviewer-qualification.json"),
@@ -201,12 +353,14 @@ def main() -> None:
         rollback_capability_sha256=rollback_capability_sha,
         rollback_provenance=rollback_provenance,
         rollback_provenance_sha256=rollback_provenance_sha,
+        authority_state=authority_state,
+        authority_state_sha256=sha256_bytes(read_bytes_once(authority_state_path)),
+        authority_manifest_sha256=sha256_bytes(
+            read_bytes_once(authority_manifest_path)
+        ),
         observation=observation,
         decisions=[bootstrap_decision, *decisions],
-        verified_decision_ids={
-            bootstrap_decision["decision_id"],
-            *(item["decision_id"] for item in decisions),
-        },
+        verified_decision_ids=authenticated_ids,
         evaluated_at=datetime.fromisoformat(args.created_at.replace("Z", "+00:00")),
     )
     write_once(evidence / "promotion-verification.json", promotion_verification)
@@ -248,20 +402,28 @@ def main() -> None:
         write_once(path, document)
         oracles.append(document)
 
+    relationships = derive_rst_relationships(
+        task=task,
+        candidate=candidate,
+        sessions=sessions,
+        oracles=oracles,
+        mutation_records=mutation_records,
+        reviewer_findings=reviewer.get("findings", ()),
+    )
     coverage_documents = []
     evidence_refs = []
-    all_findings = []
-    all_residuals = []
     follow_ups = []
-    for session in sessions:
+    for session, oracle_refs in zip(
+        sessions, relationships["coverage_oracle_refs"], strict=True
+    ):
         session_evidence = [
             ref
             for experiment in session.get("experiments", [])
             for ref in experiment.get("evidence_refs", [])
         ]
         evidence_refs.extend(session_evidence)
-        all_findings.extend(session.get("findings", []))
-        all_residuals.extend(session.get("residual_risks", []))
+        if session.get("follow_up_charters") or session.get("new_risks"):
+            raise ValueError("rapid review requested unresolved follow-up work")
         coverage = {
             "schema_version": "1.0.0",
             "repository_id": candidate["repository_id"],
@@ -270,7 +432,7 @@ def main() -> None:
             "session_id": session["session_id"],
             "covered": session["coverage_achieved"],
             "omitted": session["omitted_areas"],
-            "oracle_refs": [item["oracle_id"] for item in oracles],
+            "oracle_refs": oracle_refs,
             "limitations": session["obstacles"],
             "created_at": args.created_at,
         }
@@ -280,39 +442,40 @@ def main() -> None:
             coverage,
         )
         coverage_documents.append(coverage)
-        for index, description in enumerate(
-            [*session.get("follow_up_charters", []), *session.get("new_risks", [])],
-            start=1,
-        ):
-            follow_up = {
-                "schema_version": "1.0.0",
-                "repository_id": candidate["repository_id"],
-                "task_contract_sha256": task_sha,
-                "candidate_id": candidate["candidate_id"],
-                "kind": "charter",
-                "source_kind": "observation",
-                "source_id": session["session_id"],
-                "description": description,
-                "priority": "high",
-                "required": True,
-                "status": "unknown",
-                "created_at": args.created_at,
-            }
-            follow_up = content_address(follow_up, "follow_up_id")
-            write_once(
-                evidence / "follow-ups" / f"{session['session_id'].lower()}-{index}.json",
-                follow_up,
-            )
-            follow_ups.append(follow_up)
-    if follow_ups:
-        raise ValueError("rapid review requested unresolved follow-up work")
+    for index, edge in enumerate(relationships["feedback_edges"], start=1):
+        required = edge["required"] is True
+        follow_up = {
+            "schema_version": "1.0.0",
+            "repository_id": candidate["repository_id"],
+            "task_contract_sha256": task_sha,
+            "candidate_id": candidate["candidate_id"],
+            "kind": "risk",
+            "source_kind": edge["source_kind"],
+            "source_id": edge["source_id"],
+            "description": (
+                f"Resolve protected {edge['source_kind']} {edge['source_id']} "
+                "before later governed work."
+            ),
+            "priority": "high" if required else "medium",
+            "required": required,
+            "status": "unknown" if required else "deferred",
+            "created_at": args.created_at,
+        }
+        follow_up = content_address(follow_up, "follow_up_id")
+        write_once(
+            evidence / "follow-ups" / f"rst-feedback-{index:03d}.json",
+            follow_up,
+        )
+        follow_ups.append(follow_up)
     if not evidence_refs:
         raise ValueError("rapid review contains no direct evidence references")
 
-    residual_descriptions = [item["description"] for item in all_residuals]
-    if not residual_descriptions:
+    all_findings = relationships["session_findings"]
+    all_residuals = relationships["residual_risks"]
+    residual_ids = relationships["residual_ids"]
+    if not residual_ids:
         raise ValueError("rapid review must state residual risk")
-    session_ids = [item["session_id"] for item in sessions]
+    session_ids = relationships["session_ids"]
     unique_evidence = sorted(set(evidence_refs))
     debrief = {
         "schema_version": "1.0.0",
@@ -337,7 +500,7 @@ def main() -> None:
             "limitations": ["Same-model correlated blind spots remain possible and visible as residual risk."],
         },
         "actionable_findings": [item["finding_id"] for item in all_findings],
-        "residual_risks": residual_descriptions,
+        "residual_risks": residual_ids,
         "created_at": args.created_at,
         "producer_version": "0.1.0-authority-bootstrap",
         "provenance": {
@@ -428,7 +591,7 @@ def main() -> None:
                 "impact": "critical" if index <= 4 else "high",
                 "status": "investigating",
                 "source_refs": [
-                    "artifacts/governance/completion/evidence/risk-assessment.json"
+                    RISK_ASSESSMENT_REFERENCE
                 ],
                 "charter_refs": [session["charter_id"] for session in sessions],
             }
@@ -439,7 +602,7 @@ def main() -> None:
         "task_contract_sha256": task_sha,
         "candidate_id": candidate["candidate_id"],
         "risks": register_risks,
-        "updated_from": session_ids,
+        "updated_from": relationships["risk_updates"],
         "created_at": args.created_at,
         "producer_version": "0.1.0-authority-bootstrap",
     }
@@ -475,7 +638,10 @@ def main() -> None:
         "context_complete": locator("context-complete", evidence / "context-execution-receipt.json"),
     }
     for name, path in (
+        ("authority-manifest", authority_manifest_path),
+        ("authority-state", authority_state_path),
         ("rollback-plan", rollback_plan_path),
+        ("rollback-task", rollback_task_path),
         ("proposed-policy", proposed_path),
         ("rollback-evidence", rollback_path),
         ("rollback-candidate", rollback_candidate_path),
@@ -484,6 +650,15 @@ def main() -> None:
         ("rollback-provenance", rollback_provenance_path),
     ):
         locator(name, path)
+    locator("risk-assessment-source", evidence / "risk-assessment.json")
+    for index, source_path in enumerate(
+        relationships["oracle_source_paths"], start=1
+    ):
+        locator(
+            f"oracle-source-{index:03d}",
+            ensure_within(repository, repository / source_path),
+            "text/markdown",
+        )
     locator("rollback-stdout", rollback_root / "stdout.bin", "application/octet-stream")
     locator("rollback-stderr", rollback_root / "stderr.bin", "application/octet-stream")
     claims = []

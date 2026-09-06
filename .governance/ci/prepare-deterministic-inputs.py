@@ -17,6 +17,7 @@ from common import (
     copy_bytes_once,
     copy_json_once,
     ensure_within,
+    load_and_validate_once,
     load_json,
     read_bytes_once,
     require_digest,
@@ -26,6 +27,10 @@ from common import (
     write_once,
 )
 from qualification_verifier import validate_qualification_bundle
+from codex_governance.qualification import (
+    REVIEWER_IDENTITY_FIELDS,
+    context_qualification_evidence_valid,
+)
 
 
 ACTOR_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -74,6 +79,28 @@ def git(repository: Path, *arguments: str) -> str:
         text=True,
     )
     return completed.stdout.strip()
+
+
+def exact_case_references(case_evidence: Mapping[str, Any]) -> dict[str, str]:
+    """Return the exact direct artifact references in a qualification case set."""
+    result: dict[str, str] = {}
+    observations = case_evidence.get("observations")
+    if not isinstance(observations, list) or not observations:
+        raise ValueError("qualification case observations are unavailable")
+    for observation in observations:
+        if not isinstance(observation, Mapping):
+            raise ValueError("qualification observation is malformed")
+        for value in observation.values():
+            if not isinstance(value, Mapping) or set(value) != {"path", "sha256"}:
+                continue
+            path = value.get("path")
+            digest = require_digest(value.get("sha256"), "qualification artifact")
+            if not isinstance(path, str) or not path.startswith("qualification/"):
+                raise ValueError("qualification artifact path is not canonical")
+            prior = result.setdefault(path, digest)
+            if prior != digest:
+                raise ValueError("qualification artifact has conflicting digests")
+    return result
 
 
 def _verify_decision_commit(
@@ -154,6 +181,7 @@ def main() -> None:
     parser.add_argument("--authority-ref", required=True)
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--approved-decision-ids", required=True)
+    parser.add_argument("--authority-observation", type=Path, required=True)
     args = parser.parse_args()
 
     authority = args.authority.resolve()
@@ -238,21 +266,25 @@ def main() -> None:
         "DEEP",
     }:
         raise ValueError("protected context qualification registry is incomplete")
+    context_records: dict[str, dict[str, Any]] = {}
     for profile, expected_id in context_ids.items():
         context_source = authority / ".governance/context-qualifications" / (
             profile + ".json"
         )
-        context_qualification = load_json(context_source)
+        context_qualification = load_and_validate_once(
+            context_source,
+            authority / "kernel/schemas/context-qualification.schema.json",
+        )
         if (
             context_qualification.get("profile") != profile
             or context_qualification.get("qualification_id") != expected_id
             or content_address(context_qualification, "qualification_id")
             != context_qualification
+            or context_qualification.get("evidence_class") != "empirical"
             or context_qualification.get("qualified") is not True
         ):
             raise ValueError("protected context qualification is invalid")
-        if profile == "DEEP":
-            copy_json_once(context_source, output / "context-qualification.json")
+        context_records[profile] = context_qualification
 
     qualification = release / "qualification"
     label_decision = load_json(qualification / "human-label-decision.json")
@@ -405,6 +437,101 @@ def main() -> None:
         policy_path=policy_path,
         authenticated_label_decision_id=authenticated_label_decision_id,
         artifact_root=qualification / "raw",
+        expected_timeout_seconds=policy["reviewer"]["timeout_seconds"],
+        expected_max_output_bytes=policy["reviewer"]["max_output_bytes"],
+    )
+    protected_qualification_records = {
+        "conformance": load_json(qualification / "conformance.json"),
+        "rapid_review": load_json(qualification / "rapid-review.json"),
+    }
+    expected_reviewer_identities = {
+        mode: {
+            field: record.get(field)
+            for field in REVIEWER_IDENTITY_FIELDS
+        }
+        for mode, record in protected_qualification_records.items()
+    }
+    context_reference_digests: dict[str, str] = {}
+
+    def retain_context_reference(reference: Mapping[str, Any]) -> bytes:
+        path = reference.get("path")
+        digest = require_digest(reference.get("sha256"), "context qualification artifact")
+        if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
+            raise ValueError("context qualification reference is unsafe")
+        prior = context_reference_digests.setdefault(path, digest)
+        if prior != digest:
+            raise ValueError("context qualification reference conflicts")
+        data = read_bytes_once(authority / path)
+        if sha256_bytes(data) != digest:
+            raise ValueError("context qualification reference digest mismatch")
+        return data
+
+    for record in context_records.values():
+        measurement = record.get("measurement_evidence")
+        if not isinstance(measurement, Mapping):
+            raise ValueError("context qualification measurement package is absent")
+        retain_context_reference(measurement["corpus"])
+        retain_context_reference(measurement["label_decision"])
+        for role in ("baseline", "candidate"):
+            profile_evidence = measurement.get(role)
+            if not isinstance(profile_evidence, Mapping):
+                raise ValueError("context qualification profile evidence is absent")
+            profile = profile_evidence.get("profile")
+            for mode in ("conformance", "rapid_review"):
+                mode_evidence = profile_evidence.get(mode)
+                if not isinstance(mode_evidence, Mapping):
+                    raise ValueError("context qualification mode evidence is absent")
+                retain_context_reference(mode_evidence["record"])
+                cases_bytes = retain_context_reference(mode_evidence["cases"])
+                cases = json.loads(cases_bytes)
+                parent = str(mode_evidence["cases"]["path"]).rsplit("/", 1)[0]
+                for raw_path, digest in exact_case_references(cases).items():
+                    prefix = f"qualification/{profile}/"
+                    if not raw_path.startswith(prefix):
+                        raise ValueError("context qualification raw profile differs")
+                    retain_context_reference(
+                        {
+                            "path": f"{parent}/raw/{profile}/{raw_path[len(prefix):]}",
+                            "sha256": digest,
+                        }
+                    )
+        if not context_qualification_evidence_valid(
+            record=record,
+            artifact_reader=retain_context_reference,
+            schema_root=authority / "kernel/schemas",
+            protected_repository_id=target["repository_id"],
+            verified_decision_ids=frozenset({authenticated_label_decision_id}),
+            evaluated_at=record["created_at"],
+            prompt_bytes=read_bytes_once(
+                authority / "kernel/.codex/review/reviewer.prompt.md"
+            ),
+            expected_reviewer_identities=expected_reviewer_identities,
+        ):
+            raise ValueError("protected context qualification does not reconstruct")
+    context_evidence_root = qualification / "evidence" / "context-variants"
+    observed_context_files = {
+        path.relative_to(authority).as_posix()
+        for path in context_evidence_root.rglob("*")
+        if path.is_file()
+    }
+    expected_context_files = {
+        path for path in context_reference_digests if "/context-variants/" in path
+    }
+    if (
+        observed_context_files != expected_context_files
+        or any(path.is_symlink() for path in context_evidence_root.rglob("*"))
+    ):
+        raise ValueError("context qualification package inventory is not exact")
+    qualification_authority = output / "context-qualification-authority"
+    for path in sorted(context_reference_digests):
+        copy_bytes_once(
+            authority / path,
+            qualification_authority / path,
+            max_bytes=8_000_000,
+        )
+    copy_json_once(
+        authority / ".governance/context-qualifications/DEEP.json",
+        output / "context-qualification.json",
     )
     copy_json_once(
         qualification / "conformance.json", output / "reviewer-qualification.json"
@@ -427,7 +554,18 @@ def main() -> None:
     )
     raw_root = qualification / "raw"
     raw_files = sorted(path for path in raw_root.rglob("*") if path.is_file())
-    if len(raw_files) != 64 or any(path.is_symlink() for path in raw_root.rglob("*")):
+    expected_raw = {}
+    for cases_name in ("conformance-cases.json", "rapid-review-cases.json"):
+        expected_raw.update(exact_case_references(load_json(qualification / cases_name)))
+    observed_raw = {
+        "qualification/" + path.relative_to(raw_root).as_posix(): sha256_bytes(
+            read_bytes_once(path)
+        )
+        for path in raw_files
+    }
+    if expected_raw != observed_raw or any(
+        path.is_symlink() for path in raw_root.rglob("*")
+    ):
         raise ValueError("protected qualification raw artifact inventory is incomplete")
     for source in raw_files:
         relative = source.relative_to(raw_root)
@@ -452,6 +590,36 @@ def main() -> None:
             else None
         ),
     }
+    authority_observation = load_json(args.authority_observation)
+    if (
+        set(authority_observation)
+        != {
+            "schema_version",
+            "repository",
+            "ref",
+            "commit",
+            "manifest_commit",
+            "manifest_sha256",
+            "visibility",
+            "ruleset",
+            "observed_at",
+        }
+        or authority_observation.get("schema_version") != "1.0.0"
+        or authority_observation.get("repository") != authority_repository
+        or authority_observation.get("ref") != args.authority_ref
+        or authority_observation.get("commit") != authority_head
+        or authority_observation.get("manifest_commit") != authority_head
+        or authority_observation.get("manifest_sha256")
+        != sha256_bytes(read_bytes_once(authority / "MANIFEST.json"))
+        or authority_observation.get("visibility") != "public"
+    ):
+        raise ValueError("live authority observation does not match protected inputs")
+    authority_state = {
+        **authority_observation,
+        "source_assertion": source_assertion,
+        "source_assertion_sha256": sha256_bytes(canonical_bytes(source_assertion)),
+    }
+    write_once(output / "authority-state.json", authority_state)
 
     if (
         args.event_name == "workflow_dispatch"

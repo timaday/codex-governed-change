@@ -23,7 +23,59 @@ The curated mutation corpus is copied into the protected release directory and
 the policy binds its exact raw bytes; the candidate-local corpus is never the
 mutation authority. Protected context-qualification records are stored under
 `.governance/context-qualifications/` and bind every profile/version identity.
-For v0.1.0 they establish quality parity without claiming token savings.
+The bootstrap-basis records are explicit `synthetic_bootstrap` placeholders and
+do not establish quality parity, token savings, or production authorization.
+They must be replaced by protected empirical qualification for each profile
+before admission can reconstruct readiness.
+
+Every protected qualification case creates a minimal outer Git repository as
+the Codex trust boundary before launch. The case candidate remains a nested,
+read-only evidence tree and never supplies repository configuration. Retained
+reviewer `latency_ms` is the non-negative millisecond floor of its exact RFC3339
+end-minus-start interval; the monotonic clock is used only for deadlines and
+cleanup bounds. A reversed wall-clock interval makes execution observation
+incomplete and therefore cannot support qualification or readiness.
+Protected reviewer timeout and maximum output bytes are also part of each
+qualification identity. Qualification reconstruction independently derives
+every retained execution interval, rejects reversed or over-timeout evidence,
+checks observed stream/output sizes against the protected limit, and requires
+the execution, post-run context and aggregate latency values to agree exactly.
+Every nested context baseline and candidate record must also match the reviewer
+identity derived outside its own package: from the live runtime and protected
+prompt, mode schemas, launcher and policy during qualification production and
+review, and from the separately protected reviewer qualifications during
+credential-free preparation and admission.
+
+T24's paired comparison is a separate, non-authorizing measurement lane. It
+uses a protected human-labelled held-out corpus and runs governed and ordinary
+Codex arms over the same case bytes with the same ChatGPT-authenticated model
+and reasoning effort. Labels are never included in either model prompt. Each
+arm is ephemeral, read-only and stripped of machine/user configuration, hooks
+and child agents; the ordinary arm differs by receiving only the bounded review
+request and candidate, without the governed context, qualification identity or
+admission machinery. The governed arm uses the protected `STANDARD` context
+profile. Every schema supplied directly to either model uses the supported
+strict structured-output subset: object properties are closed and required,
+and each property declares an explicit type, reference, or union. One sorted
+key-only sanitized environment identity is derived through the protected
+reviewer allowlist and must exactly match every execution in both arms;
+environment values are never retained. Each arm retains reconstructable
+per-case disposition, exact expected-finding matching, accepted defects, correct
+completions, false blocks, `UNKNOWN` outcomes, input/cached/output/reasoning
+tokens and elapsed time. The exact integer-microsecond RFC3339 interval may not
+exceed the protected execution deadline; elapsed milliseconds are floored only
+after that comparison, and reported latency and task/aggregate values must equal
+the resulting derivation.
+Total tokens
+mean input plus output; reasoning tokens remain a reported subset of output and
+are not added a second time. Retained model
+streams are normalized before publication so runner paths, environment values,
+hostnames and credentials cannot enter this public repository; an ambiguous
+redaction makes that case `UNKNOWN`. Human review and operation minutes are
+supplied later in a separate human record. No comparison result, including a
+favourable one, is an admission, policy-promotion, approval or release input.
+The comparison measures bounded defect triage, not end-to-end code authoring or
+deployment throughput.
 
 The target registry separately binds the kernel source commit, the one-time
 initial-LKG transition, exact bootstrap and proposed policy digests, exact task
@@ -51,7 +103,10 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
    request, thread resolution, stale-review dismissal, required linear history,
    and no bypass, but it does not make a false second-human claim or deadlock
    the repository. Authority pull requests must use squash or rebase merge;
-   ordinary two-parent merge commits are invalid transition ancestry. An
+   ordinary two-parent merge commits are invalid transition ancestry. The live
+   GitHub observation must exactly retain squash/rebase as the allowed merge
+   methods, required extra approval for unattributed changes and an empty
+   required-reviewer list; any response-shape drift blocks. An
    account with another eligible reviewer uses
    `rulesets/authority-ref-reviewed.ruleset.json`, which also requires one
    eligible approval from someone other than the last pusher. It deliberately
@@ -86,13 +141,25 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
    the private caller context; saved ChatGPT-managed Codex authentication never
    enters the public target.
 9. The protected human-label decision records the owner's approval of all eight
-   labels. Manually run `Qualify protected Codex reviewer broker` from the
-   private broker on that clean JIT runner; it executes the exact conformance
+   reviewer-qualification labels. Before execution, separately record the
+   owner's explicit approval of every held-out paired-comparison label in the
+   protected comparison corpus and its content-addressed label decision; that
+   corpus and decision are measurement inputs only. Manually run `Qualify
+   protected Codex reviewer broker` from the private broker on that clean JIT
+   runner; it executes the exact conformance
    and rapid-review prompt/schema/model/launcher/CLI identities against every
-   approved seeded case. Replace both blocking draft records and both
-   content-addressed per-case documents with the measured results, update the
-   protected policy with their exact IDs and corpus digest, and commit those
-   qualification files as the authority basis. The qualified identity includes
+   approved seeded case, then repeats the corpus for COMPACT, STANDARD, and
+   DEEP context variants. The identity pass supplies the reviewer-identity
+   records; every profile is independently compared with DEEP and any assurance
+   regression blocks regardless of token use. The same run also emits the
+   non-authorizing governed-versus-ordinary comparison artifact; retain it
+   separately and add the owner's post-run human-effort record without feeding
+   either artifact into admission or policy promotion. Replace both blocking draft
+   reviewer records, both content-addressed identity-pass per-case
+   documents, their 64 raw reconstruction artifacts, and all three synthetic
+   context placeholders with the measured results. Update the protected policy
+   with their exact IDs and corpus digest, then commit those qualification files
+   as the authority basis. The qualified identity includes
    the exact `chatgpt` authentication mode as well as the prompt, schema, model,
    reasoning, launcher, and CLI identities. Then add human decisions in one
    child commit containing only decision files plus `MANIFEST.json`; bootstrap
@@ -195,6 +262,20 @@ jobs only through immutable artifact IDs emitted by the protected upload steps.
   also reloads the target and verifies that target
   `refs/heads/main` still resolves to the evaluated commit. A stale authority or
   target ref cannot publish success.
+- Initial-bootstrap evidence retains the authenticated dispatch assertion, a
+  live GitHub observation of the exact public authority ref and its sole active
+  no-bypass pull-request/linear-history ruleset, and the exact `MANIFEST.json`
+  bytes proven to exist at that authority commit. The closeout and admission
+  kernels reconstruct all three together; a copied manifest, stale ref,
+  different commit, weakened ruleset, or limited rollback layer blocks.
+- Protected closeout preserves the RST graph consumed by admission. Risk
+  updates contain, in order, the protected requirement sources, exact changed
+  paths, session observations, surviving mutants, session findings, and
+  conformance-review findings. Every rapid-review session has one coverage
+  note and every oracle is assigned exactly once across those notes; debrief
+  residuals use risk IDs. Evidence locators include the risk assessment and
+  every oracle source. A missing, duplicated, reordered, or dangling
+  relationship is `UNKNOWN`.
 - Each candidate job verifies the actual clean checkout `HEAD` before use and
   again after candidate-executing or reviewer steps. Pre-use checks reject every
   tracked, ordinary-untracked, or ignored-untracked change. Post-execution checks

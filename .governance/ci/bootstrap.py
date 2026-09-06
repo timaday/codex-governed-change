@@ -100,7 +100,7 @@ def _raw_artifact(
     *,
     expected_path: str,
     max_bytes: int,
-) -> tuple[str, int]:
+) -> tuple[str, bytes]:
     if item.get("path") != expected_path or item.get("truncated") is not False:
         raise ValueError("rollback raw artifact path or truncation is invalid")
     path = ensure_within(repository, repository / expected_path)
@@ -111,7 +111,7 @@ def _raw_artifact(
     digest = sha256_bytes(data)
     if item.get("sha256") != digest:
         raise ValueError("rollback raw artifact digest mismatch")
-    return digest, len(data)
+    return digest, data
 
 
 def validate_initial_bootstrap(
@@ -137,6 +137,9 @@ def validate_initial_bootstrap(
     rollback_capability_sha256: str,
     rollback_provenance: Mapping[str, Any],
     rollback_provenance_sha256: str,
+    authority_state: Mapping[str, Any],
+    authority_state_sha256: str,
+    authority_manifest_sha256: str,
     observation: Mapping[str, Any],
     decisions: Sequence[Mapping[str, Any]],
     verified_decision_ids: Set[str],
@@ -157,7 +160,7 @@ def validate_initial_bootstrap(
     if (
         repository_id != "repo:timaday/codex-governed-change"
         or base_commit != "5393338571f8ed5de5192613dcdd6131044932dc"
-        or head_commit != "fbe4594a46c2f7c86787dde9950661f3a9df85c7"
+        or head_commit != "adcb3e33dd30c2f4627a24e58370e2cf2682ae94"
         or lkg_commit != "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58"
     ):
         raise ValueError("initial-LKG bootstrap is bound only to release v0.1.0")
@@ -172,8 +175,109 @@ def validate_initial_bootstrap(
     authority_basis_commit = require_sha(
         observation.get("authority_basis_commit"), "authority_basis_commit"
     )
+    authority_manifest = Path(__file__).resolve().parents[2] / "MANIFEST.json"
     if authority_basis_commit == authority_commit:
         raise ValueError("authority decision commit cannot be its own bootstrap basis")
+    source_assertion = authority_state.get("source_assertion")
+    ruleset = authority_state.get("ruleset")
+    rules = ruleset.get("rules") if isinstance(ruleset, Mapping) else None
+    rules_by_type = (
+        {item.get("type"): item for item in rules if isinstance(item, Mapping)}
+        if isinstance(rules, Sequence) and not isinstance(rules, (str, bytes))
+        else {}
+    )
+    pull_request = rules_by_type.get("pull_request")
+    parameters = (
+        pull_request.get("parameters")
+        if isinstance(pull_request, Mapping)
+        else None
+    )
+    approval_count = (
+        parameters.get("required_approving_review_count")
+        if isinstance(parameters, Mapping)
+        else None
+    )
+    if (
+        set(authority_state)
+        != {
+            "schema_version",
+            "repository",
+            "ref",
+            "commit",
+            "manifest_commit",
+            "manifest_sha256",
+            "visibility",
+            "source_assertion",
+            "source_assertion_sha256",
+            "ruleset",
+            "observed_at",
+        }
+        or authority_state.get("schema_version") != "1.0.0"
+        or not isinstance(source_assertion, Mapping)
+        or authority_state.get("repository")
+        != source_assertion.get("authority_repository")
+        or authority_state.get("ref") != "refs/heads/governance-authority"
+        or authority_state.get("ref") != source_assertion.get("authority_ref")
+        or authority_state.get("commit") != authority_commit
+        or authority_state.get("manifest_commit") != authority_commit
+        or authority_state.get("manifest_sha256") != authority_manifest_sha256
+        or authority_state.get("visibility") != "public"
+        or authority_manifest_sha256
+        != sha256_bytes(read_bytes_once(authority_manifest))
+        or authority_state_sha256 != sha256_canonical(authority_state)
+        or dict(source_assertion) != observation.get("decision_source_assertion")
+        or authority_state.get("source_assertion_sha256")
+        != sha256_canonical(source_assertion)
+        or source_assertion.get("event_name") != "workflow_dispatch"
+        or source_assertion.get("authority_commit") != authority_commit
+        or source_assertion.get("authority_basis_commit") != authority_basis_commit
+        or source_assertion.get("authorization_receipt_id") is not None
+        or not isinstance(ruleset, Mapping)
+        or set(ruleset)
+        != {"id", "target", "enforcement", "bypass_actors", "conditions", "rules"}
+        or not isinstance(ruleset.get("id"), int)
+        or isinstance(ruleset.get("id"), bool)
+        or ruleset.get("id") < 1
+        or ruleset.get("target") != "branch"
+        or ruleset.get("enforcement") != "active"
+        or ruleset.get("bypass_actors") != []
+        or ruleset.get("conditions")
+        != {"ref_name": {"include": [authority_state["ref"]], "exclude": []}}
+        or not isinstance(rules, Sequence)
+        or isinstance(rules, (str, bytes))
+        or len(rules) != 4
+        or len(rules_by_type) != len(rules)
+        or set(rules_by_type)
+        != {"deletion", "non_fast_forward", "required_linear_history", "pull_request"}
+        or any(
+            rules_by_type[kind] != {"type": kind}
+            for kind in ("deletion", "non_fast_forward", "required_linear_history")
+        )
+        or not isinstance(pull_request, Mapping)
+        or set(pull_request) != {"type", "parameters"}
+        or not isinstance(parameters, Mapping)
+        or set(parameters)
+        != {
+            "allowed_merge_methods",
+            "dismiss_stale_reviews_on_push",
+            "require_code_owner_review",
+            "require_extra_approval_for_unattributed_changes",
+            "require_last_push_approval",
+            "required_approving_review_count",
+            "required_review_thread_resolution",
+            "required_reviewers",
+        }
+        or parameters.get("allowed_merge_methods") != ["squash", "rebase"]
+        or parameters.get("dismiss_stale_reviews_on_push") is not True
+        or parameters.get("require_code_owner_review") is not False
+        or parameters.get("require_extra_approval_for_unattributed_changes")
+        is not True
+        or parameters.get("required_reviewers") != []
+        or parameters.get("required_review_thread_resolution") is not True
+        or approval_count not in {0, 1}
+        or parameters.get("require_last_push_approval") != (approval_count == 1)
+    ):
+        raise ValueError("live protected authority state does not reconstruct")
     transition = observation.get("governance_transition")
     expected_transition = {
         "mode": "initial_lkg_bootstrap",
@@ -267,8 +371,7 @@ def validate_initial_bootstrap(
         or not isinstance(plan.get("max_age_seconds"), int)
         or isinstance(plan.get("max_age_seconds"), bool)
         or int(plan["max_age_seconds"]) < 1
-        or not isinstance(plan.get("limitations"), list)
-        or not plan.get("limitations")
+        or plan.get("limitations") != []
     ):
         raise ValueError("protected rollback plan does not reconstruct")
     if (
@@ -345,20 +448,33 @@ def validate_initial_bootstrap(
     }
     if set(artifacts_by_stream) != {"stdout", "stderr"}:
         raise ValueError("rollback gate raw streams are missing or duplicated")
-    stdout_sha, _ = _raw_artifact(
+    stdout_sha, stdout = _raw_artifact(
         repository,
         evidence,
         artifacts_by_stream["stdout"],
         expected_path=str(raw_paths["stdout"]),
         max_bytes=max_output,
     )
-    stderr_sha, _ = _raw_artifact(
+    stderr_sha, stderr = _raw_artifact(
         repository,
         evidence,
         artifacts_by_stream["stderr"],
         expected_path=str(raw_paths["stderr"]),
         max_bytes=max_output,
     )
+    expected_stdout = f"ROLLBACK_REHEARSAL=PASS target={lkg_commit}\n".encode(
+        "ascii"
+    )
+    command = gate_definition.get("command")
+    if (
+        not isinstance(command, Sequence)
+        or isinstance(command, (str, bytes))
+        or not command
+        or command[-1] != lkg_commit
+        or stdout != expected_stdout
+        or stderr != b""
+    ):
+        raise ValueError("rollback target receipt does not reconstruct")
 
     if validate_sandbox_capability(rollback_capability):
         raise ValueError("rollback sandbox capability is invalid")
@@ -377,8 +493,7 @@ def validate_initial_bootstrap(
         or rollback_capability.get("timeout_seconds")
         != gate_definition.get("timeout_seconds")
         or rollback_capability.get("output_bytes") != max_output
-        or rollback_capability.get("limitations")
-        != ["unsigned local capability report"]
+        or rollback_capability.get("limitations") != []
     ):
         raise ValueError("rollback sandbox identity or limits do not reconstruct")
 
@@ -517,6 +632,21 @@ def validate_initial_bootstrap(
     ]
     if len(bootstrap_decisions) != 1 or len(promotion_decisions) != 1:
         raise ValueError("exactly one bootstrap and one promotion decision are required")
+    approved_decision_ids = source_assertion.get("approved_decision_ids")
+    bootstrap_issuer = bootstrap_decisions[0].get("issuer")
+    if (
+        not isinstance(approved_decision_ids, Sequence)
+        or isinstance(approved_decision_ids, (str, bytes))
+        or len(approved_decision_ids) != len(set(approved_decision_ids))
+        or set(approved_decision_ids) != set(verified_decision_ids)
+        or not isinstance(bootstrap_issuer, Mapping)
+        or source_assertion.get("actor") != bootstrap_issuer.get("subject")
+        or bootstrap_issuer.get("authentication_method")
+        != "github-actions-workflow-dispatch"
+        or not isinstance(source_assertion.get("workflow_run_id"), str)
+        or not source_assertion.get("workflow_run_id")
+    ):
+        raise ValueError("bootstrap dispatch decision set does not reconstruct")
     bootstrap_scope = {
         f"initial-lkg:{lkg_commit}",
         f"authority-basis:{authority_basis_commit}",
@@ -572,7 +702,15 @@ def validate_initial_bootstrap(
     if state is not DispositionState.READY_FOR_HUMAN:
         raise ValueError("bootstrap-policy promotion evaluation did not reconstruct")
 
-    authority_manifest = Path(__file__).resolve().parents[2] / "MANIFEST.json"
+    authority_observed_at = _timestamp(
+        authority_state.get("observed_at"), "authority observed_at"
+    )
+    promotion_issued_at = _timestamp(
+        promotion_decisions[0].get("issued_at"), "promotion issued_at"
+    )
+    if not promotion_issued_at <= authority_observed_at <= evaluated_at:
+        raise ValueError("live authority observation chronology is invalid")
+
     return content_address(
         {
             "schema_version": "1.0.0",
@@ -583,7 +721,8 @@ def validate_initial_bootstrap(
             "bootstrap_basis_commit": lkg_commit,
             "authority_commit": authority_commit,
             "authority_basis_commit": authority_basis_commit,
-            "authority_manifest_sha256": sha256_bytes(read_bytes_once(authority_manifest)),
+            "authority_manifest_sha256": authority_manifest_sha256,
+            "authority_state_sha256": authority_state_sha256,
             "bootstrap_policy_sha256": policy_sha,
             "proposed_policy_sha256": proposed_sha,
             "rollback_plan_id": plan["rollback_plan_id"],
@@ -601,7 +740,7 @@ def validate_initial_bootstrap(
             "state": "READY_FOR_HUMAN",
             "created_at": evaluated_at.isoformat().replace("+00:00", "Z"),
             "producer_version": "0.1.0-authority-bootstrap",
-            "limitations": list(plan["limitations"]),
+            "limitations": [],
         },
         "bootstrap_verification_id",
     )

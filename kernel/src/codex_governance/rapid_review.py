@@ -56,12 +56,16 @@ def _nonempty_strings(value: Any) -> bool:
     )
 
 
-def _valid_story(value: Any) -> bool:
+def _resolved_evidence_refs(value: Any, resolved: Set[str]) -> bool:
+    return _nonempty_strings(value) and set(value).issubset(resolved)
+
+
+def _valid_story(value: Any, resolved: Set[str]) -> bool:
     return (
         isinstance(value, Mapping)
         and isinstance(value.get("summary"), str)
         and bool(value["summary"].strip())
-        and _nonempty_strings(value.get("evidence_refs"))
+        and _resolved_evidence_refs(value.get("evidence_refs"), resolved)
         and _nonempty_strings(value.get("limitations"))
     )
 
@@ -77,6 +81,7 @@ def evaluate_rapid_review(
     authorized_humans: Set[str],
     authenticated_decisions: Mapping[str, Mapping[str, Any]] | None = None,
     verified_decision_ids: Set[str] = frozenset(),
+    resolved_evidence_refs: Set[str] = frozenset(),
     repository_id: str | None = None,
     task_contract_sha256: str | None = None,
     policy_sha256: str | None = None,
@@ -167,7 +172,9 @@ def evaluate_rapid_review(
                 or not experiment["observation"].strip()
                 or not isinstance(experiment.get("oracle"), str)
                 or not experiment["oracle"].strip()
-                or not _nonempty_strings(experiment.get("evidence_refs"))
+                or not _resolved_evidence_refs(
+                    experiment.get("evidence_refs"), resolved_evidence_refs
+                )
             ):
                 return DispositionState.UNKNOWN
         if not investigation_observed:
@@ -193,7 +200,9 @@ def evaluate_rapid_review(
                 or not finding["impact"].strip()
                 or not isinstance(finding.get("oracle"), str)
                 or not finding["oracle"].strip()
-                or not _nonempty_strings(finding.get("evidence_refs"))
+                or not _resolved_evidence_refs(
+                    finding.get("evidence_refs"), resolved_evidence_refs
+                )
                 or not isinstance(finding.get("threatened_value"), str)
                 or not finding["threatened_value"].strip()
             ):
@@ -208,7 +217,9 @@ def evaluate_rapid_review(
                 or not risk_id
                 or risk_id in residual_material
                 or not isinstance(residual.get("material"), bool)
-                or not _nonempty_strings(residual.get("evidence_refs"))
+                or not _resolved_evidence_refs(
+                    residual.get("evidence_refs"), resolved_evidence_refs
+                )
             ):
                 return DispositionState.UNKNOWN
             residual_material[risk_id] = residual["material"]
@@ -223,7 +234,7 @@ def evaluate_rapid_review(
     }:
         return DispositionState.UNKNOWN
     if not all(
-        _valid_story(debrief.get(field))
+        _valid_story(debrief.get(field), resolved_evidence_refs)
         for field in ("product_story", "testing_story", "quality_of_testing_story")
     ) or not _nonempty_strings(debrief.get("residual_risks")):
         return DispositionState.UNKNOWN
@@ -237,7 +248,9 @@ def evaluate_rapid_review(
         item_id = item.get("item_id")
         if not isinstance(item_id, str) or not item_id or item_id in disposition_by_id:
             return DispositionState.UNKNOWN
-        if not _nonempty_strings(item.get("evidence_refs")):
+        if not _resolved_evidence_refs(
+            item.get("evidence_refs"), resolved_evidence_refs
+        ):
             return DispositionState.UNKNOWN
         disposition_by_id[item_id] = item
     expected_ids = set(finding_severity) | set(residual_material)

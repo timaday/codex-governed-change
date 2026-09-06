@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,10 @@ from codex_governance.canonical import (
     verify_content_address,
 )
 from codex_governance.lifecycle import parse_rfc3339
-from codex_governance.qualification import context_variant_qualified
+from codex_governance.qualification import (
+    context_qualification_evidence_valid,
+    context_variant_qualified,
+)
 
 
 CONTEXT_PROFILES = ("COMPACT", "STANDARD", "DEEP")
@@ -90,6 +93,7 @@ def build_repository_inventory(
     *,
     affected_closure: Sequence[str],
     changed_paths: Sequence[str],
+    deadline: float | None = None,
 ) -> list[dict[str, str]]:
     """Hash the complete protected closure without following repository links."""
     changed = set(changed_paths)
@@ -97,7 +101,9 @@ def build_repository_inventory(
     for raw_path in affected_closure:
         path = normalize_repo_path(raw_path)
         try:
-            data = read_bounded_repository_file(repository, path, max_bytes=8_000_000)
+            data = read_bounded_repository_file(
+                repository, path, max_bytes=8_000_000, deadline=deadline
+            )
         except ArtifactSafetyError as exc:
             absolute = repository.joinpath(*path.split("/"))
             try:
@@ -118,6 +124,136 @@ def build_repository_inventory(
     ):
         raise ValueError("repository inventory must be a sorted unique closure")
     return inventory
+
+
+def build_protected_context_artifacts(
+    *,
+    gate_references: Sequence[Mapping[str, Any]],
+    gate_results: Sequence[Mapping[str, Any]],
+    mutation_references: Sequence[Mapping[str, Any]],
+    mutation_records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive the exact retrievable artifact closure from protected roots."""
+    if len(gate_references) != len(gate_results) or len(mutation_references) != len(
+        mutation_records
+    ):
+        raise ValueError("protected artifact roots do not match their documents")
+    artifacts: dict[str, dict[str, Any]] = {}
+
+    def add(
+        reference: Any,
+        digest: Any,
+        *,
+        relevant: bool,
+        summary: Mapping[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(reference, str) or not isinstance(digest, str):
+            raise ValueError("protected artifact reference is malformed")
+        canonical_reference = normalize_repo_path(reference)
+        if canonical_reference != reference:
+            raise ValueError("protected artifact reference is not canonical")
+        canonical_digest = require_sha256(digest, name="protected artifact digest")
+        existing = artifacts.get(canonical_reference)
+        if existing is not None and existing["sha256"] != canonical_digest:
+            raise ValueError("protected artifact reference has conflicting digests")
+        if existing is None:
+            existing = {
+                "reference": canonical_reference,
+                "sha256": canonical_digest,
+                "relevant": relevant,
+            }
+            artifacts[canonical_reference] = existing
+        elif relevant:
+            existing["relevant"] = True
+        if summary is not None:
+            typed_summary = dict(summary)
+            prior_summary = existing.get("summary")
+            if prior_summary is not None and prior_summary != typed_summary:
+                raise ValueError("protected artifact has conflicting summaries")
+            existing["summary"] = typed_summary
+
+    def add_nested(value: Any) -> None:
+        if isinstance(value, Mapping):
+            if "path" in value and "sha256" in value:
+                add(value.get("path"), value.get("sha256"), relevant=False)
+            for nested in value.values():
+                add_nested(nested)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for nested in value:
+                add_nested(nested)
+
+    for reference, result in zip(gate_references, gate_results, strict=True):
+        if not isinstance(reference, Mapping) or not isinstance(result, Mapping):
+            raise ValueError("protected gate artifact root is malformed")
+        if reference.get("sha256") != sha256_canonical(result):
+            raise ValueError("protected gate artifact root digest does not match")
+        add(
+            reference.get("path"),
+            reference.get("sha256"),
+            relevant=True,
+            summary={
+                "kind": "gate_result",
+                "gate_id": result.get("gate_id"),
+                "status": result.get("status"),
+            },
+        )
+        add_nested(result)
+    for reference, record in zip(
+        mutation_references, mutation_records, strict=True
+    ):
+        if not isinstance(reference, Mapping) or not isinstance(record, Mapping):
+            raise ValueError("protected mutation artifact root is malformed")
+        if reference.get("sha256") != sha256_canonical(record):
+            raise ValueError("protected mutation artifact root digest does not match")
+        add(
+            reference.get("path"),
+            reference.get("sha256"),
+            relevant=True,
+            summary={
+                "kind": "mutant_record",
+                "mutant_id": record.get("mutant_id"),
+                "outcome": record.get("outcome"),
+            },
+        )
+        add_nested(record)
+    return [artifacts[reference] for reference in sorted(artifacts)]
+
+
+def verify_protected_context_artifacts(
+    repository: Path,
+    artifacts: Sequence[Mapping[str, Any]],
+    *,
+    deadline: float | None = None,
+    artifact_reader: Callable[[str, str], bytes] | None = None,
+) -> dict[str, bytes]:
+    """Descriptor-read every indexed artifact and verify its exact bytes."""
+    verified: dict[str, bytes] = {}
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            raise ValueError("protected context artifact is malformed")
+        reference = artifact.get("reference")
+        digest = artifact.get("sha256")
+        if not isinstance(reference, str) or not isinstance(digest, str):
+            raise ValueError("protected context artifact is malformed")
+        reference = normalize_repo_path(reference)
+        if reference in verified:
+            raise ValueError("protected context artifact reference is duplicated")
+        data = (
+            artifact_reader(reference, digest)
+            if artifact_reader is not None
+            else read_bounded_repository_file(
+                repository,
+                reference,
+                max_bytes=8_000_000,
+                deadline=deadline,
+            )
+        )
+        if sha256_bytes(data) != require_sha256(
+            digest, name="protected context artifact digest"
+        ):
+            raise ValueError("protected context artifact bytes do not match")
+        verified[reference] = data
+    return verified
 
 
 def build_protected_context_sources(
@@ -228,17 +364,64 @@ def derive_context_signals(sources: Mapping[str, Any]) -> dict[str, bool]:
 
 
 def context_qualification_valid(
-    record: Mapping[str, Any], *, profile: str, protected_id: str
+    record: Mapping[str, Any],
+    *,
+    profile: str,
+    protected_id: str,
+    allow_synthetic_bootstrap: bool = False,
+    artifact_reader: Callable[[Mapping[str, Any]], bytes] | None = None,
+    schema_root: Path | None = None,
+    protected_repository_id: str | None = None,
+    verified_decision_ids: frozenset[str] = frozenset(),
+    evaluated_at: str | None = None,
+    prompt_bytes: bytes | None = None,
+    reviewer_identities: Mapping[str, Mapping[str, Any]] | None = None,
+    deadline: float | None = None,
 ) -> bool:
     """Recompute one protected projection-profile qualification decision."""
     try:
-        return bool(
+        identity_valid = bool(
             verify_content_address(record, "qualification_id")
             and record.get("qualification_id") == require_sha256(protected_id)
+            and record.get("schema_version") == "3.0.0"
             and record.get("projection_version") == CONTEXT_PROJECTION_VERSION
             and record.get("profile") == profile
-            and record.get("qualified") is True
-            and context_variant_qualified(record["baseline"], record["candidate"])
+        )
+        if not identity_valid:
+            return False
+        if record.get("evidence_class") == "empirical":
+            return bool(
+                record.get("qualified") is True
+                and context_variant_qualified(
+                    record["baseline"], record["candidate"]
+                )
+                and callable(artifact_reader)
+                and isinstance(schema_root, Path)
+                and isinstance(protected_repository_id, str)
+                and isinstance(evaluated_at, str)
+                and isinstance(prompt_bytes, bytes)
+                and isinstance(reviewer_identities, Mapping)
+                and context_qualification_evidence_valid(
+                    record=record,
+                    artifact_reader=artifact_reader,
+                    schema_root=schema_root,
+                    protected_repository_id=protected_repository_id,
+                    verified_decision_ids=verified_decision_ids,
+                    evaluated_at=evaluated_at,
+                    prompt_bytes=prompt_bytes,
+                    expected_reviewer_identities=reviewer_identities,
+                    deadline=deadline,
+                )
+            )
+        return bool(
+            allow_synthetic_bootstrap
+            and record.get("evidence_class") == "synthetic_bootstrap"
+            and record.get("qualified") is False
+            and record.get("limitations")
+            and not {
+                "corpus_sha256", "label_decision_id", "measurement_evidence"
+            }
+            & set(record)
         )
     except (KeyError, TypeError, ValueError):
         return False
@@ -293,6 +476,19 @@ def compile_context(
     reasoning_effort: str,
     context_qualification: Mapping[str, Any],
     protected_qualification_ids: Mapping[str, str],
+    protected_token_budgets: Mapping[str, int] | None = None,
+    minimum_profile: str | None = None,
+    allow_synthetic_bootstrap: bool = False,
+    qualification_artifact_reader: Callable[[Mapping[str, Any]], bytes] | None = None,
+    qualification_schema_root: Path | None = None,
+    qualification_repository_id: str | None = None,
+    qualification_verified_decision_ids: frozenset[str] = frozenset(),
+    qualification_evaluated_at: str | None = None,
+    qualification_prompt_bytes: bytes | None = None,
+    qualification_reviewer_identities: Mapping[
+        str, Mapping[str, Any]
+    ] | None = None,
+    qualification_deadline: float | None = None,
 ) -> dict[str, Any]:
     if (
         not verify_candidate_identity(candidate)
@@ -340,6 +536,14 @@ def compile_context(
     except (TypeError, ValueError) as exc:
         raise ValueError("context sources require an explicit RFC 3339 created_at") from exc
     risk_signals = derive_context_signals(sources)
+    if minimum_profile is not None:
+        profile_rank = {profile: index for index, profile in enumerate(CONTEXT_PROFILES)}
+        if (
+            minimum_profile not in profile_rank
+            or requested_profile not in profile_rank
+            or profile_rank[requested_profile] < profile_rank[minimum_profile]
+        ):
+            raise ValueError("requested context profile is below the protected minimum")
     profile = select_context_profile(
         requested_profile=requested_profile,
         changed_paths=candidate_paths,
@@ -347,13 +551,31 @@ def compile_context(
     )
     kernel = {field: sources[field] for field in KERNEL_FIELDS}
     kernel_bytes = canonical_json_bytes(kernel)
-    if profile != "DEEP" and (len(kernel_bytes) + 3) // 4 > token_budget:
+    selection_budget = token_budget
+    if protected_token_budgets is not None:
+        selection_budget = protected_token_budgets.get(profile, 0)
+        if not isinstance(selection_budget, int) or selection_budget < 1:
+            raise ValueError("protected context profile budget is unavailable")
+    if profile != "DEEP" and (len(kernel_bytes) + 3) // 4 > selection_budget:
         profile = "DEEP"
+    if protected_token_budgets is not None:
+        expected_budget = protected_token_budgets.get(profile)
+        if token_budget != expected_budget:
+            raise ValueError("context token budget does not match effective profile")
     protected_qualification_id = protected_qualification_ids.get(profile)
     if not isinstance(protected_qualification_id, str) or not context_qualification_valid(
         context_qualification,
         profile=profile,
         protected_id=protected_qualification_id,
+        allow_synthetic_bootstrap=allow_synthetic_bootstrap,
+        artifact_reader=qualification_artifact_reader,
+        schema_root=qualification_schema_root,
+        protected_repository_id=qualification_repository_id,
+        verified_decision_ids=qualification_verified_decision_ids,
+        evaluated_at=qualification_evaluated_at,
+        prompt_bytes=qualification_prompt_bytes,
+        reviewer_identities=qualification_reviewer_identities,
+        deadline=qualification_deadline,
     ):
         raise ValueError("context profile/version qualification is unavailable")
     artifacts = sources.get("artifacts", ())

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timaday.github.io/codex-governed-change/.governance/schemas/paired-comparison-result.schema.json",
+  "title": "Ordinary Codex held-out comparison result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidate_id", "disposition", "findings"],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["BLOCK", "NO_BLOCKING_FINDING_OBSERVED", "UNKNOWN"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "path", "line"],
+        "properties": {
+          "requirement_id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "line": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}

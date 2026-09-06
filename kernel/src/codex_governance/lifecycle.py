@@ -11,12 +11,12 @@ from typing import Any
 RFC3339_RE = re.compile(
     r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])"
     r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:(?:[0-5][0-9]|60)"
-    r"(?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
 
 
 def parse_rfc3339(value: str) -> datetime:
-    """Parse the supported complete RFC 3339 profile and reject invalid dates."""
+    """Parse complete RFC 3339 without accepting lossy fractional precision."""
     if not isinstance(value, str) or RFC3339_RE.fullmatch(value) is None:
         raise ValueError("timestamp must be a complete RFC 3339 value")
     if value[17:19] == "60":
@@ -68,6 +68,69 @@ def migrate_context_receipt_v1_to_v2(
         source_bundle_sha256, name="source_bundle_sha256"
     )
     return content_address(migrated, "receipt_id")
+
+
+def migrate_context_qualification_v1_to_v2(
+    document: Mapping[str, Any], *, evidence_class: str
+) -> dict[str, Any]:
+    """Add a separately protected empirical or bootstrap evidence class."""
+    from codex_governance.canonical import content_address
+
+    migrated = _legacy_document(document, identity_field="qualification_id")
+    if "evidence_class" in migrated or evidence_class not in {
+        "empirical",
+        "synthetic_bootstrap",
+    }:
+        raise ValueError("protected context qualification evidence class is required")
+    migrated["schema_version"] = "2.0.0"
+    migrated["evidence_class"] = evidence_class
+    if evidence_class == "synthetic_bootstrap":
+        migrated["qualified"] = False
+        limitations = list(migrated.get("limitations", ()))
+        limitation = (
+            "Synthetic bootstrap context is not empirical qualification evidence."
+        )
+        if limitation not in limitations:
+            limitations.append(limitation)
+        migrated["limitations"] = limitations
+    return content_address(migrated, "qualification_id")
+
+
+def migrate_context_qualification_v2_to_v3(
+    document: Mapping[str, Any], *, corpus_sha256: str | None = None,
+    label_decision_id: str | None = None,
+    measurement_evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind legacy context metrics to separately protected measurements."""
+    from codex_governance.canonical import require_sha256
+
+    migrated = _migration_document(
+        document, from_version="2.0.0", identity_field="qualification_id"
+    )
+    if {
+        "corpus_sha256", "label_decision_id", "measurement_evidence"
+    } & set(migrated):
+        raise ValueError("legacy context qualification already contains v3 fields")
+    if migrated.get("evidence_class") == "empirical":
+        if measurement_evidence is None:
+            raise ValueError("empirical context qualification evidence is required")
+        migrated["corpus_sha256"] = require_sha256(corpus_sha256)
+        migrated["label_decision_id"] = require_sha256(label_decision_id)
+        migrated["measurement_evidence"] = dict(measurement_evidence)
+    elif migrated.get("evidence_class") == "synthetic_bootstrap":
+        if any(
+            item is not None
+            for item in (corpus_sha256, label_decision_id, measurement_evidence)
+        ):
+            raise ValueError("synthetic bootstrap cannot acquire empirical evidence")
+        migrated["qualified"] = False
+        if not migrated.get("limitations"):
+            raise ValueError("synthetic bootstrap limitation is required")
+    else:
+        raise ValueError("context qualification evidence class is invalid")
+    return _finish_migration(
+        migrated, to_version="3.0.0", identity_field="qualification_id"
+    )
 
 
 def migrate_sandbox_capability_v1_to_v2(
@@ -351,6 +414,41 @@ def migrate_reviewer_qualification_v2_to_v3(
     )
 
 
+def _protected_qualification_limits(
+    *, timeout_seconds: Any, max_output_bytes: Any
+) -> tuple[int, int]:
+    if (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds < 1
+        or not isinstance(max_output_bytes, int)
+        or isinstance(max_output_bytes, bool)
+        or max_output_bytes < 1
+    ):
+        raise ValueError("positive protected reviewer limits are required")
+    return timeout_seconds, max_output_bytes
+
+
+def migrate_reviewer_qualification_v3_to_v4(
+    document: Mapping[str, Any], *, timeout_seconds: int, max_output_bytes: int
+) -> dict[str, Any]:
+    """Bind a legacy qualification to separately protected execution limits."""
+    migrated = _migration_document(
+        document, from_version="3.0.0", identity_field="qualification_id"
+    )
+    if {"timeout_seconds", "max_output_bytes"} & set(migrated):
+        raise ValueError("legacy reviewer qualification already contains v4 fields")
+    timeout, output = _protected_qualification_limits(
+        timeout_seconds=timeout_seconds,
+        max_output_bytes=max_output_bytes,
+    )
+    migrated["timeout_seconds"] = timeout
+    migrated["max_output_bytes"] = output
+    return _finish_migration(
+        migrated, to_version="4.0.0", identity_field="qualification_id"
+    )
+
+
 def migrate_reviewer_qualification_cases_v1_to_v2(
     document: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -470,6 +568,33 @@ def migrate_reviewer_qualification_cases_v4_to_v5(
     migrated["identity"] = {**identity, "authentication": authentication}
     return _finish_migration(
         migrated, to_version="5.0.0", identity_field="case_evidence_id"
+    )
+
+
+def migrate_reviewer_qualification_cases_v5_to_v6(
+    document: Mapping[str, Any], *, timeout_seconds: int, max_output_bytes: int
+) -> dict[str, Any]:
+    """Bind legacy qualification cases to separately protected limits."""
+    migrated = _migration_document(
+        document, from_version="5.0.0", identity_field="case_evidence_id"
+    )
+    identity = migrated.get("identity")
+    if not isinstance(identity, Mapping) or {
+        "timeout_seconds",
+        "max_output_bytes",
+    } & set(identity):
+        raise ValueError("legacy qualification case identity already contains v6 fields")
+    timeout, output = _protected_qualification_limits(
+        timeout_seconds=timeout_seconds,
+        max_output_bytes=max_output_bytes,
+    )
+    migrated["identity"] = {
+        **identity,
+        "timeout_seconds": timeout,
+        "max_output_bytes": output,
+    }
+    return _finish_migration(
+        migrated, to_version="6.0.0", identity_field="case_evidence_id"
     )
 
 
@@ -765,10 +890,12 @@ EXECUTABLE_MIGRATIONS = {
     ("evidence-manifest", "3.0.0", "4.0.0"): migrate_evidence_manifest_v3_to_v4,
     ("reviewer-qualification", "1.0.0", "2.0.0"): migrate_reviewer_qualification_v1_to_v2,
     ("reviewer-qualification", "2.0.0", "3.0.0"): migrate_reviewer_qualification_v2_to_v3,
+    ("reviewer-qualification", "3.0.0", "4.0.0"): migrate_reviewer_qualification_v3_to_v4,
     ("reviewer-qualification-cases", "1.0.0", "2.0.0"): migrate_reviewer_qualification_cases_v1_to_v2,
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
     ("reviewer-qualification-cases", "3.0.0", "4.0.0"): migrate_reviewer_qualification_cases_v3_to_v4,
     ("reviewer-qualification-cases", "4.0.0", "5.0.0"): migrate_reviewer_qualification_cases_v4_to_v5,
+    ("reviewer-qualification-cases", "5.0.0", "6.0.0"): migrate_reviewer_qualification_cases_v5_to_v6,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
     ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
     ("rapid-review-session", "1.0.0", "2.0.0"): migrate_rapid_review_session_v1_to_v2,
@@ -779,6 +906,8 @@ EXECUTABLE_MIGRATIONS = {
     ("reviewer-execution", "3.0.0", "4.0.0"): migrate_reviewer_execution_v3_to_v4,
     ("reviewer-execution", "4.0.0", "5.0.0"): migrate_reviewer_execution_v4_to_v5,
     ("rollback-evidence", "1.0.0", "2.0.0"): migrate_rollback_evidence_v1_to_v2,
+    ("context-qualification", "1.0.0", "2.0.0"): migrate_context_qualification_v1_to_v2,
+    ("context-qualification", "2.0.0", "3.0.0"): migrate_context_qualification_v2_to_v3,
     ("context-receipt", "1.0.0", "2.0.0"): migrate_context_receipt_v1_to_v2,
     ("sandbox-capability", "1.0.0", "2.0.0"): migrate_sandbox_capability_v1_to_v2,
     ("provenance-statement", "1.0.0", "2.0.0"): migrate_provenance_statement_v1_to_v2,
@@ -790,7 +919,7 @@ def migration_policy(kind: str, from_version: str, to_version: str) -> str:
     if (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:
         return "explicit_required"
     if from_version == to_version and from_version in {
-        "1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"
+        "1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0"
     }:
         return "identity"
     return "unsupported"

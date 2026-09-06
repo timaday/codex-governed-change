@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "case_evidence_id", "mode", "evaluation_repository_id", "corpus_sha256", "label_decision_id", "identity", "observations"],
   "properties": {
-    "schema_version": {"const": "5.0.0"},
+    "schema_version": {"const": "6.0.0"},
     "case_evidence_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "mode": {"enum": ["conformance", "rapid_review"]},
     "evaluation_repository_id": {"type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._/-]{2,255}$"},
@@ -32,7 +32,7 @@
     "identity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "reasoning_effort"],
+      "required": ["prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "reasoning_effort", "timeout_seconds", "max_output_bytes"],
       "properties": {
         "prompt_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "schema_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -40,7 +40,9 @@
         "codex_cli_version": {"type": "string", "pattern": "^codex-cli [0-9][0-9A-Za-z._+-]{0,63}$"},
         "authentication": {"const": "chatgpt"},
         "model": {"type": "string", "minLength": 1},
-        "reasoning_effort": {"enum": ["high", "xhigh"]}
+        "reasoning_effort": {"enum": ["high", "xhigh"]},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "max_output_bytes": {"type": "integer", "minimum": 1}
       }
     },
     "observation": {
