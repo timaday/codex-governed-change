@@ -52,6 +52,7 @@ def observe_live_ref(
     token: str,
     api_url: str,
     require_private: bool = False,
+    require_public: bool = False,
 ) -> dict[str, object]:
     owner, name = require_repository(repository).split("/", 1)
     expected = require_sha(expected_sha, "expected_sha")
@@ -75,7 +76,10 @@ def observe_live_ref(
         or document.get("object", {}).get("sha") != expected
     ):
         raise ValueError("workflow authority commit is stale")
-    if require_private:
+    if require_private and require_public:
+        raise ValueError("authority repository cannot require two visibility states")
+    repository_visibility: str | None = None
+    if require_private or require_public:
         repository_url = (
             api_url.rstrip("/")
             + "/repos/"
@@ -86,18 +90,29 @@ def observe_live_ref(
         repository_document = _request_json(repository_url, token=token)
         if not isinstance(repository_document, dict):
             raise RuntimeError("GitHub authority-repository response is malformed")
-        if (
-            repository_document.get("full_name") != repository
-            or repository_document.get("private") is not True
+        if repository_document.get("full_name") != repository:
+            raise ValueError("authority repository identity differs")
+        if require_private and (
+            repository_document.get("private") is not True
+            or repository_document.get("visibility") != "private"
         ):
             raise ValueError("reviewer authority repository is not private")
-    return {
+        if require_public and (
+            repository_document.get("private") is not False
+            or repository_document.get("visibility") != "public"
+        ):
+            raise ValueError("governance authority repository is not public")
+        repository_visibility = "private" if require_private else "public"
+    result: dict[str, object] = {
         "repository": repository,
         "ref": ref,
         "sha": expected,
         "current": True,
         "private": True if require_private else None,
     }
+    if repository_visibility is not None:
+        result["visibility"] = repository_visibility
+    return result
 
 
 def observe_live_authority(
@@ -117,7 +132,10 @@ def observe_live_authority(
         expected_sha=expected_sha,
         token=token,
         api_url=api_url,
+        require_public=True,
     )
+    if current.get("visibility") != "public":
+        raise ValueError("governance authority repository visibility is unavailable")
     if ref != "refs/heads/governance-authority":
         raise ValueError("bootstrap authority observation requires the protected ref")
     owner, name = require_repository(repository).split("/", 1)
@@ -242,6 +260,7 @@ def observe_live_authority(
         "commit": current["sha"],
         "manifest_commit": expected_sha,
         "manifest_sha256": sha256_bytes(manifest),
+        "visibility": "public",
         "ruleset": {
             "id": detail["id"],
             "target": detail["target"],

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import tempfile
 import time
 from collections.abc import Mapping
@@ -32,19 +33,20 @@ from paired_comparison import (
     build_comparison_document,
     comparison_document_valid,
     ordinary_candidate_id,
+    ordinary_prompt,
     reconstruct_task,
     validate_comparison_inputs,
 )
 from codex_governance.reviewer import (
     _normalize_reviewer_stream,
-    REVIEWER_TOOL_ENVIRONMENT_POLICY,
     build_reviewer_environment,
-    build_reviewer_permission_profile,
+    build_reviewer_command,
     launch_reviewer,
     observe_codex_authentication,
     observe_codex_cli_version,
     parse_codex_jsonl_evidence,
-    resolve_reviewer_runtime_read_roots,
+    reviewer_launcher_sha256,
+    sanitized_invocation_descriptor,
 )
 from codex_governance.schema import validate_instance
 
@@ -95,20 +97,7 @@ def _reader(root: Path, reference: Mapping[str, str]) -> bytes:
 
 def _ordinary_prompt(case: Mapping[str, Any], candidate_id: str | None = None) -> str:
     """Build a label-blind baseline task from only protected non-label fields."""
-    return (
-        "Review this bounded synthetic repository read-only. Determine whether the "
-        "implementation violates the named mandatory requirement. Inspect the exact "
-        "repository files and report only concrete findings for that requirement. "
-        "A finding must use a repository-relative path and its exact one-based line. "
-        "If evidence is unavailable, return UNKNOWN. Do not expose environment, host, "
-        "credential, or endpoint values.\n\n"
-        f"CASE_ID: {case['case_id']}\n"
-        f"CANDIDATE_ID: {candidate_id or ordinary_candidate_id(case)}\n"
-        f"REQUIREMENT_ID: {case['requirement_id']}\n"
-        "OBJECTIVE: Review the bounded synthetic candidate against its sole mandatory "
-        "requirement.\n"
-        "SCOPE: " + ", ".join(sorted(case["files"])) + "\n"
-    )
+    return ordinary_prompt(case, candidate_id)
 
 
 def _ordinary_command(
@@ -117,50 +106,23 @@ def _ordinary_command(
     candidate: Path,
     schema: Path,
     result: Path,
-    permission_profile: str,
 ) -> list[str]:
-    return [
-        codex,
-        "exec",
-        "--ephemeral",
-        "--json",
-        "--ignore-user-config",
-        "--ignore-rules",
-        "--strict-config",
-        "--model",
-        MODEL,
-        "--sandbox",
-        "read-only",
-        "--config",
-        'default_permissions="governed_reviewer"',
-        "--config",
-        permission_profile,
-        "--config",
-        'approval_policy="never"',
-        "--config",
-        REVIEWER_TOOL_ENVIRONMENT_POLICY,
-        "--config",
-        f'model_reasoning_effort="{REASONING_EFFORT}"',
-        "--config",
-        "features.hooks=false",
-        "--config",
-        "agents.enabled=false",
-        "--output-schema",
-        str(schema),
-        "--output-last-message",
-        str(result),
-        "--cd",
-        str(candidate),
-        "--skip-git-repo-check",
-        "-",
-    ]
+    return build_reviewer_command(
+        codex_executable=codex,
+        model=MODEL,
+        schema_path=schema,
+        output_path=result,
+        review_root=candidate,
+        reasoning_effort=REASONING_EFFORT,
+    )
 
 
 def _candidate_matches(candidate: Path, expected: Mapping[str, str]) -> bool:
     try:
         observed = sorted(
-            path.relative_to(candidate).as_posix()
+            relative.as_posix()
             for path in candidate.rglob("*")
+            if (relative := path.relative_to(candidate)).parts[0] != ".git"
             if path.is_file() or path.is_symlink()
         )
         if observed != sorted(expected):
@@ -182,8 +144,10 @@ def _candidate_matches(candidate: Path, expected: Mapping[str, str]) -> bool:
 def _run_ordinary_case(
     *,
     case: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    decision: Mapping[str, Any],
     codex: str,
-    authentication: str,
+    expected_identity: Mapping[str, Any],
     schema_path: Path,
     timeout_seconds: float,
     max_output_bytes: int,
@@ -207,6 +171,15 @@ def _run_ordinary_case(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body, encoding="utf-8")
             expected_files[relative] = sha256_bytes(body.encode("utf-8"))
+        initialized = subprocess.run(
+            ["git", "init", "--quiet", "--initial-branch=main", str(candidate)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if initialized.returncode != 0:
+            raise ValueError("comparison candidate Git boundary is unavailable")
         for path in sorted(candidate.rglob("*"), key=lambda item: len(item.parts), reverse=True):
             info = path.lstat()
             if path.is_symlink() or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
@@ -216,21 +189,23 @@ def _run_ordinary_case(
         schema = root / "ordinary-result.schema.json"
         result_path = root / "ordinary-result.json"
         schema.write_bytes(read_bytes_once(schema_path))
+        if sha256_bytes(read_bytes_once(schema)) != expected_identity.get(
+            "ordinary_schema_sha256"
+        ):
+            raise ValueError("ordinary comparison schema differs from protected identity")
         environment = build_reviewer_environment(os.environ)
-        permission_profile = build_reviewer_permission_profile(
-            resolve_reviewer_runtime_read_roots(codex, environment=environment),
-            review_root=candidate,
-        )
         command = _ordinary_command(
             codex=codex,
             candidate=candidate,
             schema=schema,
             result=result_path,
-            permission_profile=permission_profile,
         )
-        if observe_codex_authentication(codex, environment=environment) != authentication:
+        if observe_codex_authentication(codex, environment=environment) != expected_identity.get(
+            "authentication"
+        ):
             raise ValueError("Codex authentication changed before comparison invocation")
         expected_candidate_id = ordinary_candidate_id(case)
+        stdin_text = _ordinary_prompt(case, expected_candidate_id)
 
         def current_candidate(observation_deadline: float) -> str:
             if time.monotonic() >= observation_deadline:
@@ -241,7 +216,7 @@ def _run_ordinary_case(
 
         launched = launch_reviewer(
             command=command,
-            stdin_text=_ordinary_prompt(case, expected_candidate_id),
+            stdin_text=stdin_text,
             schema_path=schema,
             output_path=result_path,
             expected_candidate_id=expected_candidate_id,
@@ -251,6 +226,8 @@ def _run_ordinary_case(
             max_output_bytes=max_output_bytes,
             environment=environment,
             absolute_deadline=time.monotonic() + timeout_seconds,
+            model=MODEL,
+            reasoning_effort=REASONING_EFFORT,
         )
         stdout = launched.get("stdout_bytes", b"")
         stderr = launched.get("stderr_bytes", b"")
@@ -283,7 +260,46 @@ def _run_ordinary_case(
                 name="stderr.bin", data=stderr,
             ),
         }
-        primitive = {"reviewer_observation": launched.get("observation")}
+        primitive = {
+            "reviewer_observation": launched.get("observation"),
+            "control": {
+                "schema_version": "1.0.0",
+                "candidate_before": launched.get("candidate_before"),
+                "candidate_after": launched.get("candidate_after"),
+                "model": MODEL,
+                "reasoning_effort": REASONING_EFFORT,
+                "authentication": expected_identity.get("authentication"),
+                "codex_cli_version": expected_identity.get("codex_cli_version"),
+                "prompt_sha256": sha256_bytes(stdin_text.encode("utf-8")),
+                "output_schema_sha256": sha256_bytes(read_bytes_once(schema)),
+                "launcher_sha256": reviewer_launcher_sha256(),
+                "invocation": sanitized_invocation_descriptor(
+                    model=MODEL,
+                    reasoning_effort=REASONING_EFFORT,
+                    prompt_sha256=sha256_bytes(stdin_text.encode("utf-8")),
+                ),
+                "argv_sha256": launched.get("argv_sha256"),
+                "executed_argv_sha256": launched.get("executed_argv_sha256"),
+                "stdin_sha256": launched.get("stdin_sha256"),
+                "workflow": {
+                    "system": "github-actions-comparison",
+                    "run_id": expected_identity.get("workflow_run_id"),
+                    "attempt": expected_identity.get("workflow_attempt"),
+                },
+                "limits": {
+                    "timeout_seconds": timeout_seconds,
+                    "max_output_bytes": max_output_bytes,
+                },
+                "environment_keys": launched.get("environment_keys", []),
+                "started_at": launched.get("started_at"),
+                "ended_at": launched.get("ended_at"),
+                "latency_ms": launched.get("latency_ms", 0),
+                "output_sha256": references["result"]["sha256"],
+                "stdout_sha256": references["stdout"]["sha256"],
+                "stderr_sha256": references["stderr"]["sha256"],
+                "limitations": launched.get("limitations", []),
+            },
+        }
         execution = content_address(
             {
                 "schema_version": "1.0.0",
@@ -309,14 +325,18 @@ def _run_ordinary_case(
         return reconstruct_task(
             arm="ordinary",
             case=case,
+            corpus=corpus,
+            decision=decision,
             artifacts=references,
             artifact_reader=lambda reference: _reader(output, reference),
+            expected_identity=expected_identity,
         )
 
 
 def _copy_governed_tasks(
     *,
     corpus: Mapping[str, Any],
+    decision: Mapping[str, Any],
     qualification_output: Path,
     output: Path,
     expected_identity: Mapping[str, Any],
@@ -356,6 +376,21 @@ def _copy_governed_tasks(
                 name="stderr.bin", data=source(observation["stderr"]),
             ),
         }
+        for name in (
+            "context_sources",
+            "context_projection",
+            "context_qualification",
+            "context_receipt",
+            "context_execution_receipt",
+            "permitted_inputs",
+        ):
+            references[name] = _store(
+                root=output,
+                arm="governed",
+                case_id=str(case["case_id"]),
+                name=name.replace("_", "-") + ".json",
+                data=source(observation[name]),
+            )
         execution = content_address(
             {
                 "schema_version": "1.0.0",
@@ -381,6 +416,8 @@ def _copy_governed_tasks(
             reconstruct_task(
                 arm="governed",
                 case=case,
+                corpus=corpus,
+                decision=decision,
                 artifacts=references,
                 artifact_reader=lambda reference: _reader(output, reference),
                 expected_identity=expected_identity,
@@ -444,8 +481,11 @@ def main() -> None:
         "authentication": authentication,
         "governed_prompt_sha256": sha256_bytes(read_bytes_once(args.prompt)),
         "governed_schema_sha256": sha256_bytes(read_bytes_once(args.governed_schema)),
+        "governed_launcher_sha256": reviewer_launcher_sha256(),
         "ordinary_schema_sha256": sha256_bytes(read_bytes_once(args.ordinary_schema)),
         "ordinary_prompt_version": "1.0.0",
+        "timeout_seconds": args.timeout_seconds,
+        "max_output_bytes": args.max_output_bytes,
         "same_case_bytes": True,
         "labels_excluded_from_prompts": True,
         "execution_controls": "matched_sanitized_read_only",
@@ -475,6 +515,7 @@ def main() -> None:
     )
     governed_tasks = _copy_governed_tasks(
         corpus=corpus,
+        decision=decision,
         qualification_output=governed_output,
         output=args.output,
         expected_identity=identity,
@@ -482,8 +523,10 @@ def main() -> None:
     ordinary_tasks = [
         _run_ordinary_case(
             case=case,
+            corpus=corpus,
+            decision=decision,
             codex=args.codex,
-            authentication=authentication,
+            expected_identity=identity,
             schema_path=args.ordinary_schema,
             timeout_seconds=args.timeout_seconds,
             max_output_bytes=args.max_output_bytes,

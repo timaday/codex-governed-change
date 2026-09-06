@@ -1404,6 +1404,7 @@ def evaluate_manifest(
                 == {
                     "schema_version",
                     "repository",
+                    "visibility",
                     "ref",
                     "commit",
                     "manifest_commit",
@@ -1415,6 +1416,7 @@ def evaluate_manifest(
                 }
                 and authority_state.get("schema_version") == "1.0.0"
                 and authority_state.get("repository") == authority_repository
+                and authority_state.get("visibility") == "public"
                 and authority_state.get("ref") == authority_ref
                 and authority_ref == "refs/heads/governance-authority"
                 and authority_state.get("commit") == authority_commit

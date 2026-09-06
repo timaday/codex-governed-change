@@ -409,6 +409,7 @@ def bootstrap_fixture(repository: Path) -> dict[str, object]:
         "commit": authority_commit,
         "manifest_commit": authority_commit,
         "manifest_sha256": authority_manifest_sha,
+        "visibility": "public",
         "source_assertion": source_assertion,
         "source_assertion_sha256": sha256_bytes(canonical_bytes(source_assertion)),
         "ruleset": {
@@ -591,14 +592,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("e370eeb60f014ae40268abf2b864482efd814a81", target["head_sha"])
+        self.assertEqual("ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "e370eeb60f014ae40268abf2b864482efd814a81",
+            "ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -1577,7 +1578,7 @@ class AdapterTests(unittest.TestCase):
                     "expected_disposition": disposition,
                     "risk": "bounded risk",
                     "charter": "review the bounded candidate",
-                    "files": {"src/example.py": "pass\n"},
+                    "files": {"src/example.py": "pass\n" * index},
                 }
             )
             labels[case_id] = disposition
@@ -1615,12 +1616,46 @@ class AdapterTests(unittest.TestCase):
         )
         return corpus, decision
 
+    def _comparison_identity(self) -> dict[str, object]:
+        return {
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+            "governed_profile": "STANDARD",
+            "codex_cli_version": "codex-cli 0.149.1",
+            "authentication": "chatgpt",
+            "governed_prompt_sha256": sha256_bytes(
+                (ROOT / "kernel/.codex/review/reviewer.prompt.md").read_bytes()
+            ),
+            "governed_schema_sha256": sha256_bytes(
+                (ROOT / "kernel/schemas/reviewer-result.schema.json").read_bytes()
+            ),
+            "governed_launcher_sha256": reviewer_module.reviewer_launcher_sha256(),
+            "ordinary_schema_sha256": sha256_bytes(
+                (ROOT / ".governance/schemas/paired-comparison-result.schema.json").read_bytes()
+            ),
+            "ordinary_prompt_version": "1.0.0",
+            "timeout_seconds": 60,
+            "max_output_bytes": 100000,
+            "same_case_bytes": True,
+            "labels_excluded_from_prompts": True,
+            "execution_controls": "matched_sanitized_read_only",
+            "authority_repository": "timaday/codex-governed-change",
+            "authority_ref": "refs/heads/governance-authority",
+            "authority_sha": "a" * 40,
+            "workflow_run_id": "1",
+            "workflow_attempt": 1,
+        }
+
     def _comparison_artifacts(
-        self, case: dict[str, object], arm: str
+        self,
+        corpus: dict[str, object],
+        decision: dict[str, object],
+        case: dict[str, object],
+        arm: str,
     ) -> tuple[dict[str, dict[str, str]], dict[str, bytes]]:
         disposition = str(case["expected_disposition"])
         expected = case["expected_finding"]
-        findings = (
+        ordinary_findings = (
             [
                 {
                     "requirement_id": case["requirement_id"],
@@ -1633,38 +1668,199 @@ class AdapterTests(unittest.TestCase):
         )
         digest = lambda value: "sha256:" + value * 64
         governed_repository = "repo:timaday/codex-governed-change-qualification"
-        governed_policy = digest("2")
-        governed_task = sha256_bytes(
-            canonical_bytes(
-                qualification_module.qualification_task_document(
-                    repository_id=governed_repository, case=case
-                )
-            )
+        comparison_identity = self._comparison_identity()
+        reviewer_identity = {
+            "prompt_sha256": comparison_identity["governed_prompt_sha256"],
+            "schema_sha256": comparison_identity["governed_schema_sha256"],
+            "launcher_sha256": comparison_identity["governed_launcher_sha256"],
+            "codex_cli_version": comparison_identity["codex_cli_version"],
+            "authentication": comparison_identity["authentication"],
+            "model": comparison_identity["model"],
+            "reasoning_effort": comparison_identity["reasoning_effort"],
+        }
+        corpus_sha = sha256_bytes(canonical_bytes(corpus))
+        bootstrap = qualification_module.bootstrap_qualification_record(
+            identity=reviewer_identity,
+            corpus_sha256=corpus_sha,
+            label_decision_id=decision["decision_id"],
         )
-        governed_candidate = qualification_module.qualification_candidate_document(
+        task_document = qualification_module.qualification_task_document(
+            repository_id=governed_repository,
+            case=case,
+        )
+        governed_task = sha256_bytes(canonical_bytes(task_document))
+        policy_document = qualification_module.qualification_policy_document(
+            repository_id=governed_repository,
+            case=case,
+            corpus_sha256=corpus_sha,
+            bootstrap_qualification_id=bootstrap["qualification_id"],
+            model=str(comparison_identity["model"]),
+            reasoning_effort=str(comparison_identity["reasoning_effort"]),
+        )
+        governed_policy = sha256_bytes(canonical_bytes(policy_document))
+        candidate_document = qualification_module.qualification_candidate_document(
             repository_id=governed_repository,
             case=case,
             effective_policy_sha256=governed_policy,
-        )["candidate_id"]
+        )
+        governed_candidate = candidate_document["candidate_id"]
+        context_execution = {
+            "model": comparison_identity["model"],
+            "reasoning_effort": comparison_identity["reasoning_effort"],
+            "usage_observed": True,
+            "input_tokens": 10,
+            "cached_input_tokens": 2,
+            "output_tokens": 3,
+            "reasoning_output_tokens": 1,
+            "latency_ms": 25,
+            "ended_at": "2026-09-05T12:00:01Z",
+            "limitations": [],
+        }
+        preliminary_context = qualification_module.qualification_context_documents(
+            mode="conformance",
+            case=case,
+            task=task_document,
+            policy=policy_document,
+            candidate=candidate_document,
+            reviewer_output_sha256=digest("1"),
+            execution=context_execution,
+            requested_profile="STANDARD",
+        )
+        context_receipt_sha = sha256_bytes(
+            canonical_bytes(preliminary_context["context_receipt"])
+        )
         governed_bindings = {
             "repository_id": governed_repository,
             "task_contract_sha256": governed_task,
             "effective_policy_sha256": governed_policy,
             "candidate_id": governed_candidate,
-            "reviewer_prompt_sha256": digest("4"),
-            "qualification_id": digest("5"),
-            "model": "gpt-5.6-sol",
-            "context_receipt_sha256": digest("6"),
-        }
-        result = {
-            "findings": findings,
-            "verdict" if arm == "governed" else "disposition": disposition,
+            "reviewer_prompt_sha256": reviewer_identity["prompt_sha256"],
+            "qualification_id": bootstrap["qualification_id"],
+            "model": comparison_identity["model"],
+            "context_receipt_sha256": context_receipt_sha,
         }
         if arm == "governed":
-            result.update(governed_bindings)
+            locators = qualification_module.qualification_evidence_locators(
+                repository_id=governed_repository,
+                task_contract_sha256=governed_task,
+                candidate=candidate_document,
+            )
+            evidence_reference = {
+                "locator_id": locators[0]["locator_id"],
+                "sha256": locators[0]["artifact_sha256"],
+            }
+            governed_findings = []
+            if isinstance(expected, dict):
+                locator = next(
+                    item for item in locators if item["path"] == expected["path"]
+                )
+                governed_findings = [
+                    {
+                        "severity": "critical",
+                        "category": "correctness",
+                        "path": expected["path"],
+                        "line": expected["line"],
+                        "claim": "The protected defect is present.",
+                        "violated_oracle": f"Requirement {case['requirement_id']} is violated.",
+                        "evidence_refs": [
+                            {
+                                "locator_id": locator["locator_id"],
+                                "sha256": locator["artifact_sha256"],
+                            }
+                        ],
+                        "remediation": "Satisfy the mandatory requirement.",
+                    }
+                ]
+            _gate, gate_manifest = qualification_module.qualification_gate_documents(
+                repository_id=governed_repository,
+                task_contract_sha256=governed_task,
+                candidate_id=governed_candidate,
+            )
+            result = {
+                "schema_version": "3.0.0",
+                **governed_bindings,
+                "gate_manifest_sha256": sha256_bytes(canonical_bytes(gate_manifest)),
+                "invocation_id": "comparison-fixture",
+                "verdict": disposition,
+                "reviewed_surfaces": REVIEW_RUBRIC["required_surfaces"],
+                "affected_closure": preliminary_context["context_projection"][
+                    "assurance_kernel"
+                ]["affected_closure"],
+                "retrieval_expansions": [],
+                "findings": governed_findings,
+                "missing_evidence": [],
+                "claims": [
+                    {
+                        "claim_id": claim["claim_id"],
+                        "claim": claim["claim"],
+                        "classification": "DIRECTLY_OBSERVED",
+                        "evidence_refs": [evidence_reference],
+                    }
+                    for claim in MANDATORY_REVIEWER_CLAIMS
+                ],
+                "limitations": [],
+            }
         else:
-            result["candidate_id"] = ordinary_candidate_id(case)
+            result = {
+                "candidate_id": ordinary_candidate_id(case),
+                "disposition": disposition,
+                "findings": ordinary_findings,
+            }
         result_bytes = canonical_bytes(result)
+        context_documents: dict[str, dict[str, object]] = {}
+        permitted_inputs: dict[str, object] = {}
+        if arm == "governed":
+            context_documents = qualification_module.qualification_context_documents(
+                mode="conformance",
+                case=case,
+                task=task_document,
+                policy=policy_document,
+                candidate=candidate_document,
+                reviewer_output_sha256=sha256_bytes(result_bytes),
+                execution=context_execution,
+                requested_profile="STANDARD",
+            )
+            self.assertEqual(
+                preliminary_context["context_receipt"],
+                context_documents["context_receipt"],
+            )
+            prefix = f"qualification/STANDARD/conformance/{case['case_id']}"
+            permitted_inputs = {
+                "task_contract_path": prefix + "/task-contract.json",
+                "task_contract_sha256": governed_task,
+                "repository_id": governed_repository,
+                "candidate_id": governed_candidate,
+                "candidate_path": "candidate",
+                "effective_policy_path": prefix + "/effective-policy.json",
+                "effective_policy_sha256": governed_policy,
+                "gate_manifest_path": prefix + "/gate-manifest.json",
+                "gate_manifest_sha256": result["gate_manifest_sha256"],
+                "context_receipt_path": prefix + "/context-receipt.json",
+                "context_receipt_sha256": sha256_bytes(
+                    canonical_bytes(context_documents["context_receipt"])
+                ),
+                "context_sources_path": prefix + "/context-sources.json",
+                "context_sources_sha256": sha256_bytes(
+                    canonical_bytes(context_documents["context_sources"])
+                ),
+                "context_projection_path": prefix + "/context-projection.json",
+                "context_projection_sha256": sha256_bytes(
+                    canonical_bytes(context_documents["context_projection"])
+                ),
+                "context_qualification_path": prefix + "/context-qualification.json",
+                "context_qualification_sha256": sha256_bytes(
+                    canonical_bytes(context_documents["context_qualification"])
+                ),
+                "context_qualification_id": context_documents[
+                    "context_qualification"
+                ]["qualification_id"],
+                "reviewer_qualification_path": prefix + "/reviewer-qualification.json",
+                "reviewer_qualification_sha256": sha256_bytes(canonical_bytes(bootstrap)),
+                "reviewer_qualification_id": bootstrap["qualification_id"],
+                "evidence_root": "qualification",
+                "reviewer_prompt_sha256": reviewer_identity["prompt_sha256"],
+                "review_mode": "conformance",
+            }
         event = canonical_bytes(
             {"type": "thread.started", "thread_id": "comparison-thread"}
         ) + b"\n" + canonical_bytes(
@@ -1689,6 +1885,14 @@ class AdapterTests(unittest.TestCase):
             "stdout": event,
             "stderr": b"",
         }
+        if arm == "governed":
+            raw.update(
+                {
+                    name: canonical_bytes(document)
+                    for name, document in context_documents.items()
+                }
+            )
+            raw["permitted_inputs"] = canonical_bytes(permitted_inputs)
         refs = {
             name: {
                 "path": f"{prefix}/{name}.bin",
@@ -1751,14 +1955,16 @@ class AdapterTests(unittest.TestCase):
                     "candidate_id": governed_bindings["candidate_id"],
                     "review_mode": "conformance",
                     "prompt_sha256": governed_bindings["reviewer_prompt_sha256"],
-                    "output_schema_sha256": digest("7"),
-                    "launcher_sha256": digest("8"),
+                    "output_schema_sha256": reviewer_identity["schema_sha256"],
+                    "launcher_sha256": reviewer_identity["launcher_sha256"],
                     "qualification_id": governed_bindings["qualification_id"],
                     "model": governed_bindings["model"],
                     "reasoning_effort": "xhigh",
                     "authentication": "chatgpt",
                     "input_context_receipt_sha256": governed_bindings["context_receipt_sha256"],
-                    "context_execution_receipt_sha256": digest("a"),
+                    "context_execution_receipt_sha256": refs[
+                        "context_execution_receipt"
+                    ]["sha256"],
                     "reviewer_output_sha256": refs["result"]["sha256"],
                     "candidate_before": governed_bindings["candidate_id"],
                     "candidate_after": governed_bindings["candidate_id"],
@@ -1794,15 +2000,30 @@ class AdapterTests(unittest.TestCase):
                         reasoning_effort="xhigh",
                     ),
                     "executed_argv_sha256": digest("9"),
-                    "stdin_sha256": digest("c"),
+                    "stdin_sha256": sha256_bytes(
+                        reviewer_module.build_reviewer_stdin(
+                            fixed_prompt=(
+                                ROOT / "kernel/.codex/review/reviewer.prompt.md"
+                            ).read_text(encoding="utf-8"),
+                            permitted_inputs=permitted_inputs,
+                        ).encode("utf-8")
+                    ),
                     "codex_thread_id": "comparison-thread",
                     "workflow": {
                         "system": "github-actions-qualification",
                         "run_id": "1",
                         "attempt": 1,
                     },
-                    "limits": {"timeout_seconds": 60, "max_output_bytes": 100000},
-                    "tools": [{"name": "codex-cli", "version": "codex-cli 0.149.1"}],
+                    "limits": {
+                        "timeout_seconds": comparison_identity["timeout_seconds"],
+                        "max_output_bytes": comparison_identity["max_output_bytes"],
+                    },
+                    "tools": [
+                        {
+                            "name": "codex-cli",
+                            "version": comparison_identity["codex_cli_version"],
+                        }
+                    ],
                     "materials": [
                         {"name": name, "sha256": value}
                         for name, value in (
@@ -1810,15 +2031,23 @@ class AdapterTests(unittest.TestCase):
                             ("effective-policy", governed_bindings["effective_policy_sha256"]),
                             ("candidate", governed_bindings["candidate_id"]),
                             ("reviewer-prompt", governed_bindings["reviewer_prompt_sha256"]),
-                            ("permitted-inputs", digest("d")),
-                            ("output-schema", digest("7")),
-                            ("launcher", digest("8")),
+                            ("permitted-inputs", refs["permitted_inputs"]["sha256"]),
+                            ("output-schema", reviewer_identity["schema_sha256"]),
+                            ("launcher", reviewer_identity["launcher_sha256"]),
                             ("qualification", governed_bindings["qualification_id"]),
-                            ("context-source-bundle", digest("e")),
-                            ("context-projection", digest("f")),
-                            ("context-qualification", digest("0")),
+                            ("context-source-bundle", refs["context_sources"]["sha256"]),
+                            ("context-projection", refs["context_projection"]["sha256"]),
+                            (
+                                "context-qualification",
+                                context_documents["context_qualification"][
+                                    "qualification_id"
+                                ],
+                            ),
                             ("prepared-context", governed_bindings["context_receipt_sha256"]),
-                            ("post-run-context", digest("a")),
+                            (
+                                "post-run-context",
+                                refs["context_execution_receipt"]["sha256"],
+                            ),
                         )
                     ],
                     "environment_keys": ["PATH"],
@@ -1894,7 +2123,68 @@ class AdapterTests(unittest.TestCase):
                     "truncated": False,
                 },
             }
-            primitive = {"reviewer_observation": ordinary_observation}
+            ordinary_prompt = (
+                "Review this bounded synthetic repository read-only. Determine whether the "
+                "implementation violates the named mandatory requirement. Inspect the exact "
+                "repository files and report only concrete findings for that requirement. "
+                "A finding must use a repository-relative path and its exact one-based line. "
+                "If evidence is unavailable, return UNKNOWN. Do not expose environment, host, "
+                "credential, or endpoint values.\n\n"
+                f"CASE_ID: {case['case_id']}\n"
+                f"CANDIDATE_ID: {ordinary_candidate_id(case)}\n"
+                f"REQUIREMENT_ID: {case['requirement_id']}\n"
+                "OBJECTIVE: Review the bounded synthetic candidate against its sole mandatory "
+                "requirement.\n"
+                "SCOPE: " + ", ".join(sorted(case["files"])) + "\n"
+            )
+            ordinary_prompt_sha = sha256_bytes(ordinary_prompt.encode("utf-8"))
+            primitive = {
+                "reviewer_observation": ordinary_observation,
+                "control": {
+                    "schema_version": "1.0.0",
+                    "candidate_before": ordinary_candidate_id(case),
+                    "candidate_after": ordinary_candidate_id(case),
+                    "model": comparison_identity["model"],
+                    "reasoning_effort": comparison_identity["reasoning_effort"],
+                    "authentication": comparison_identity["authentication"],
+                    "codex_cli_version": comparison_identity["codex_cli_version"],
+                    "prompt_sha256": ordinary_prompt_sha,
+                    "output_schema_sha256": comparison_identity[
+                        "ordinary_schema_sha256"
+                    ],
+                    "launcher_sha256": comparison_identity[
+                        "governed_launcher_sha256"
+                    ],
+                    "invocation": reviewer_module.sanitized_invocation_descriptor(
+                        model=str(comparison_identity["model"]),
+                        reasoning_effort=str(comparison_identity["reasoning_effort"]),
+                        prompt_sha256=ordinary_prompt_sha,
+                    ),
+                    "argv_sha256": reviewer_module.reviewer_argv_sha256(
+                        model=str(comparison_identity["model"]),
+                        reasoning_effort=str(comparison_identity["reasoning_effort"]),
+                    ),
+                    "executed_argv_sha256": digest("9"),
+                    "stdin_sha256": ordinary_prompt_sha,
+                    "workflow": {
+                        "system": "github-actions-comparison",
+                        "run_id": comparison_identity["workflow_run_id"],
+                        "attempt": comparison_identity["workflow_attempt"],
+                    },
+                    "limits": {
+                        "timeout_seconds": comparison_identity["timeout_seconds"],
+                        "max_output_bytes": comparison_identity["max_output_bytes"],
+                    },
+                    "environment_keys": ["PATH"],
+                    "started_at": "2026-09-05T12:00:00Z",
+                    "ended_at": "2026-09-05T12:00:01Z",
+                    "latency_ms": 25,
+                    "output_sha256": refs["result"]["sha256"],
+                    "stdout_sha256": refs["stdout"]["sha256"],
+                    "stderr_sha256": refs["stderr"]["sha256"],
+                    "limitations": [],
+                },
+            }
         execution = content_address(
             {
                 "schema_version": "1.0.0",
@@ -1929,6 +2219,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_paired_comparison_reconstructs_metrics_and_is_non_authorizing(self) -> None:
         corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
         validate_comparison_inputs(
             corpus,
             decision,
@@ -1941,38 +2232,25 @@ class AdapterTests(unittest.TestCase):
         arms: dict[str, list[dict[str, object]]] = {"governed": [], "ordinary": []}
         for arm in arms:
             for case in corpus["cases"]:
-                refs, artifacts = self._comparison_artifacts(case, arm)
+                refs, artifacts = self._comparison_artifacts(
+                    corpus, decision, case, arm
+                )
                 stored.update(artifacts)
                 arms[arm].append(
                     reconstruct_task(
                         arm=arm,
                         case=case,
+                        corpus=corpus,
+                        decision=decision,
                         artifacts=refs,
                         artifact_reader=lambda ref: stored[ref["path"]],
+                        expected_identity=identity,
                     )
                 )
         document = build_comparison_document(
             corpus=corpus,
             decision=decision,
-            identity={
-                "model": "gpt-5.6-sol",
-                "reasoning_effort": "xhigh",
-                "governed_profile": "STANDARD",
-                "codex_cli_version": "codex-cli 0.149.1",
-                "authentication": "chatgpt",
-                "governed_prompt_sha256": "sha256:" + "4" * 64,
-                "governed_schema_sha256": "sha256:" + "7" * 64,
-                "ordinary_schema_sha256": "sha256:" + "3" * 64,
-                "ordinary_prompt_version": "1.0.0",
-                "same_case_bytes": True,
-                "labels_excluded_from_prompts": True,
-                "execution_controls": "matched_sanitized_read_only",
-                "authority_repository": "timaday/codex-governed-change",
-                "authority_ref": "refs/heads/governance-authority",
-                "authority_sha": "a" * 40,
-                "workflow_run_id": "1",
-                "workflow_attempt": 1,
-            },
+            identity=identity,
             governed_tasks=arms["governed"],
             ordinary_tasks=arms["ordinary"],
             created_at="2026-09-05T12:10:00Z",
@@ -2099,12 +2377,15 @@ class AdapterTests(unittest.TestCase):
             )
 
     def test_governed_comparison_primitive_is_bound_to_exact_case_candidate(self) -> None:
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
         case = corpus["cases"][0]
-        references, artifacts = self._comparison_artifacts(case, "governed")
+        references, artifacts = self._comparison_artifacts(
+            corpus, decision, case, "governed"
+        )
         observed = {
             name: artifacts[references[name]["path"]]
-            for name in ("result", "stdout", "stderr")
+            for name in references
+            if name != "execution"
         }
         wrapper = json.loads(artifacts[references["execution"]["path"]])
         source = wrapper["primitive"]["reviewer_execution"]
@@ -2120,22 +2401,15 @@ class AdapterTests(unittest.TestCase):
         )}
         arguments = {
             "case": case,
+            "corpus": corpus,
+            "decision": decision,
             "source": source,
             "result": result,
             "references": references,
             "observed": observed,
             "parsed_stream": parsed_stream,
             "usage": usage,
-            "expected_identity": {
-                "model": source["model"],
-                "reasoning_effort": source["reasoning_effort"],
-                "authentication": source["authentication"],
-                "governed_prompt_sha256": source["prompt_sha256"],
-                "governed_schema_sha256": source["output_schema_sha256"],
-                "codex_cli_version": source["tools"][0]["version"],
-                "workflow_run_id": source["workflow"]["run_id"],
-                "workflow_attempt": source["workflow"]["attempt"],
-            },
+            "expected_identity": self._comparison_identity(),
         }
         self.assertTrue(_governed_primitive_valid(**arguments))
         replacement = "sha256:" + "f" * 64
@@ -2149,18 +2423,23 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(_governed_primitive_valid(**arguments))
 
     def test_governed_comparison_primitive_is_bound_to_protected_identity(self) -> None:
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
         case = corpus["cases"][0]
-        references, artifacts = self._comparison_artifacts(case, "governed")
+        references, artifacts = self._comparison_artifacts(
+            corpus, decision, case, "governed"
+        )
         wrapper = json.loads(artifacts[references["execution"]["path"]])
         source = wrapper["primitive"]["reviewer_execution"]
         result = json.loads(artifacts[references["result"]["path"]])
         observed = {
             name: artifacts[references[name]["path"]]
-            for name in ("result", "stdout", "stderr")
+            for name in references
+            if name != "execution"
         }
         arguments = {
             "case": case,
+            "corpus": corpus,
+            "decision": decision,
             "source": source,
             "result": result,
             "references": references,
@@ -2177,16 +2456,7 @@ class AdapterTests(unittest.TestCase):
                     "reasoning_output_tokens",
                 )
             },
-            "expected_identity": {
-                "model": source["model"],
-                "reasoning_effort": source["reasoning_effort"],
-                "authentication": source["authentication"],
-                "governed_prompt_sha256": source["prompt_sha256"],
-                "governed_schema_sha256": source["output_schema_sha256"],
-                "codex_cli_version": source["tools"][0]["version"],
-                "workflow_run_id": source["workflow"]["run_id"],
-                "workflow_attempt": source["workflow"]["attempt"],
-            },
+            "expected_identity": self._comparison_identity(),
         }
         self.assertTrue(_governed_primitive_valid(**arguments))
         arguments["expected_identity"] = dict(arguments["expected_identity"])
@@ -2196,8 +2466,79 @@ class AdapterTests(unittest.TestCase):
         source["materials"] = list(reversed(source["materials"]))
         self.assertFalse(_governed_primitive_valid(**arguments))
 
+    def test_governed_comparison_requires_exact_retained_context(self) -> None:
+        corpus, decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        references, artifacts = self._comparison_artifacts(
+            corpus, decision, case, "governed"
+        )
+        with self.assertRaisesRegex(ValueError, "artifact inventory"):
+            reconstruct_task(
+                arm="governed",
+                case=case,
+                corpus=corpus,
+                decision=decision,
+                artifacts={
+                    name: reference
+                    for name, reference in references.items()
+                    if name != "context_qualification"
+                },
+                artifact_reader=lambda ref: artifacts[ref["path"]],
+                expected_identity=self._comparison_identity(),
+            )
+
+    def test_ordinary_comparison_rejects_fully_readdressed_control_identity(self) -> None:
+        corpus, decision = self._comparison_fixture()
+        case = corpus["cases"][0]
+        identity = self._comparison_identity()
+        references, artifacts = self._comparison_artifacts(
+            corpus, decision, case, "ordinary"
+        )
+        for field in ("model", "prompt_sha256", "output_schema_sha256", "limits"):
+            with self.subTest(field=field):
+                changed_references = deepcopy(references)
+                changed_artifacts = dict(artifacts)
+                execution_reference = changed_references["execution"]
+                execution = json.loads(
+                    changed_artifacts[execution_reference["path"]]
+                )
+                control = execution["primitive"]["control"]
+                if field == "model":
+                    control["model"] = "different-model"
+                    control["invocation"]["model"] = "different-model"
+                    control["argv_sha256"] = reviewer_module.reviewer_argv_sha256(
+                        model="different-model", reasoning_effort="xhigh"
+                    )
+                elif field == "prompt_sha256":
+                    replacement = "sha256:" + "f" * 64
+                    control["prompt_sha256"] = replacement
+                    control["stdin_sha256"] = replacement
+                    control["invocation"]["reviewer_prompt_sha256"] = replacement
+                elif field == "output_schema_sha256":
+                    control[field] = "sha256:" + "e" * 64
+                else:
+                    control[field] = {
+                        "timeout_seconds": 61,
+                        "max_output_bytes": 100000,
+                    }
+                execution = content_address(execution, "execution_id")
+                execution_bytes = canonical_bytes(execution)
+                changed_artifacts[execution_reference["path"]] = execution_bytes
+                execution_reference["sha256"] = sha256_bytes(execution_bytes)
+                with self.assertRaisesRegex(ValueError, "summary differs"):
+                    reconstruct_task(
+                        arm="ordinary",
+                        case=case,
+                        corpus=corpus,
+                        decision=decision,
+                        artifacts=changed_references,
+                        artifact_reader=lambda ref: changed_artifacts[ref["path"]],
+                        expected_identity=identity,
+                    )
+
     def test_paired_comparison_rejects_readdressed_primitive_and_machine_value(self) -> None:
         corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
         stored: dict[str, bytes] = {}
         arms: dict[str, list[dict[str, object]]] = {"governed": [], "ordinary": []}
         refs_by_arm: dict[str, list[dict[str, dict[str, str]]]] = {
@@ -2206,24 +2547,53 @@ class AdapterTests(unittest.TestCase):
         }
         for arm in arms:
             for case in corpus["cases"]:
-                refs, artifacts = self._comparison_artifacts(case, arm)
+                refs, artifacts = self._comparison_artifacts(
+                    corpus, decision, case, arm
+                )
                 refs_by_arm[arm].append(refs)
                 stored.update(artifacts)
                 arms[arm].append(
                     reconstruct_task(
                         arm=arm,
                         case=case,
+                        corpus=corpus,
+                        decision=decision,
                         artifacts=refs,
                         artifact_reader=lambda ref: stored[ref["path"]],
+                        expected_identity=identity,
                     )
                 )
         document = build_comparison_document(
             corpus=corpus,
             decision=decision,
-            identity={"model": "gpt-5.6-sol"},
+            identity=identity,
             governed_tasks=arms["governed"],
             ordinary_tasks=arms["ordinary"],
             created_at="2026-09-05T12:10:00Z",
+        )
+        self.assertTrue(
+            comparison_document_valid(
+                document,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=identity,
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
+        )
+        self.assertTrue(
+            any("synthetic_bootstrap" in item for item in document["limitations"])
+        )
+        zero_timeout = deepcopy(document)
+        zero_timeout["identity"]["timeout_seconds"] = 0
+        zero_timeout = content_address(zero_timeout, "comparison_id")
+        self.assertFalse(
+            comparison_document_valid(
+                zero_timeout,
+                corpus=corpus,
+                decision=decision,
+                expected_identity=zero_timeout["identity"],
+                artifact_reader=lambda ref: stored[ref["path"]],
+            )
         )
         governed_execution_ref = refs_by_arm["governed"][0]["execution"]
         governed_execution = json.loads(stored[governed_execution_ref["path"]])
@@ -2253,7 +2623,7 @@ class AdapterTests(unittest.TestCase):
             )
         )
         fresh_governed_refs, fresh_governed_artifacts = self._comparison_artifacts(
-            corpus["cases"][0], "governed"
+            corpus, decision, corpus["cases"][0], "governed"
         )
         stored.update(fresh_governed_artifacts)
         document["arms"]["governed"]["tasks"][0]["artifacts"] = (
@@ -2277,7 +2647,7 @@ class AdapterTests(unittest.TestCase):
             )
         )
         fresh_refs, fresh_artifacts = self._comparison_artifacts(
-            corpus["cases"][0], "ordinary"
+            corpus, decision, corpus["cases"][0], "ordinary"
         )
         stored.update(fresh_artifacts)
         document["arms"]["ordinary"]["tasks"][0]["artifacts"] = fresh_refs
@@ -2310,17 +2680,15 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn(str(case["expected_finding"]["defect_id"]), prompt)
         self.assertIn(str(case["requirement_id"]), prompt)
         command = module._ordinary_command(
-            codex="codex",
-            candidate=Path("candidate"),
-            schema=Path("schema.json"),
-            result=Path("result.json"),
-            permission_profile="permissions-for-bounded-workspace",
+            codex=sys.executable,
+            candidate=ROOT,
+            schema=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+            result=ROOT / "comparison-result.json",
         )
         self.assertIn("gpt-5.6-sol", command)
         self.assertIn('model_reasoning_effort="xhigh"', command)
-        self.assertIn("read-only", command)
         self.assertIn('default_permissions="governed_reviewer"', command)
-        self.assertIn("permissions-for-bounded-workspace", command)
+        self.assertNotIn("--skip-git-repo-check", command)
 
     def test_ordinary_comparison_adapter_retains_reconstructable_evidence(self) -> None:
         spec = importlib.util.spec_from_file_location(
@@ -2330,7 +2698,10 @@ class AdapterTests(unittest.TestCase):
         self.assertIsNotNone(spec.loader)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
+        identity["timeout_seconds"] = 5
+        identity["max_output_bytes"] = 100_000
         case = corpus["cases"][0]
         candidate_id = ordinary_candidate_id(case)
         with tempfile.TemporaryDirectory() as directory:
@@ -2360,14 +2731,16 @@ class AdapterTests(unittest.TestCase):
             )
             executable.chmod(0o755)
             with mock.patch.object(
-                module,
+                reviewer_module,
                 "resolve_reviewer_runtime_read_roots",
                 return_value=(Path("/opt/codex-runtime"),),
             ):
                 task = module._run_ordinary_case(
                     case=case,
+                    corpus=corpus,
+                    decision=decision,
                     codex=str(executable),
-                    authentication="chatgpt",
+                    expected_identity=identity,
                     schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
                     timeout_seconds=5,
                     max_output_bytes=100_000,
@@ -2386,7 +2759,10 @@ class AdapterTests(unittest.TestCase):
         self.assertIsNotNone(spec.loader)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
+        identity["timeout_seconds"] = 0.05
+        identity["max_output_bytes"] = 100_000
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "slow-codex"
@@ -2401,14 +2777,16 @@ class AdapterTests(unittest.TestCase):
             )
             executable.chmod(0o755)
             with mock.patch.object(
-                module,
+                reviewer_module,
                 "resolve_reviewer_runtime_read_roots",
                 return_value=(Path("/opt/codex-runtime"),),
             ):
                 task = module._run_ordinary_case(
                     case=corpus["cases"][0],
+                    corpus=corpus,
+                    decision=decision,
                     codex=str(executable),
-                    authentication="chatgpt",
+                    expected_identity=identity,
                     schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
                     timeout_seconds=0.05,
                     max_output_bytes=100_000,
@@ -2427,7 +2805,10 @@ class AdapterTests(unittest.TestCase):
         self.assertIsNotNone(spec.loader)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
+        identity["timeout_seconds"] = 5
+        identity["max_output_bytes"] = 100_000
         case = corpus["cases"][0]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2467,14 +2848,16 @@ class AdapterTests(unittest.TestCase):
             executable.chmod(0o755)
             evidence = root / "evidence"
             with mock.patch.object(
-                module,
+                reviewer_module,
                 "resolve_reviewer_runtime_read_roots",
                 return_value=(Path("/opt/codex-runtime"),),
             ):
                 task = module._run_ordinary_case(
                     case=case,
+                    corpus=corpus,
+                    decision=decision,
                     codex=str(executable),
-                    authentication="chatgpt",
+                    expected_identity=identity,
                     schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
                     timeout_seconds=5,
                     max_output_bytes=100_000,
@@ -2498,7 +2881,10 @@ class AdapterTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.assertNotIn(".communicate(", inspect.getsource(module._run_ordinary_case))
-        corpus, _decision = self._comparison_fixture()
+        corpus, decision = self._comparison_fixture()
+        identity = self._comparison_identity()
+        identity["timeout_seconds"] = 5
+        identity["max_output_bytes"] = 1024
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "noisy-codex"
@@ -2526,14 +2912,16 @@ class AdapterTests(unittest.TestCase):
             executable.chmod(0o755)
             evidence = root / "evidence"
             with mock.patch.object(
-                module,
+                reviewer_module,
                 "resolve_reviewer_runtime_read_roots",
                 return_value=(Path("/opt/codex-runtime"),),
             ):
                 task = module._run_ordinary_case(
                     case=corpus["cases"][0],
+                    corpus=corpus,
+                    decision=decision,
                     codex=str(executable),
-                    authentication="chatgpt",
+                    expected_identity=identity,
                     schema_path=ROOT / ".governance/schemas/paired-comparison-result.schema.json",
                     timeout_seconds=5,
                     max_output_bytes=1024,
@@ -2821,7 +3209,7 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "observe_live_ref",
-                return_value={"sha": commit, "current": True},
+                return_value={"sha": commit, "current": True, "visibility": "public"},
             ),
             mock.patch.object(
                 module,
@@ -2854,7 +3242,7 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "observe_live_ref",
-                return_value={"sha": commit, "current": True},
+                return_value={"sha": commit, "current": True, "visibility": "public"},
             ),
             mock.patch.object(
                 module,
@@ -2890,7 +3278,7 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "observe_live_ref",
-                return_value={"sha": commit, "current": True},
+                return_value={"sha": commit, "current": True, "visibility": "public"},
             ),
             mock.patch.object(
                 module,
@@ -2921,7 +3309,7 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "observe_live_ref",
-                return_value={"sha": commit, "current": True},
+                return_value={"sha": commit, "current": True, "visibility": "public"},
             ),
             mock.patch.object(
                 module,
@@ -2952,7 +3340,7 @@ class AdapterTests(unittest.TestCase):
             mock.patch.object(
                 module,
                 "observe_live_ref",
-                return_value={"sha": commit, "current": True},
+                return_value={"sha": commit, "current": True, "visibility": "public"},
             ),
             mock.patch.object(
                 module,
@@ -3278,6 +3666,7 @@ class AdapterTests(unittest.TestCase):
         repository = {
             "full_name": "timaday/codex-governed-change-authority",
             "private": True,
+            "visibility": "private",
         }
         with mock.patch.object(
             module.urllib.request,
@@ -3310,6 +3699,66 @@ class AdapterTests(unittest.TestCase):
                 api_url="https://api.github.com",
                 require_private=True,
             )
+
+    def test_governance_live_ref_requires_public_repository(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "verify_live_authority_public", CI / "verify-live-authority-ref.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class Response:
+            status = 200
+
+            def __init__(self, document: dict) -> None:
+                self.document = document
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *unused: object) -> None:
+                return None
+
+            def read(self, unused_limit: int) -> bytes:
+                return json.dumps(self.document).encode("utf-8")
+
+        ref = {
+            "ref": "refs/heads/governance-authority",
+            "object": {"type": "commit", "sha": "a" * 40},
+        }
+        repository = {
+            "full_name": "timaday/codex-governed-change",
+            "private": False,
+            "visibility": "public",
+        }
+        arguments = {
+            "repository": "timaday/codex-governed-change",
+            "ref": "refs/heads/governance-authority",
+            "expected_sha": "a" * 40,
+            "token": "x",
+            "api_url": "https://api.github.com",
+            "require_public": True,
+        }
+        with mock.patch.object(
+            module.urllib.request,
+            "urlopen",
+            side_effect=[Response(ref), Response(repository)],
+        ):
+            observed = module.observe_live_ref(**arguments)
+        self.assertEqual("public", observed["visibility"])
+
+        repository["private"] = True
+        repository["visibility"] = "private"
+        with (
+            mock.patch.object(
+                module.urllib.request,
+                "urlopen",
+                side_effect=[Response(ref), Response(repository)],
+            ),
+            self.assertRaisesRegex(ValueError, "not public"),
+        ):
+            module.observe_live_ref(**arguments)
 
     def test_qualification_verifier_recomputes_each_case(self) -> None:
         spec = importlib.util.spec_from_file_location(

@@ -583,6 +583,7 @@ def main() -> None:
             "commit",
             "manifest_commit",
             "manifest_sha256",
+            "visibility",
             "ruleset",
             "observed_at",
         }
@@ -593,6 +594,7 @@ def main() -> None:
         or authority_observation.get("manifest_commit") != authority_head
         or authority_observation.get("manifest_sha256")
         != sha256_bytes(read_bytes_once(authority / "MANIFEST.json"))
+        or authority_observation.get("visibility") != "public"
     ):
         raise ValueError("live authority observation does not match protected inputs")
     authority_state = {

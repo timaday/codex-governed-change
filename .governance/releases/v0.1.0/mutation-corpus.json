@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:e91e96d6eac1838e1bb8761d38ba135675d0fb8f7f8c5b7ebe43d46d314a68df",
+  "corpus_id": "sha256:e9ea0ef8b47ce58295ed6c463c1a50b4fb2d6e7712723b6f57c938842c66d395",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1343,6 +1343,15 @@
       "operator": "accept cached or reasoning token subsets larger than their containing totals",
       "requirement_id": "GOV-TOKEN-002",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_reviewer_qualification.ReviewerQualificationAcceptanceTest.test_context_metrics_count_reasoning_once_and_require_usage_subsets"]
+    },
+    {
+      "mutant_id": "public-authority-visibility-unchecked",
+      "path": "src/codex_governance/evidence.py",
+      "old": "                and authority_state.get(\"visibility\") == \"public\"\n                and authority_state.get(\"ref\") == authority_ref",
+      "new": "                and authority_state.get(\"ref\") == authority_ref",
+      "operator": "accept a private repository as the public protected authority",
+      "requirement_id": "GOV-063",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_evidence_reconstruction.EvidenceReconstructionAcceptanceTest.test_initial_bootstrap_reconstructs_without_a_previous_lkg_decision"]
     }
   ]
 }

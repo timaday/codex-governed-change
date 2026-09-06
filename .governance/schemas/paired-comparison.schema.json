@@ -33,8 +33,11 @@
         "authentication",
         "governed_prompt_sha256",
         "governed_schema_sha256",
+        "governed_launcher_sha256",
         "ordinary_schema_sha256",
         "ordinary_prompt_version",
+        "timeout_seconds",
+        "max_output_bytes",
         "same_case_bytes",
         "labels_excluded_from_prompts",
         "execution_controls",
@@ -52,8 +55,11 @@
         "authentication": {"const": "chatgpt"},
         "governed_prompt_sha256": {"$ref": "#/$defs/digest"},
         "governed_schema_sha256": {"$ref": "#/$defs/digest"},
+        "governed_launcher_sha256": {"$ref": "#/$defs/digest"},
         "ordinary_schema_sha256": {"$ref": "#/$defs/digest"},
         "ordinary_prompt_version": {"const": "1.0.0"},
+        "timeout_seconds": {"type": "number", "minimum": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 1},
         "same_case_bytes": {"const": true},
         "labels_excluded_from_prompts": {"const": true},
         "execution_controls": {"const": "matched_sanitized_read_only"},
@@ -130,7 +136,13 @@
             "result": {"$ref": "#/$defs/artifact"},
             "execution": {"$ref": "#/$defs/artifact"},
             "stdout": {"$ref": "#/$defs/artifact"},
-            "stderr": {"$ref": "#/$defs/artifact"}
+            "stderr": {"$ref": "#/$defs/artifact"},
+            "context_sources": {"$ref": "#/$defs/artifact"},
+            "context_projection": {"$ref": "#/$defs/artifact"},
+            "context_qualification": {"$ref": "#/$defs/artifact"},
+            "context_receipt": {"$ref": "#/$defs/artifact"},
+            "context_execution_receipt": {"$ref": "#/$defs/artifact"},
+            "permitted_inputs": {"$ref": "#/$defs/artifact"}
           }
         }
       }

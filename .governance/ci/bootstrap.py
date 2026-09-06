@@ -160,7 +160,7 @@ def validate_initial_bootstrap(
     if (
         repository_id != "repo:timaday/codex-governed-change"
         or base_commit != "5393338571f8ed5de5192613dcdd6131044932dc"
-        or head_commit != "e370eeb60f014ae40268abf2b864482efd814a81"
+        or head_commit != "ab14b9f679100c7c9fc59ef1a1fa5e2cf4c9ebca"
         or lkg_commit != "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58"
     ):
         raise ValueError("initial-LKG bootstrap is bound only to release v0.1.0")
@@ -206,6 +206,7 @@ def validate_initial_bootstrap(
             "commit",
             "manifest_commit",
             "manifest_sha256",
+            "visibility",
             "source_assertion",
             "source_assertion_sha256",
             "ruleset",
@@ -220,6 +221,7 @@ def validate_initial_bootstrap(
         or authority_state.get("commit") != authority_commit
         or authority_state.get("manifest_commit") != authority_commit
         or authority_state.get("manifest_sha256") != authority_manifest_sha256
+        or authority_state.get("visibility") != "public"
         or authority_manifest_sha256
         != sha256_bytes(read_bytes_once(authority_manifest))
         or authority_state_sha256 != sha256_canonical(authority_state)

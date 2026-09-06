@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timezone
 from pathlib import Path, PurePosixPath
@@ -12,19 +13,28 @@ from common import (
     canonical_bytes,
     content_address,
     load_json,
+    read_bytes_once,
     require_digest,
     sha256_bytes,
 )
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.portability import stream_contains_shaped_value
 from codex_governance.qualification import (
+    bootstrap_qualification_record,
     qualification_candidate_document,
     qualification_case_classes_complete,
+    qualification_conformance_output_valid,
+    qualification_context_documents,
+    qualification_gate_documents,
+    qualification_policy_document,
     qualification_task_document,
 )
 from codex_governance.reviewer import (
+    build_reviewer_stdin,
     parse_codex_jsonl_evidence,
     reviewer_argv_sha256,
+    reviewer_input_keys,
+    reviewer_launcher_sha256,
     reviewer_observation_facts,
     reviewer_stream_is_portable,
     sanitized_invocation_descriptor,
@@ -45,6 +55,36 @@ REVIEWER_EXECUTION_SCHEMA = (
     / "schemas"
     / "reviewer-execution.schema.json"
 )
+REVIEWER_RESULT_SCHEMA = REVIEWER_EXECUTION_SCHEMA.with_name(
+    "reviewer-result.schema.json"
+)
+AUTHORITY_ROOT = Path(__file__).resolve().parents[2]
+REVIEWER_PROMPT = (
+    AUTHORITY_ROOT / "kernel" / ".codex" / "review" / "reviewer.prompt.md"
+)
+ORDINARY_RESULT_SCHEMA = (
+    AUTHORITY_ROOT / ".governance" / "schemas" / "paired-comparison-result.schema.json"
+)
+EVALUATION_REPOSITORY_ID = "repo:timaday/codex-governed-change-qualification"
+BASE_ARTIFACTS = frozenset({"result", "execution", "stdout", "stderr"})
+GOVERNED_CONTEXT_ARTIFACTS = frozenset(
+    {
+        "context_sources",
+        "context_projection",
+        "context_qualification",
+        "context_receipt",
+        "context_execution_receipt",
+        "permitted_inputs",
+    }
+)
+
+
+def _required_artifacts(arm: str) -> frozenset[str]:
+    if arm == "governed":
+        return BASE_ARTIFACTS | GOVERNED_CONTEXT_ARTIFACTS
+    if arm == "ordinary":
+        return BASE_ARTIFACTS
+    raise ValueError("comparison arm is invalid")
 
 
 def _artifact_reference(value: Any) -> dict[str, str]:
@@ -89,23 +129,46 @@ def ordinary_candidate_id(case: Mapping[str, Any]) -> str:
     return sha256_bytes(canonical_bytes({"files": dict(files)}))
 
 
+def ordinary_prompt(case: Mapping[str, Any], candidate_id: str | None = None) -> str:
+    """Build the label-blind ordinary prompt from protected case fields."""
+    return (
+        "Review this bounded synthetic repository read-only. Determine whether the "
+        "implementation violates the named mandatory requirement. Inspect the exact "
+        "repository files and report only concrete findings for that requirement. "
+        "A finding must use a repository-relative path and its exact one-based line. "
+        "If evidence is unavailable, return UNKNOWN. Do not expose environment, host, "
+        "credential, or endpoint values.\n\n"
+        f"CASE_ID: {case['case_id']}\n"
+        f"CANDIDATE_ID: {candidate_id or ordinary_candidate_id(case)}\n"
+        f"REQUIREMENT_ID: {case['requirement_id']}\n"
+        "OBJECTIVE: Review the bounded synthetic candidate against its sole mandatory "
+        "requirement.\n"
+        "SCOPE: " + ", ".join(sorted(case["files"])) + "\n"
+    )
+
+
 def _governed_primitive_valid(
     *,
     case: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    decision: Mapping[str, Any],
     source: Mapping[str, Any],
     result: Mapping[str, Any],
     references: Mapping[str, Mapping[str, str]],
     observed: Mapping[str, bytes],
     parsed_stream: Mapping[str, Any],
     usage: Mapping[str, Any],
-    expected_identity: Mapping[str, Any] | None = None,
+    expected_identity: Mapping[str, Any],
 ) -> bool:
     """Reconstruct governed execution validity instead of trusting its summary."""
-    schema = load_json(REVIEWER_EXECUTION_SCHEMA)
+    execution_schema = load_json(REVIEWER_EXECUTION_SCHEMA)
+    result_schema = load_json(REVIEWER_RESULT_SCHEMA)
     observation = source.get("observation")
     if (
-        not isinstance(schema, dict)
-        or validate_instance(dict(source), schema)
+        not isinstance(execution_schema, dict)
+        or not isinstance(result_schema, dict)
+        or validate_instance(dict(source), execution_schema)
+        or validate_instance(dict(result), result_schema)
         or not isinstance(observation, Mapping)
     ):
         return False
@@ -124,114 +187,181 @@ def _governed_primitive_valid(
         "timed_out": observation.get("timed_out"),
         **derived,
     }
-    output_bindings = {
-        "repository_id": source.get("repository_id"),
-        "task_contract_sha256": source.get("task_contract_sha256"),
-        "effective_policy_sha256": source.get("effective_policy_sha256"),
-        "candidate_id": source.get("candidate_id"),
-        "reviewer_prompt_sha256": source.get("prompt_sha256"),
-        "qualification_id": source.get("qualification_id"),
-        "model": source.get("model"),
-        "context_receipt_sha256": source.get("input_context_receipt_sha256"),
-    }
     try:
-        expected_task_sha256 = sha256_bytes(
-            canonical_bytes(
-                qualification_task_document(
-                    repository_id=str(source.get("repository_id")), case=case
-                )
-            )
-        )
-        expected_candidate = qualification_candidate_document(
-            repository_id=str(source.get("repository_id")),
-            case=case,
-            effective_policy_sha256=str(source.get("effective_policy_sha256")),
-        )
-        materials = source.get("materials")
-        if not isinstance(materials, list) or any(
-            not isinstance(item, Mapping) for item in materials
+        prompt_bytes = read_bytes_once(REVIEWER_PROMPT)
+        governed_schema_bytes = read_bytes_once(REVIEWER_RESULT_SCHEMA)
+        corpus_sha256 = sha256_bytes(canonical_bytes(dict(corpus)))
+        identity = {
+            "prompt_sha256": expected_identity["governed_prompt_sha256"],
+            "schema_sha256": expected_identity["governed_schema_sha256"],
+            "launcher_sha256": expected_identity["governed_launcher_sha256"],
+            "codex_cli_version": expected_identity["codex_cli_version"],
+            "authentication": expected_identity["authentication"],
+            "model": expected_identity["model"],
+            "reasoning_effort": expected_identity["reasoning_effort"],
+        }
+        if (
+            identity["prompt_sha256"] != sha256_bytes(prompt_bytes)
+            or identity["schema_sha256"] != sha256_bytes(governed_schema_bytes)
+            or identity["launcher_sha256"] != reviewer_launcher_sha256()
+            or expected_identity.get("governed_profile") != "STANDARD"
         ):
             return False
-        expected_material_names = [
-            "task-contract",
-            "effective-policy",
-            "candidate",
-            "reviewer-prompt",
-            "permitted-inputs",
-            "output-schema",
-            "launcher",
-            "qualification",
-            "context-source-bundle",
-            "context-projection",
-            "context-qualification",
-            "prepared-context",
-            "post-run-context",
-        ]
-        if [item.get("name") for item in materials] != expected_material_names:
+        bootstrap = bootstrap_qualification_record(
+            identity=identity,
+            corpus_sha256=corpus_sha256,
+            label_decision_id=str(decision["decision_id"]),
+        )
+        task = qualification_task_document(
+            repository_id=EVALUATION_REPOSITORY_ID,
+            case=case,
+        )
+        task_sha256 = sha256_bytes(canonical_bytes(task))
+        policy = qualification_policy_document(
+            repository_id=EVALUATION_REPOSITORY_ID,
+            case=case,
+            corpus_sha256=corpus_sha256,
+            bootstrap_qualification_id=bootstrap["qualification_id"],
+            model=str(identity["model"]),
+            reasoning_effort=str(identity["reasoning_effort"]),
+        )
+        policy_sha256 = sha256_bytes(canonical_bytes(policy))
+        expected_candidate = qualification_candidate_document(
+            repository_id=EVALUATION_REPOSITORY_ID,
+            case=case,
+            effective_policy_sha256=policy_sha256,
+        )
+        candidate_id = expected_candidate["candidate_id"]
+        parsed_context = {
+            name: _json_object(observed[name])
+            for name in GOVERNED_CONTEXT_ARTIFACTS
+            if name != "permitted_inputs"
+        }
+        permitted_inputs = _json_object(observed["permitted_inputs"])
+        if any(
+            canonical_bytes(document) != observed[name]
+            for name, document in parsed_context.items()
+        ) or canonical_bytes(permitted_inputs) != observed["permitted_inputs"]:
             return False
-        material_by_name = {
-            item.get("name"): item.get("sha256") for item in materials
+        expected_context = qualification_context_documents(
+            mode="conformance",
+            case=case,
+            task=task,
+            policy=policy,
+            candidate=expected_candidate,
+            reviewer_output_sha256=references["result"]["sha256"],
+            execution=source,
+            requested_profile="STANDARD",
+        )
+        if parsed_context != expected_context:
+            return False
+        _gate, gate_manifest = qualification_gate_documents(
+            repository_id=EVALUATION_REPOSITORY_ID,
+            task_contract_sha256=task_sha256,
+            candidate_id=candidate_id,
+        )
+        prefix = f"qualification/STANDARD/conformance/{case['case_id']}"
+        expected_permitted_inputs = {
+            "task_contract_path": prefix + "/task-contract.json",
+            "task_contract_sha256": task_sha256,
+            "repository_id": EVALUATION_REPOSITORY_ID,
+            "candidate_id": candidate_id,
+            "candidate_path": "candidate",
+            "effective_policy_path": prefix + "/effective-policy.json",
+            "effective_policy_sha256": policy_sha256,
+            "gate_manifest_path": prefix + "/gate-manifest.json",
+            "gate_manifest_sha256": sha256_bytes(canonical_bytes(gate_manifest)),
+            "context_receipt_path": prefix + "/context-receipt.json",
+            "context_receipt_sha256": references["context_receipt"]["sha256"],
+            "context_sources_path": prefix + "/context-sources.json",
+            "context_sources_sha256": references["context_sources"]["sha256"],
+            "context_projection_path": prefix + "/context-projection.json",
+            "context_projection_sha256": references["context_projection"]["sha256"],
+            "context_qualification_path": prefix + "/context-qualification.json",
+            "context_qualification_sha256": references["context_qualification"]["sha256"],
+            "context_qualification_id": expected_context["context_qualification"]["qualification_id"],
+            "reviewer_qualification_path": prefix + "/reviewer-qualification.json",
+            "reviewer_qualification_sha256": sha256_bytes(canonical_bytes(bootstrap)),
+            "reviewer_qualification_id": bootstrap["qualification_id"],
+            "evidence_root": "qualification",
+            "reviewer_prompt_sha256": identity["prompt_sha256"],
+            "review_mode": "conformance",
         }
-        expected_materials = {
-            "task-contract": source.get("task_contract_sha256"),
-            "effective-policy": source.get("effective_policy_sha256"),
-            "candidate": source.get("candidate_id"),
-            "reviewer-prompt": source.get("prompt_sha256"),
-            "output-schema": source.get("output_schema_sha256"),
-            "launcher": source.get("launcher_sha256"),
-            "qualification": source.get("qualification_id"),
-            "prepared-context": source.get("input_context_receipt_sha256"),
-            "post-run-context": source.get("context_execution_receipt_sha256"),
+        expected_materials = [
+            {"name": "task-contract", "sha256": task_sha256},
+            {"name": "effective-policy", "sha256": policy_sha256},
+            {"name": "candidate", "sha256": candidate_id},
+            {"name": "reviewer-prompt", "sha256": identity["prompt_sha256"]},
+            {"name": "permitted-inputs", "sha256": references["permitted_inputs"]["sha256"]},
+            {"name": "output-schema", "sha256": identity["schema_sha256"]},
+            {"name": "launcher", "sha256": identity["launcher_sha256"]},
+            {"name": "qualification", "sha256": bootstrap["qualification_id"]},
+            {"name": "context-source-bundle", "sha256": references["context_sources"]["sha256"]},
+            {"name": "context-projection", "sha256": references["context_projection"]["sha256"]},
+            {"name": "context-qualification", "sha256": expected_context["context_qualification"]["qualification_id"]},
+            {"name": "prepared-context", "sha256": references["context_receipt"]["sha256"]},
+            {"name": "post-run-context", "sha256": references["context_execution_receipt"]["sha256"]},
+        ]
+        output_bindings = {
+            "repository_id": EVALUATION_REPOSITORY_ID,
+            "task_contract_sha256": task_sha256,
+            "effective_policy_sha256": policy_sha256,
+            "candidate_id": candidate_id,
+            "reviewer_prompt_sha256": identity["prompt_sha256"],
+            "qualification_id": bootstrap["qualification_id"],
+            "model": identity["model"],
+            "context_receipt_sha256": references["context_receipt"]["sha256"],
         }
-        identity_matches = True
-        if expected_identity is not None:
-            identity_matches = bool(
-                source.get("model") == expected_identity.get("model")
-                and source.get("reasoning_effort")
-                == expected_identity.get("reasoning_effort")
-                and source.get("authentication")
-                == expected_identity.get("authentication")
-                and source.get("prompt_sha256")
-                == expected_identity.get("governed_prompt_sha256")
-                and source.get("output_schema_sha256")
-                == expected_identity.get("governed_schema_sha256")
-                and source.get("tools")
-                == [
-                    {
-                        "name": "codex-cli",
-                        "version": expected_identity.get("codex_cli_version"),
-                    }
-                ]
-                and source.get("workflow")
-                == {
-                    "system": "github-actions-qualification",
-                    "run_id": expected_identity.get("workflow_run_id"),
-                    "attempt": expected_identity.get("workflow_attempt"),
-                }
-            )
-    except (TypeError, ValueError):
+        expected_stdin_sha256 = sha256_bytes(
+            build_reviewer_stdin(
+                fixed_prompt=prompt_bytes.decode("utf-8"),
+                permitted_inputs=permitted_inputs,
+            ).encode("utf-8")
+        )
+    except (KeyError, OSError, TypeError, UnicodeError, ValueError):
         return False
     return bool(
-        identity_matches
+        source.get("repository_id") == EVALUATION_REPOSITORY_ID
+        and source.get("task_contract_sha256") == task_sha256
+        and source.get("effective_policy_sha256") == policy_sha256
+        and source.get("candidate_id") == candidate_id
+        and source.get("prompt_sha256") == identity["prompt_sha256"]
+        and source.get("output_schema_sha256") == identity["schema_sha256"]
+        and source.get("launcher_sha256") == identity["launcher_sha256"]
+        and source.get("qualification_id") == bootstrap["qualification_id"]
+        and source.get("model") == identity["model"]
+        and source.get("reasoning_effort") == identity["reasoning_effort"]
+        and source.get("authentication") == identity["authentication"]
+        and source.get("tools")
+        == [{"name": "codex-cli", "version": identity["codex_cli_version"]}]
+        and source.get("workflow")
+        == {
+            "system": "github-actions-qualification",
+            "run_id": expected_identity.get("workflow_run_id"),
+            "attempt": expected_identity.get("workflow_attempt"),
+        }
+        and source.get("limits")
+        == {
+            "timeout_seconds": expected_identity.get("timeout_seconds"),
+            "max_output_bytes": expected_identity.get("max_output_bytes"),
+        }
         and source.get("invocation")
         == sanitized_invocation_descriptor(
-            model=str(source.get("model")),
-            reasoning_effort=str(source.get("reasoning_effort")),
-            prompt_sha256=str(source.get("prompt_sha256")),
+            model=str(identity["model"]),
+            reasoning_effort=str(identity["reasoning_effort"]),
+            prompt_sha256=str(identity["prompt_sha256"]),
         )
         and source.get("argv_sha256")
         == reviewer_argv_sha256(
-            model=str(source.get("model")),
-            reasoning_effort=str(source.get("reasoning_effort")),
+            model=str(identity["model"]),
+            reasoning_effort=str(identity["reasoning_effort"]),
         )
+        and source.get("stdin_sha256") == expected_stdin_sha256
         and all(source.get(name) == value for name, value in summary_fields.items())
         and all(result.get(name) == value for name, value in output_bindings.items())
-        and source.get("task_contract_sha256") == expected_task_sha256
-        and source.get("candidate_id") == expected_candidate.get("candidate_id")
-        and all(
-            material_by_name.get(name) == value
-            for name, value in expected_materials.items()
-        )
+        and source.get("materials") == expected_materials
+        and permitted_inputs == expected_permitted_inputs
+        and set(permitted_inputs) == reviewer_input_keys("conformance")
         and source.get("review_mode") == "conformance"
         and source.get("candidate_id")
         == source.get("candidate_before")
@@ -242,6 +372,18 @@ def _governed_primitive_valid(
         and source.get("stderr_sha256") == references["stderr"]["sha256"]
         and stdout_ref.get("sha256") == references["stdout"]["sha256"]
         and stderr_ref.get("sha256") == references["stderr"]["sha256"]
+        and source.get("input_context_receipt_sha256")
+        == references["context_receipt"]["sha256"]
+        and source.get("context_execution_receipt_sha256")
+        == references["context_execution_receipt"]["sha256"]
+        and qualification_conformance_output_valid(
+            result=result,
+            repository_id=EVALUATION_REPOSITORY_ID,
+            task_contract_sha256=task_sha256,
+            candidate=expected_candidate,
+            expected_context=expected_context,
+            case=case,
+        )
         and output.get("bytes") == len(observed["result"])
         and observation.get("stdout", {}).get("bytes_normalized")
         == len(observed["stdout"])
@@ -377,7 +519,7 @@ def score_task(
         for name, reference in artifacts.items()
         if isinstance(name, str) and name
     }
-    if set(normalized_artifacts) != {"result", "execution", "stdout", "stderr"}:
+    if set(normalized_artifacts) != _required_artifacts(arm):
         raise ValueError("comparison artifact inventory is incomplete")
     expected = case.get("expected_disposition")
     expected_finding = case.get("expected_finding")
@@ -385,7 +527,18 @@ def score_task(
     if isinstance(expected_finding, Mapping):
         finding_match = any(
             isinstance(item, Mapping)
-            and item.get("requirement_id") == case.get("requirement_id")
+            and (
+                (
+                    arm == "ordinary"
+                    and item.get("requirement_id") == case.get("requirement_id")
+                )
+                or (
+                    arm == "governed"
+                    and isinstance(item.get("violated_oracle"), str)
+                    and str(case.get("requirement_id"))
+                    in re.findall(r"[A-Za-z0-9_-]+", str(item.get("violated_oracle")))
+                )
+            )
             and item.get("path") == expected_finding.get("path")
             and item.get("line") == expected_finding.get("line")
             for item in findings
@@ -418,13 +571,141 @@ def score_task(
     }
 
 
+def _ordinary_primitive_valid(
+    *,
+    case: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    control: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    result: Mapping[str, Any],
+    references: Mapping[str, Mapping[str, str]],
+    observed: Mapping[str, bytes],
+    parsed_stream: Mapping[str, Any],
+    usage: Mapping[str, Any],
+    expected_identity: Mapping[str, Any],
+) -> bool:
+    """Reconstruct the ordinary invocation from protected inputs and raw facts."""
+    try:
+        schema = load_json(ORDINARY_RESULT_SCHEMA)
+        prompt = ordinary_prompt(case)
+        started = parse_rfc3339(str(control["started_at"]))
+        ended = parse_rfc3339(str(control["ended_at"]))
+        derived = reviewer_observation_facts(observation)
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+    supervisor = observation.get("supervisor")
+    output = observation.get("output")
+    candidate_id = ordinary_candidate_id(case)
+    return bool(
+        isinstance(schema, dict)
+        and not validate_instance(dict(result), schema)
+        and isinstance(supervisor, Mapping)
+        and isinstance(output, Mapping)
+        and set(control)
+        == {
+            "schema_version",
+            "candidate_before",
+            "candidate_after",
+            "model",
+            "reasoning_effort",
+            "authentication",
+            "codex_cli_version",
+            "prompt_sha256",
+            "output_schema_sha256",
+            "launcher_sha256",
+            "invocation",
+            "argv_sha256",
+            "executed_argv_sha256",
+            "stdin_sha256",
+            "workflow",
+            "limits",
+            "environment_keys",
+            "started_at",
+            "ended_at",
+            "latency_ms",
+            "output_sha256",
+            "stdout_sha256",
+            "stderr_sha256",
+            "limitations",
+        }
+        and control.get("schema_version") == "1.0.0"
+        and control.get("candidate_before")
+        == control.get("candidate_after")
+        == candidate_id
+        and control.get("model") == expected_identity.get("model")
+        and control.get("reasoning_effort")
+        == expected_identity.get("reasoning_effort")
+        and control.get("authentication") == expected_identity.get("authentication")
+        and control.get("codex_cli_version")
+        == expected_identity.get("codex_cli_version")
+        and control.get("prompt_sha256") == sha256_bytes(prompt.encode("utf-8"))
+        and control.get("output_schema_sha256")
+        == expected_identity.get("ordinary_schema_sha256")
+        == sha256_bytes(read_bytes_once(ORDINARY_RESULT_SCHEMA))
+        and control.get("launcher_sha256")
+        == expected_identity.get("governed_launcher_sha256")
+        == reviewer_launcher_sha256()
+        and control.get("invocation")
+        == sanitized_invocation_descriptor(
+            model=str(expected_identity.get("model")),
+            reasoning_effort=str(expected_identity.get("reasoning_effort")),
+            prompt_sha256=str(control.get("prompt_sha256")),
+        )
+        and control.get("argv_sha256")
+        == reviewer_argv_sha256(
+            model=str(expected_identity.get("model")),
+            reasoning_effort=str(expected_identity.get("reasoning_effort")),
+        )
+        and control.get("executed_argv_sha256")
+        == supervisor.get("executed_argv_sha256")
+        and control.get("stdin_sha256") == sha256_bytes(prompt.encode("utf-8"))
+        and control.get("workflow")
+        == {
+            "system": "github-actions-comparison",
+            "run_id": expected_identity.get("workflow_run_id"),
+            "attempt": expected_identity.get("workflow_attempt"),
+        }
+        and control.get("limits")
+        == {
+            "timeout_seconds": expected_identity.get("timeout_seconds"),
+            "max_output_bytes": expected_identity.get("max_output_bytes"),
+        }
+        and isinstance(control.get("environment_keys"), list)
+        and all(
+            isinstance(name, str) and name
+            for name in control.get("environment_keys", ())
+        )
+        and len(set(control.get("environment_keys", ())))
+        == len(control.get("environment_keys", ()))
+        and ended >= started
+        and control.get("latency_ms") == execution.get("elapsed_ms")
+        and control.get("output_sha256") == references["result"]["sha256"]
+        and control.get("stdout_sha256") == references["stdout"]["sha256"]
+        and control.get("stderr_sha256") == references["stderr"]["sha256"]
+        and output.get("bytes") == len(observed["result"])
+        and observation.get("stdout", {}).get("bytes_normalized")
+        == len(observed["stdout"])
+        and observation.get("stderr", {}).get("bytes_normalized")
+        == len(observed["stderr"])
+        and result.get("candidate_id") == candidate_id
+        and control.get("limitations") == []
+        and reviewer_stream_is_portable(observed["stdout"])
+        and reviewer_stream_is_portable(observed["stderr"])
+        and parsed_stream.get("thread_id")
+        and all(parsed_stream.get(name) == usage[name] for name in TOKEN_FIELDS)
+        and derived["execution_valid"] is True
+    )
+
+
 def reconstruct_task(
     *,
     arm: str,
     case: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    decision: Mapping[str, Any],
     artifacts: Mapping[str, Mapping[str, str]],
     artifact_reader: Callable[[Mapping[str, str]], bytes],
-    expected_identity: Mapping[str, Any] | None = None,
+    expected_identity: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Derive a task score from its retained result, execution and streams."""
     references = {
@@ -432,7 +713,7 @@ def reconstruct_task(
         for name, reference in artifacts.items()
         if isinstance(name, str) and name
     }
-    if set(references) != {"result", "execution", "stdout", "stderr"}:
+    if set(references) != _required_artifacts(arm):
         raise ValueError("comparison artifact inventory is incomplete")
     observed: dict[str, bytes] = {}
     for name, reference in references.items():
@@ -475,6 +756,8 @@ def reconstruct_task(
             raise ValueError("governed primitive execution does not reconstruct")
         primitive_valid = _governed_primitive_valid(
             case=case,
+            corpus=corpus,
+            decision=decision,
             source=source,
             result=result,
             references=references,
@@ -485,22 +768,24 @@ def reconstruct_task(
         )
     else:
         ordinary_observation = primitive.get("reviewer_observation")
-        if set(primitive) != {"reviewer_observation"} or not isinstance(
-            ordinary_observation, Mapping
+        ordinary_control = primitive.get("control")
+        if (
+            set(primitive) != {"reviewer_observation", "control"}
+            or not isinstance(ordinary_observation, Mapping)
+            or not isinstance(ordinary_control, Mapping)
         ):
             raise ValueError("ordinary primitive execution does not reconstruct")
-        ordinary_facts = reviewer_observation_facts(ordinary_observation)
-        ordinary_output = ordinary_observation.get("output")
-        primitive_valid = bool(
-            isinstance(ordinary_output, Mapping)
-            and execution.get("candidate_id") == ordinary_candidate_id(case)
-            and result.get("candidate_id") == execution.get("candidate_id")
-            and ordinary_observation.get("stdout", {}).get("bytes_normalized")
-            == len(observed["stdout"])
-            and ordinary_observation.get("stderr", {}).get("bytes_normalized")
-            == len(observed["stderr"])
-            and ordinary_output.get("bytes") == len(observed["result"])
-            and ordinary_facts["execution_valid"] is True
+        primitive_valid = _ordinary_primitive_valid(
+            case=case,
+            execution=execution,
+            control=ordinary_control,
+            observation=ordinary_observation,
+            result=result,
+            references=references,
+            observed=observed,
+            parsed_stream=parsed_stream,
+            usage=usage,
+            expected_identity=expected_identity,
         )
     if execution.get("execution_valid") is not primitive_valid:
         raise ValueError("comparison execution summary differs from primitive facts")
@@ -623,6 +908,7 @@ def build_comparison_document(
             "Total tokens equal input plus output tokens; reasoning output is retained separately as a subset of output and is not double-counted.",
             "Token totals are measurements only for tasks whose token usage is complete.",
             "The comparison cannot substitute for deterministic admission, operational qualification, or release approval.",
+            "Governed-arm context is explicitly unqualified synthetic_bootstrap context for evaluation-case construction, not empirical production qualification.",
         ],
     }
     return content_address(document, "comparison_id")
@@ -684,8 +970,16 @@ def comparison_document_valid(
 ) -> bool:
     """Reconstruct metrics and reject unsafe retained comparison artifacts."""
     try:
+        timeout_seconds = expected_identity.get("timeout_seconds")
+        max_output_bytes = expected_identity.get("max_output_bytes")
         if (
-            content_address(dict(document), "comparison_id") != dict(document)
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or timeout_seconds <= 0
+            or not isinstance(max_output_bytes, int)
+            or isinstance(max_output_bytes, bool)
+            or max_output_bytes < 1
+            or content_address(dict(document), "comparison_id") != dict(document)
             or document.get("corpus_id") != corpus.get("corpus_id")
             or document.get("label_decision_id") != decision.get("decision_id")
             or document.get("identity") != dict(expected_identity)
@@ -705,6 +999,8 @@ def comparison_document_valid(
                 reconstruct_task(
                     arm=arm_name,
                     case=case,
+                    corpus=corpus,
+                    decision=decision,
                     artifacts=task["artifacts"],
                     artifact_reader=artifact_reader,
                     expected_identity=expected_identity,
