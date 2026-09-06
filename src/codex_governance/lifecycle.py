@@ -414,6 +414,41 @@ def migrate_reviewer_qualification_v2_to_v3(
     )
 
 
+def _protected_qualification_limits(
+    *, timeout_seconds: Any, max_output_bytes: Any
+) -> tuple[int, int]:
+    if (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds < 1
+        or not isinstance(max_output_bytes, int)
+        or isinstance(max_output_bytes, bool)
+        or max_output_bytes < 1
+    ):
+        raise ValueError("positive protected reviewer limits are required")
+    return timeout_seconds, max_output_bytes
+
+
+def migrate_reviewer_qualification_v3_to_v4(
+    document: Mapping[str, Any], *, timeout_seconds: int, max_output_bytes: int
+) -> dict[str, Any]:
+    """Bind a legacy qualification to separately protected execution limits."""
+    migrated = _migration_document(
+        document, from_version="3.0.0", identity_field="qualification_id"
+    )
+    if {"timeout_seconds", "max_output_bytes"} & set(migrated):
+        raise ValueError("legacy reviewer qualification already contains v4 fields")
+    timeout, output = _protected_qualification_limits(
+        timeout_seconds=timeout_seconds,
+        max_output_bytes=max_output_bytes,
+    )
+    migrated["timeout_seconds"] = timeout
+    migrated["max_output_bytes"] = output
+    return _finish_migration(
+        migrated, to_version="4.0.0", identity_field="qualification_id"
+    )
+
+
 def migrate_reviewer_qualification_cases_v1_to_v2(
     document: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -533,6 +568,33 @@ def migrate_reviewer_qualification_cases_v4_to_v5(
     migrated["identity"] = {**identity, "authentication": authentication}
     return _finish_migration(
         migrated, to_version="5.0.0", identity_field="case_evidence_id"
+    )
+
+
+def migrate_reviewer_qualification_cases_v5_to_v6(
+    document: Mapping[str, Any], *, timeout_seconds: int, max_output_bytes: int
+) -> dict[str, Any]:
+    """Bind legacy qualification cases to separately protected limits."""
+    migrated = _migration_document(
+        document, from_version="5.0.0", identity_field="case_evidence_id"
+    )
+    identity = migrated.get("identity")
+    if not isinstance(identity, Mapping) or {
+        "timeout_seconds",
+        "max_output_bytes",
+    } & set(identity):
+        raise ValueError("legacy qualification case identity already contains v6 fields")
+    timeout, output = _protected_qualification_limits(
+        timeout_seconds=timeout_seconds,
+        max_output_bytes=max_output_bytes,
+    )
+    migrated["identity"] = {
+        **identity,
+        "timeout_seconds": timeout,
+        "max_output_bytes": output,
+    }
+    return _finish_migration(
+        migrated, to_version="6.0.0", identity_field="case_evidence_id"
     )
 
 
@@ -828,10 +890,12 @@ EXECUTABLE_MIGRATIONS = {
     ("evidence-manifest", "3.0.0", "4.0.0"): migrate_evidence_manifest_v3_to_v4,
     ("reviewer-qualification", "1.0.0", "2.0.0"): migrate_reviewer_qualification_v1_to_v2,
     ("reviewer-qualification", "2.0.0", "3.0.0"): migrate_reviewer_qualification_v2_to_v3,
+    ("reviewer-qualification", "3.0.0", "4.0.0"): migrate_reviewer_qualification_v3_to_v4,
     ("reviewer-qualification-cases", "1.0.0", "2.0.0"): migrate_reviewer_qualification_cases_v1_to_v2,
     ("reviewer-qualification-cases", "2.0.0", "3.0.0"): migrate_reviewer_qualification_cases_v2_to_v3,
     ("reviewer-qualification-cases", "3.0.0", "4.0.0"): migrate_reviewer_qualification_cases_v3_to_v4,
     ("reviewer-qualification-cases", "4.0.0", "5.0.0"): migrate_reviewer_qualification_cases_v4_to_v5,
+    ("reviewer-qualification-cases", "5.0.0", "6.0.0"): migrate_reviewer_qualification_cases_v5_to_v6,
     ("reviewer-qualification-corpus", "1.0.0", "2.0.0"): migrate_reviewer_qualification_corpus_v1_to_v2,
     ("reviewer-qualification-corpus", "2.0.0", "3.0.0"): migrate_reviewer_qualification_corpus_v2_to_v3,
     ("rapid-review-session", "1.0.0", "2.0.0"): migrate_rapid_review_session_v1_to_v2,
@@ -855,7 +919,7 @@ def migration_policy(kind: str, from_version: str, to_version: str) -> str:
     if (kind, from_version, to_version) in EXECUTABLE_MIGRATIONS:
         return "explicit_required"
     if from_version == to_version and from_version in {
-        "1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"
+        "1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0"
     }:
         return "identity"
     return "unsupported"

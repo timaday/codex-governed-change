@@ -27,6 +27,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "3.0.0", "4.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-execution", "4.0.0", "5.0.0"))
         self.assertEqual("explicit_required", migration_policy("reviewer-qualification", "2.0.0", "3.0.0"))
+        self.assertEqual("explicit_required", migration_policy("reviewer-qualification", "3.0.0", "4.0.0"))
         self.assertEqual(
             "explicit_required",
             migration_policy("reviewer-qualification-cases", "2.0.0", "3.0.0"),
@@ -38,6 +39,10 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             "explicit_required",
             migration_policy("reviewer-qualification-cases", "4.0.0", "5.0.0"),
+        )
+        self.assertEqual(
+            "explicit_required",
+            migration_policy("reviewer-qualification-cases", "5.0.0", "6.0.0"),
         )
         self.assertEqual(
             "explicit_required",
@@ -105,6 +110,7 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
                 ("2.0.0", "3.0.0"),
                 ("3.0.0", "4.0.0"),
                 ("4.0.0", "5.0.0"),
+                ("5.0.0", "6.0.0"),
             )
             if migration_policy(kind, source, target) == "explicit_required"
         }
@@ -136,10 +142,12 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             migrate_reviewer_qualification_cases_v2_to_v3,
             migrate_reviewer_qualification_cases_v3_to_v4,
             migrate_reviewer_qualification_cases_v4_to_v5,
+            migrate_reviewer_qualification_cases_v5_to_v6,
             migrate_reviewer_qualification_corpus_v1_to_v2,
             migrate_reviewer_qualification_corpus_v2_to_v3,
             migrate_reviewer_qualification_v1_to_v2,
             migrate_reviewer_qualification_v2_to_v3,
+            migrate_reviewer_qualification_v3_to_v4,
             migrate_reviewer_result_v1_to_v2,
             migrate_reviewer_result_v2_to_v3,
             migrate_rollback_evidence_v1_to_v2,
@@ -236,7 +244,16 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
         current("evidence-manifest", rebuilt_manifest_v4)
         observed.add(("evidence-manifest", "3.0.0", "4.0.0"))
 
-        qualification_v3 = example("reviewer-qualification")
+        qualification_v4 = example("reviewer-qualification")
+        timeout_seconds = qualification_v4["timeout_seconds"]
+        max_output_bytes = qualification_v4["max_output_bytes"]
+        qualification_v3 = deepcopy(qualification_v4)
+        qualification_v3.pop("timeout_seconds")
+        qualification_v3.pop("max_output_bytes")
+        qualification_v3 = addressed(
+            qualification_v3, "3.0.0", "qualification_id"
+        )
+        rejected_by_current("reviewer-qualification", qualification_v3)
         authentication = qualification_v3["authentication"]
         qualification_v2 = deepcopy(qualification_v3)
         qualification_v2.pop("authentication")
@@ -267,10 +284,32 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_qualification, authentication=authentication
         )
         self.assertEqual(qualification_v3, rebuilt_qualification_v3)
-        current("reviewer-qualification", rebuilt_qualification_v3)
         observed.add(("reviewer-qualification", "2.0.0", "3.0.0"))
+        with self.assertRaises(ValueError):
+            migrate_reviewer_qualification_v3_to_v4(
+                rebuilt_qualification_v3,
+                timeout_seconds=0,
+                max_output_bytes=max_output_bytes,
+            )
+        rebuilt_qualification_v4 = migrate_reviewer_qualification_v3_to_v4(
+            rebuilt_qualification_v3,
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=max_output_bytes,
+        )
+        self.assertEqual(qualification_v4, rebuilt_qualification_v4)
+        current("reviewer-qualification", rebuilt_qualification_v4)
+        observed.add(("reviewer-qualification", "3.0.0", "4.0.0"))
 
-        qualification_cases_v5 = example("reviewer-qualification-cases")
+        qualification_cases_v6 = example("reviewer-qualification-cases")
+        cases_timeout_seconds = qualification_cases_v6["identity"]["timeout_seconds"]
+        cases_max_output_bytes = qualification_cases_v6["identity"]["max_output_bytes"]
+        qualification_cases_v5 = deepcopy(qualification_cases_v6)
+        qualification_cases_v5["identity"].pop("timeout_seconds")
+        qualification_cases_v5["identity"].pop("max_output_bytes")
+        qualification_cases_v5 = addressed(
+            qualification_cases_v5, "5.0.0", "case_evidence_id"
+        )
+        rejected_by_current("reviewer-qualification-cases", qualification_cases_v5)
         cases_authentication = qualification_cases_v5["identity"]["authentication"]
         qualification_cases_v4 = deepcopy(qualification_cases_v5)
         qualification_cases_v4["identity"].pop("authentication")
@@ -337,8 +376,21 @@ class SchemaLifecycleAcceptanceTest(unittest.TestCase):
             rebuilt_cases_v4, authentication=cases_authentication
         )
         self.assertEqual(qualification_cases_v5, rebuilt_cases_v5)
-        current("reviewer-qualification-cases", rebuilt_cases_v5)
         observed.add(("reviewer-qualification-cases", "4.0.0", "5.0.0"))
+        with self.assertRaises(ValueError):
+            migrate_reviewer_qualification_cases_v5_to_v6(
+                rebuilt_cases_v5,
+                timeout_seconds=cases_timeout_seconds,
+                max_output_bytes=False,
+            )
+        rebuilt_cases_v6 = migrate_reviewer_qualification_cases_v5_to_v6(
+            rebuilt_cases_v5,
+            timeout_seconds=cases_timeout_seconds,
+            max_output_bytes=cases_max_output_bytes,
+        )
+        self.assertEqual(qualification_cases_v6, rebuilt_cases_v6)
+        current("reviewer-qualification-cases", rebuilt_cases_v6)
+        observed.add(("reviewer-qualification-cases", "5.0.0", "6.0.0"))
 
         qualification_corpus_v3 = example("reviewer-qualification-corpus")
         expected_findings = {

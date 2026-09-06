@@ -1,6 +1,6 @@
 {
-  "schema_version": "3.0.0",
-  "qualification_id": "sha256:6fbc6982c09e94788abda743a3093d115f8a19f42bef587df0c1a4eac2141b8f",
+  "schema_version": "4.0.0",
+  "qualification_id": "sha256:cbd78dc4386fe10d407bb34a016e9d7edd5578b8251077c563915dfc48f7da09",
   "prompt_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "schema_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "launcher_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -8,6 +8,8 @@
   "authentication": "chatgpt",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "xhigh",
+  "timeout_seconds": 900,
+  "max_output_bytes": 1000000,
   "corpus_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "label_decision_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "case_evidence_sha256": "sha256:82b5289cae5e32a32b73c6ebe90aa260f58d75fa3bc4b00859dc7a5d5bd38d54",

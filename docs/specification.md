@@ -428,7 +428,7 @@ host-path replacement is ambiguous evidence and forces `UNKNOWN`.
 
 The reviewer MUST compute the diff and affected closure independently. The author MUST NOT select a restricted file list that prevents repository search.
 
-The prompt, output schema, model, Codex CLI version, observed ChatGPT authentication mode and material launcher configuration form one
+The prompt, output schema, model, Codex CLI version, observed ChatGPT authentication mode, protected timeout and output limit, and material launcher configuration form one
 qualified reviewer identity per review mode. Conformance and rapid review use
 distinct output schemas and therefore MUST have distinct protected qualification
 IDs even when their prompt, model and launcher are otherwise identical. A
@@ -449,8 +449,13 @@ corpus paths, modes and UTF-8 file bytes; resolve and re-hash its stored
 normalized stdout/stderr capture streams; parse the final Codex JSONL agent
 message, thread and usage; schema-validate that message against the retained
 reviewer output; derive capture, cleanup, binding and execution validity from
-primitive supervisor observations; bind the execution to the exact case plus
-prompt/schema/model/launcher/Codex identity; for conformance, reconstruct and
+primitive supervisor observations; independently derive non-negative elapsed
+milliseconds from each retained RFC 3339 start/end interval using integer
+microsecond arithmetic with millisecond flooring, reject reversed or protected-
+timeout-exceeding intervals, and require that derived value to equal both the
+execution and post-run context latency plus the independently recomputed
+aggregate; bind the execution to the exact case plus
+prompt/schema/model/launcher/Codex/limit identity; for conformance, reconstruct and
 require the exact gate-manifest and prepared-context bindings, affected closure,
 required reviewed surfaces and complete mandatory claim-ID set, then resolve
 every finding and claim reference against corpus-derived immutable file
@@ -479,7 +484,12 @@ reviewer result, normalized stdout and stderr bytes, reviewer-execution statemen
 and a context-execution receipt linked to the immutable prepared receipt. The
 execution statement binds both receipts, both direct stream references, the
 canonical permitted-input manifest, any rapid-review risk/charter material and
-the output without creating a circular content address. Admission MUST resolve
+the output without creating a circular content address.
+Retained reviewer `latency_ms` is the non-negative millisecond floor of the
+exact retained RFC 3339 end-minus-start interval; monotonic time remains the
+deadline and cleanup clock. A reversed retained wall interval makes observation
+incomplete rather than being clamped into apparently valid evidence.
+Admission MUST resolve
 the raw streams, reconstruct their JSONL result/usage and primitive observation
 facts, rebuild the completely validated portable sanitized argv, reconcile the
 separate exact executed-argv digest with the primitive launcher observation in
@@ -1054,7 +1064,9 @@ retained permitted-input manifest plus mode-specific risk-assessment and charter
 references, and `5.0.0` with ChatGPT authentication identity;
 `reviewer-qualification-corpus` is `3.0.0` with mandatory typed case classes and
 human-labelled critical expected-finding targets; `reviewer-qualification` is
-`3.0.0` with ChatGPT authentication identity; and `reviewer-execution` is
+`3.0.0` with ChatGPT authentication identity and `4.0.0` with protected timeout
+and output-limit identity; `reviewer-qualification-cases` is `6.0.0` for the
+same protected limits; and `reviewer-execution` is
 `3.0.0` with primitive observation plus direct stream references, `4.0.0` with a
 separate exact executed-argv digest, and `5.0.0` with ChatGPT authentication
 identity. `rapid-review-session` is `2.0.0`

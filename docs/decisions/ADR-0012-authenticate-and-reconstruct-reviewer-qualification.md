@@ -34,6 +34,17 @@ finding labels become mandatory. Migration from `2.0.0` requires those labels
 from a separately protected human source and rebuilds the corpus content
 address; they cannot be inferred from an old `BLOCK` label.
 
+Version `reviewer-qualification` as `4.0.0` and
+`reviewer-qualification-cases` as `6.0.0` when the protected timeout and maximum
+output bytes become part of reviewer identity. Migration from their immediate
+predecessors requires both positive limits from a separately protected source
+and rebuilds the content address. Qualification independently derives every
+execution's elapsed milliseconds from its RFC 3339 interval with integer
+millisecond flooring, rejects reversed or over-timeout intervals, and requires
+the execution, post-run context and aggregate latency values to match that
+derivation. Self-consistent readdressing cannot turn unbounded or impossible
+timing into qualified evidence.
+
 Version `rapid-review-session` as `2.0.0` when typed finding path and line become
 mandatory. Migration from `1.0.0` requires those targets from a separately
 protected source; they cannot be inferred from finding prose or a file-only

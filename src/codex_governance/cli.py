@@ -1361,6 +1361,8 @@ def _review(args: argparse.Namespace) -> int:
         "authentication": codex_authentication,
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
+        "timeout_seconds": policy["reviewer"]["timeout_seconds"],
+        "max_output_bytes": policy["reviewer"]["max_output_bytes"],
     }
     if (
         reviewer_qualification_state(

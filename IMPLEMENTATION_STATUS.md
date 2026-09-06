@@ -966,3 +966,25 @@ real-isolation and empirical qualification, paired comparison, admission
 reconstruction and separate human release approval remain required. Operational
 qualification, measured benefit and human approval remain `UNKNOWN`; release
 remains blocked.
+
+A subsequent strict fresh-context review of the authority successor reproduced
+a critical defect in public source candidate `ab14b9f`: qualification could
+trust a fully readdressed retained latency chain without independently deriving
+the RFC 3339 interval or enforcing the protected timeout. The obsolete
+candidate-bound mutation run was stopped and is not evidence. This working-copy
+successor versions reviewer qualification as `4.0.0` and its case evidence as
+`6.0.0`, binds protected timeout/output limits into identity, derives exact
+millisecond-floor wall intervals, rejects reversed and over-timeout evidence,
+requires execution/context/aggregate equality, and brings the authority's
+wall-derived launcher latency fix into public source. Two targeted semantic
+operators bring the curated corpus to 152 entries with content ID
+`sha256:c5630b640af80cea39d6da96fe4a70aaccd1af47dec1f22f1d70f74457c827b7`
+and protected byte digest
+`sha256:57f6eb3cbbcc45075b67645ffad062e2361396f6ac72bc1f9da59fb47558f026`.
+Both targeted controls survived and their mutants were causally killed.
+Blueprint validation and all 356 deterministic tests pass locally;
+exact-candidate freeze, the complete mutation corpus, fresh source and authority
+reviews, authority/kernel/broker rebinding, hosted real isolation and empirical
+qualification, paired comparison, protected admission reconstruction and
+separate human release approval remain required. Operational qualification,
+measured benefit and human approval remain `UNKNOWN`; release remains blocked.

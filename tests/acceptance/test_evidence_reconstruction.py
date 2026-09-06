@@ -279,6 +279,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 "authentication": "chatgpt",
                 "model": "gpt-5.6-sol",
                 "reasoning_effort": "xhigh",
+                "timeout_seconds": 1800,
+                "max_output_bytes": 1000000,
             }
 
         def case_document(
@@ -314,7 +316,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "cached_input_tokens": 0,
                     "output_tokens": 1,
                     "reasoning_output_tokens": 1,
-                    "latency_ms": 1,
+                    "latency_ms": 1000,
                     "ended_at": self.ENDED,
                     "limitations": [],
                 }
@@ -618,7 +620,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "thread_id": thread_id,
                     "started_at": self.AT,
                     "ended_at": self.ENDED,
-                    "latency_ms": 1,
+                    "latency_ms": 1000,
                     "return_code": 0,
                     "timed_out": False,
                     "observation_complete": True,
@@ -667,8 +669,8 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     workflow_system="unit-qualification",
                     run_id=mode + "-fixture",
                     attempt=1,
-                    timeout_seconds=60,
-                    max_output_bytes=1000,
+                    timeout_seconds=identity["timeout_seconds"],
+                    max_output_bytes=identity["max_output_bytes"],
                     codex_cli_version=identity["codex_cli_version"],
                     authentication=identity["authentication"],
                     execution=qualification_execution_facts,
@@ -711,7 +713,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 )
             return content_address(
                 {
-                    "schema_version": "5.0.0",
+                    "schema_version": "6.0.0",
                     "mode": mode,
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -770,7 +772,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         def qualification_record(identity: dict, cases: dict) -> dict:
             return content_address(
                 {
-                    "schema_version": "3.0.0",
+                    "schema_version": "4.0.0",
                     **identity,
                     "corpus_sha256": corpus_sha,
                     "label_decision_id": label_decision["decision_id"],
@@ -785,7 +787,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                     "false_passes": 0,
                     "false_blocks": 0,
                     "unknowns": 0,
-                    "latency_ms": 5,
+                    "latency_ms": 5000,
                     "cost": "unavailable",
                     "qualified": True,
                     "created_at": self.AT,

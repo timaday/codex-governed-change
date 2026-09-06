@@ -207,6 +207,8 @@ class MutationGovernanceAcceptanceTest(unittest.TestCase):
             "rst-missing-required-follow-up-accepted",
             "context-reasoning-tokens-double-counted",
             "context-token-subsets-unchecked",
+            "qualification-timeout-enforcement-omitted",
+            "qualification-timeout-identity-omitted",
         }
         self.assertTrue(expected.issubset(REQUIRED_CURATED_MUTANTS))
         corpus = load_curated_corpus(Path("tests/mutation/corpus.json"))

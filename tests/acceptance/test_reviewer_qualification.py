@@ -111,11 +111,13 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             "authentication": "chatgpt",
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
+            "timeout_seconds": 10,
+            "max_output_bytes": 10000,
         }
 
     def record(self) -> dict:
         return content_address(self.identity() | {
-            "schema_version": "3.0.0",
+            "schema_version": "4.0.0",
             "corpus_sha256": "sha256:" + "6" * 64,
             "label_decision_id": "sha256:" + "8" * 64,
             "case_evidence_sha256": "sha256:" + "7" * 64,
@@ -146,7 +148,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 protected_label_decision_id="sha256:" + "8" * 64,
             ),
         )
-        for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model"):
+        for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "timeout_seconds", "max_output_bytes"):
             identity = self.identity()
             identity[field] = (
                 "api-key"
@@ -155,6 +157,10 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 if field == "model"
                 else "codex-cli 9.9.9"
                 if field == "codex_cli_version"
+                else 11
+                if field == "timeout_seconds"
+                else 10001
+                if field == "max_output_bytes"
                 else "sha256:" + "f" * 64
             )
             with self.subTest(field=field):
@@ -193,6 +199,32 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                         protected_label_decision_id="sha256:" + "8" * 64,
                     ),
                 )
+
+    def test_qualification_latency_is_derived_and_timeout_bounded(self) -> None:
+        from codex_governance.qualification import (
+            _qualification_elapsed_milliseconds,
+        )
+
+        self.assertEqual(
+            999,
+            _qualification_elapsed_milliseconds(
+                "2026-08-26T10:00:00Z",
+                "2026-08-26T10:00:00.999999Z",
+                timeout_seconds=1,
+            ),
+        )
+        with self.assertRaises(ValueError):
+            _qualification_elapsed_milliseconds(
+                "2026-08-26T10:00:01Z",
+                "2026-08-26T10:00:00Z",
+                timeout_seconds=1,
+            )
+        with self.assertRaises(ValueError):
+            _qualification_elapsed_milliseconds(
+                "2026-08-26T10:00:00Z",
+                "2026-08-26T10:00:01.000001Z",
+                timeout_seconds=1,
+            )
 
     def test_qualification_requires_seeded_injection_and_control_classes(self) -> None:
         from codex_governance.qualification import (
@@ -733,7 +765,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                 )
             case_evidence = content_address(
                 {
-                    "schema_version": "5.0.0",
+                    "schema_version": "6.0.0",
                     "mode": "conformance",
                     "evaluation_repository_id": evaluation_repository,
                     "corpus_sha256": corpus_sha,
@@ -746,7 +778,7 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
             record = content_address(
                 {
                     **identity,
-                    "schema_version": "3.0.0",
+                    "schema_version": "4.0.0",
                     "corpus_sha256": corpus_sha,
                     "label_decision_id": decision["decision_id"],
                     "case_evidence_sha256": sha256_bytes(
@@ -828,6 +860,78 @@ class ReviewerQualificationAcceptanceTest(unittest.TestCase):
                     "record": addressed_record,
                     "case_evidence": addressed_cases,
                 }
+
+            over_deadline_cases = deepcopy(case_evidence)
+            over_deadline_observation = over_deadline_cases["observations"][0]
+            over_deadline_execution = json.loads(
+                (
+                    root
+                    / over_deadline_observation["reviewer_execution"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            original_latency = over_deadline_execution["latency_ms"]
+            over_deadline_execution["started_at"] = "2026-08-26T10:00:00Z"
+            over_deadline_execution["ended_at"] = "2026-08-26T10:00:11Z"
+            over_deadline_execution["latency_ms"] = 11_000
+            context_execution = json.loads(
+                (
+                    root
+                    / over_deadline_observation["context_execution_receipt"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            context_execution["created_at"] = over_deadline_execution["ended_at"]
+            context_execution["latency_ms"] = over_deadline_execution["latency_ms"]
+            context_execution = content_address(
+                context_execution, "execution_receipt_id"
+            )
+            context_reference = store(
+                "tampered/over-deadline-context-execution.json",
+                canonical_json_bytes(context_execution),
+            )
+            over_deadline_observation["context_execution_receipt"] = (
+                context_reference
+            )
+            over_deadline_execution["context_execution_receipt_sha256"] = (
+                context_reference["sha256"]
+            )
+            next(
+                item
+                for item in over_deadline_execution["materials"]
+                if item["name"] == "post-run-context"
+            )["sha256"] = context_reference["sha256"]
+            over_deadline_execution = content_address(
+                over_deadline_execution, "execution_id"
+            )
+            over_deadline_observation["reviewer_execution"] = store(
+                "tampered/over-deadline-execution.json",
+                canonical_json_bytes(over_deadline_execution),
+            )
+            over_deadline_cases = content_address(
+                over_deadline_cases, "case_evidence_id"
+            )
+            over_deadline_record = content_address(
+                record
+                | {
+                    "case_evidence_sha256": sha256_bytes(
+                        canonical_json_bytes(over_deadline_cases)
+                    ),
+                    "latency_ms": record["latency_ms"]
+                    - original_latency
+                    + 11_000,
+                },
+                "qualification_id",
+            )
+            self.assertFalse(
+                qualification_evidence_valid(
+                    **(
+                        arguments
+                        | {
+                            "record": over_deadline_record,
+                            "case_evidence": over_deadline_cases,
+                        }
+                    )
+                )
+            )
 
             alternate_inputs_cases = deepcopy(case_evidence)
             alternate_inputs_observation = alternate_inputs_cases[

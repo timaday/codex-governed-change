@@ -63,6 +63,7 @@ from codex_governance.mutation import (
     selected_mutation_tests,
 )
 from codex_governance.qualification import (
+    REVIEWER_IDENTITY_FIELDS,
     qualification_evidence_valid,
     reviewer_qualification_state,
 )
@@ -2463,8 +2464,12 @@ def evaluate_manifest(
             "reviewer-qualification-label-decision",
         )
         identity = {
-            field: qualification.get(field)
-            for field in ("prompt_sha256", "schema_sha256", "launcher_sha256", "codex_cli_version", "authentication", "model", "reasoning_effort")
+            field: (
+                policy["reviewer"].get(field)
+                if field in {"timeout_seconds", "max_output_bytes"}
+                else qualification.get(field)
+            )
+            for field in REVIEWER_IDENTITY_FIELDS
         }
         conformance_permitted_inputs = reconstruct_permitted_inputs(
             review_mode="conformance",
@@ -2700,11 +2705,12 @@ def evaluate_manifest(
                 "reviewer-qualification-cases",
             )
             rapid_identity = {
-                field: rapid_qualification.get(field)
-                for field in (
-                    "prompt_sha256", "schema_sha256", "launcher_sha256",
-                    "codex_cli_version", "authentication", "model", "reasoning_effort",
+                field: (
+                    policy["reviewer"].get(field)
+                    if field in {"timeout_seconds", "max_output_bytes"}
+                    else rapid_qualification.get(field)
                 )
+                for field in REVIEWER_IDENTITY_FIELDS
             }
             rapid_qualification_ok = qualification_evidence_valid(
                 mode="rapid_review",

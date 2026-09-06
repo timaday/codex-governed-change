@@ -2079,6 +2079,31 @@ print(json.dumps({'type': 'turn.completed', 'usage': {
         self.assertFalse(mismatched["execution_valid"])
         self.assertFalse(mismatched["bindings_match"])
 
+    def test_reviewer_retained_latency_uses_exact_wall_timestamp_interval(self) -> None:
+        import inspect
+
+        from codex_governance import reviewer as reviewer_module
+
+        self.assertEqual(
+            999,
+            reviewer_module._retained_wall_latency_ms(
+                "2026-09-05T12:00:00.000001Z",
+                "2026-09-05T12:00:01Z",
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "reversed"):
+            reviewer_module._retained_wall_latency_ms(
+                "2026-09-05T12:00:01Z",
+                "2026-09-05T12:00:00Z",
+            )
+        launcher_source = inspect.getsource(reviewer_module.launch_reviewer)
+        self.assertIn(
+            "_retained_wall_latency_ms(started_at, ended_at)", launcher_source
+        )
+        self.assertNotIn(
+            "time.monotonic() - started_monotonic", launcher_source
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

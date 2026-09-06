@@ -43,6 +43,7 @@ from codex_governance.gate import (
     _posix_process_group_exited,
     _terminate_process_tree,
 )
+from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.portability import SHAPED_VALUE_PATTERNS
 from codex_governance.schema import (
     SchemaValidationError,
@@ -1247,6 +1248,18 @@ REVIEWER_LAUNCHER_FILES = (
 )
 
 
+def _retained_wall_latency_ms(started_at: str, ended_at: str) -> int:
+    """Derive the exact retained millisecond interval without float rounding."""
+    interval = parse_rfc3339(ended_at) - parse_rfc3339(started_at)
+    microseconds = (
+        (interval.days * 86_400 + interval.seconds) * 1_000_000
+        + interval.microseconds
+    )
+    if microseconds < 0:
+        raise ValueError("reviewer wall-clock interval is reversed")
+    return microseconds // 1_000
+
+
 def _stop_reviewer_supervisor(
     process: subprocess.Popen[bytes], *, deadline: float
 ) -> bool:
@@ -2051,7 +2064,11 @@ def launch_reviewer(
     if not after_observed:
         observation_complete = False
     ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    latency_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
+    try:
+        latency_ms = _retained_wall_latency_ms(started_at, ended_at)
+    except ValueError:
+        latency_ms = 0
+        observation_complete = False
     output_bytes = b""
     output_present = False
     output_regular = False

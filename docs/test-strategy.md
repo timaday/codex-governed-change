@@ -289,6 +289,12 @@ Schema lifecycle tests cover every transition advertised by `migration_policy`,
 construct schema-valid legacy documents, prove current schemas reject them,
 execute migrations with separately protected missing facts, reconstruct content
 addresses, and validate each successor against its exact version schema.
+Qualification reconstruction additionally readdresses complete execution and
+context chains with reversed, mismatched and protected-timeout-exceeding RFC
+3339 intervals; none may preserve qualification even when every supplied
+latency and aggregate agrees with the forgery.
+Reviewer adapter tests prove retained latency uses exact wall-timestamp integer
+flooring and that a reversed retained interval invalidates observation.
 Portable-pattern tests also reject numeric backreferences using a concrete
 nonparticipating-capture case on which Python and ECMAScript differ.
 
