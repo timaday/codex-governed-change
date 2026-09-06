@@ -2395,8 +2395,12 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "path": expansion["reference"],
             "sha256": expansion["sha256"],
         }
-        observed: list[tuple[dict, float | None]] = []
-        original = evidence.read_reference
+        observed_during_expansion: list[tuple[dict, float | None]] = []
+        observed_references: list[tuple[dict, float | None]] = []
+        original_read_reference = evidence.read_reference
+        original_validate_retrieval_expansions = (
+            evidence.validate_retrieval_expansions
+        )
 
         def observe_reference(
             repository,
@@ -2405,16 +2409,38 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             deadline=None,
         ):
             if reference == expected_reference:
-                observed.append((dict(reference), deadline))
-            return original(
+                observed_references.append((dict(reference), deadline))
+            return original_read_reference(
                 repository=repository,
                 reference=reference,
                 max_bytes=max_bytes,
                 deadline=deadline,
             )
 
+        def observe_expansion_validation(
+            *, retrieval_expansions, retrieval_index, artifact_reader
+        ):
+            before = len(observed_references)
+            result = original_validate_retrieval_expansions(
+                retrieval_expansions=retrieval_expansions,
+                retrieval_index=retrieval_index,
+                artifact_reader=artifact_reader,
+            )
+            if retrieval_expansions == execution["retrieval_expansions"]:
+                observed_during_expansion.extend(observed_references[before:])
+            return result
+
         shared_deadline = time.monotonic() + 300
-        with patch.object(evidence, "read_reference", side_effect=observe_reference):
+        with (
+            patch.object(
+                evidence, "read_reference", side_effect=observe_reference
+            ),
+            patch.object(
+                evidence,
+                "validate_retrieval_expansions",
+                side_effect=observe_expansion_validation,
+            ),
+        ):
             state, reasons = evidence.evaluate_manifest(
                 repository=self.repository,
                 manifest=manifest,
@@ -2426,7 +2452,10 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 deadline=shared_deadline,
             )
         self.assertEqual(DispositionState.READY_FOR_HUMAN, state, reasons)
-        self.assertIn((expected_reference, shared_deadline), observed)
+        self.assertEqual(
+            [(expected_reference, shared_deadline)],
+            observed_during_expansion,
+        )
 
     def test_admission_rejects_an_incomplete_rst_update_graph(self) -> None:
         manifest = self.complete_manifest(
