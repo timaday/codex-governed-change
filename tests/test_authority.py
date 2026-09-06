@@ -40,6 +40,7 @@ from common import (  # noqa: E402
 from bootstrap import validate_initial_bootstrap  # noqa: E402
 from qualification_verifier import validate_qualification_bundle  # noqa: E402
 from paired_comparison import (  # noqa: E402
+    _elapsed_milliseconds,
     _governed_primitive_valid,
     build_comparison_document,
     comparison_document_valid,
@@ -592,14 +593,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("d2d12881507aff41d8ec429865573eacfad64670", target["head_sha"])
+        self.assertEqual("8364322b1220830037527f0604e3f7228c0a6423", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "d2d12881507aff41d8ec429865573eacfad64670",
+            "8364322b1220830037527f0604e3f7228c0a6423",
             target["kernel_source_commit"],
         )
         self.assertEqual(
@@ -701,6 +702,16 @@ class AuthorityContractTests(unittest.TestCase):
         )
         self.assertIn(
             "--qualification-prompt authority/kernel/.codex/review/reviewer.prompt.md",
+            workflow,
+        )
+        self.assertIn(
+            "--conformance-qualification "
+            "authority/.governance/releases/v0.1.0/qualification/conformance.json",
+            workflow,
+        )
+        self.assertIn(
+            "--rapid-review-qualification "
+            "authority/.governance/releases/v0.1.0/qualification/rapid-review.json",
             workflow,
         )
         self.assertIn(
@@ -847,9 +858,18 @@ class AuthorityContractTests(unittest.TestCase):
             deterministic,
         )
         self.assertIn('schema_root=authority / "kernel/schemas"', deterministic)
+        self.assertIn("protected_qualification_records", deterministic)
+        self.assertIn(
+            "expected_reviewer_identities=expected_reviewer_identities",
+            deterministic,
+        )
         self.assertNotIn(
             'candidate / ".codex/review/reviewer.prompt.md"', deterministic
         )
+        qualification = (CI / "run-qualification.py").read_text(encoding="utf-8")
+        self.assertIn("REVIEWER_IDENTITY_FIELDS", qualification)
+        self.assertIn("for mode, record in records.items()", qualification)
+        self.assertIn("expected_reviewer_identities={", qualification)
 
     def test_initial_lkg_bootstrap_is_explicit_and_rollback_is_reconstructed(self) -> None:
         closeout = (CI / "prepare-closeout-inputs.py").read_text(encoding="utf-8")
@@ -1548,6 +1568,30 @@ class AuthorityContractTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_paired_comparison_submicro_timeout_mutant_has_clean_control(self) -> None:
+        started = "2026-09-05T12:00:00Z"
+        ended = "2026-09-05T12:01:00.000001Z"
+        with self.assertRaisesRegex(ValueError, "protected deadline"):
+            _elapsed_milliseconds(started, ended, 60)
+
+        source_path = CI / "paired_comparison.py"
+        source = source_path.read_text(encoding="utf-8")
+        protected = (
+            "    if elapsed_microseconds > timeout_seconds * 1_000_000:\n"
+            "        raise ValueError(\"comparison timing exceeds its protected deadline\")\n"
+        )
+        mutant = (
+            "    if elapsed_microseconds // 1_000 > timeout_seconds * 1_000:\n"
+            "        raise ValueError(\"comparison timing exceeds its protected deadline\")\n"
+        )
+        self.assertEqual(1, source.count(protected))
+        namespace = {
+            "__file__": str(source_path),
+            "__name__": "paired_comparison_timeout_mutant",
+        }
+        exec(compile(source.replace(protected, mutant), source_path, "exec"), namespace)
+        self.assertEqual(60_000, namespace["_elapsed_milliseconds"](started, ended, 60))
+
     def _comparison_fixture(self) -> tuple[dict[str, object], dict[str, object]]:
         cases: list[dict[str, object]] = []
         labels: dict[str, str] = {}
@@ -2518,6 +2562,7 @@ class AdapterTests(unittest.TestCase):
             "elapsed",
             "timestamp",
             "deadline",
+            "submicro_deadline",
         ):
             with self.subTest(field=field):
                 changed_references = deepcopy(references)
@@ -2552,10 +2597,14 @@ class AdapterTests(unittest.TestCase):
                     execution["elapsed_ms"] = 12_345
                 elif field == "timestamp":
                     control["ended_at"] = "2026-09-05T12:00:00.026Z"
-                else:
+                elif field == "deadline":
                     control["ended_at"] = "2026-09-05T12:01:01Z"
                     control["latency_ms"] = 61_000
                     execution["elapsed_ms"] = 61_000
+                else:
+                    control["ended_at"] = "2026-09-05T12:01:00.000001Z"
+                    control["latency_ms"] = 60_000
+                    execution["elapsed_ms"] = 60_000
                 execution = content_address(execution, "execution_id")
                 execution_bytes = canonical_bytes(execution)
                 changed_artifacts[execution_reference["path"]] = execution_bytes
@@ -2577,7 +2626,13 @@ class AdapterTests(unittest.TestCase):
         corpus, decision = self._comparison_fixture()
         case = corpus["cases"][0]
         identity = self._comparison_identity()
-        for field in ("environment_keys", "elapsed", "timestamp", "deadline"):
+        for field in (
+            "environment_keys",
+            "elapsed",
+            "timestamp",
+            "deadline",
+            "submicro_deadline",
+        ):
             with self.subTest(field=field):
                 references, artifacts = self._comparison_artifacts(
                     corpus, decision, case, "governed"
@@ -2592,10 +2647,36 @@ class AdapterTests(unittest.TestCase):
                     execution["elapsed_ms"] = 12_345
                 elif field == "timestamp":
                     source["ended_at"] = "2026-09-05T12:00:00.026Z"
-                else:
+                elif field == "deadline":
                     source["ended_at"] = "2026-09-05T12:01:01Z"
                     source["latency_ms"] = 61_000
                     execution["elapsed_ms"] = 61_000
+                else:
+                    source["ended_at"] = "2026-09-05T12:01:00.000001Z"
+                    source["latency_ms"] = 60_000
+                    execution["elapsed_ms"] = 60_000
+                    context_reference = references[
+                        "context_execution_receipt"
+                    ]
+                    context_execution = json.loads(
+                        artifacts[context_reference["path"]]
+                    )
+                    context_execution["created_at"] = source["ended_at"]
+                    context_execution["latency_ms"] = source["latency_ms"]
+                    context_execution = content_address(
+                        context_execution, "execution_receipt_id"
+                    )
+                    context_bytes = canonical_bytes(context_execution)
+                    artifacts[context_reference["path"]] = context_bytes
+                    context_reference["sha256"] = sha256_bytes(context_bytes)
+                    source["context_execution_receipt_sha256"] = (
+                        context_reference["sha256"]
+                    )
+                    next(
+                        item
+                        for item in source["materials"]
+                        if item["name"] == "post-run-context"
+                    )["sha256"] = context_reference["sha256"]
                 execution["primitive"]["reviewer_execution"] = content_address(
                     source, "execution_id"
                 )

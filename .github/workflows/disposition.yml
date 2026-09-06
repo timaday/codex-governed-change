@@ -32,7 +32,7 @@ env:
   AUTHENTICATED_ACTOR: ${{ github.actor }}
   APPROVED_DECISION_IDS: ${{ inputs.approved_decision_ids }}
   INITIAL_TARGET_REPOSITORY: timaday/codex-governed-change
-  INITIAL_TARGET_HEAD: d2d12881507aff41d8ec429865573eacfad64670
+  INITIAL_TARGET_HEAD: 8364322b1220830037527f0604e3f7228c0a6423
   PYTHONUTF8: "1"
   PYTHONDONTWRITEBYTECODE: "1"
 
@@ -463,6 +463,8 @@ jobs:
             --context-qualification candidate/artifacts/governance/completion/evidence/context-qualification.json \
             --qualification-repository candidate/artifacts/governance/completion/evidence/context-qualification-authority \
             --qualification-prompt authority/kernel/.codex/review/reviewer.prompt.md \
+            --conformance-qualification authority/.governance/releases/v0.1.0/qualification/conformance.json \
+            --rapid-review-qualification authority/.governance/releases/v0.1.0/qualification/rapid-review.json \
             --candidate candidate/artifacts/governance/completion/evidence/candidate.json \
             --profile DEEP \
             --token-budget 64000 \

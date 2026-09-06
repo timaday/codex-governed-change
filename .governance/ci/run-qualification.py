@@ -32,6 +32,7 @@ from codex_governance.context import (
 )
 from codex_governance.lifecycle import parse_rfc3339
 from codex_governance.qualification import (
+    REVIEWER_IDENTITY_FIELDS,
     bootstrap_qualification_record,
     qualification_case_classes_complete,
     qualification_candidate_document,
@@ -1086,6 +1087,13 @@ def main() -> None:
             verified_decision_ids=frozenset({decision["decision_id"]}),
             evaluated_at=created_at,
             prompt_bytes=read_bytes_once(args.prompt),
+            expected_reviewer_identities={
+                mode: {
+                    field: record.get(field)
+                    for field in REVIEWER_IDENTITY_FIELDS
+                }
+                for mode, record in records.items()
+            },
         ):
             raise ValueError("context qualification evidence does not reconstruct")
     write_once(

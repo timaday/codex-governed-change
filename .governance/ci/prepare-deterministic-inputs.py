@@ -27,7 +27,10 @@ from common import (
     write_once,
 )
 from qualification_verifier import validate_qualification_bundle
-from codex_governance.qualification import context_qualification_evidence_valid
+from codex_governance.qualification import (
+    REVIEWER_IDENTITY_FIELDS,
+    context_qualification_evidence_valid,
+)
 
 
 ACTOR_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -437,6 +440,17 @@ def main() -> None:
         expected_timeout_seconds=policy["reviewer"]["timeout_seconds"],
         expected_max_output_bytes=policy["reviewer"]["max_output_bytes"],
     )
+    protected_qualification_records = {
+        "conformance": load_json(qualification / "conformance.json"),
+        "rapid_review": load_json(qualification / "rapid-review.json"),
+    }
+    expected_reviewer_identities = {
+        mode: {
+            field: record.get(field)
+            for field in REVIEWER_IDENTITY_FIELDS
+        }
+        for mode, record in protected_qualification_records.items()
+    }
     context_reference_digests: dict[str, str] = {}
 
     def retain_context_reference(reference: Mapping[str, Any]) -> bytes:
@@ -491,6 +505,7 @@ def main() -> None:
             prompt_bytes=read_bytes_once(
                 authority / "kernel/.codex/review/reviewer.prompt.md"
             ),
+            expected_reviewer_identities=expected_reviewer_identities,
         ):
             raise ValueError("protected context qualification does not reconstruct")
     context_evidence_root = qualification / "evidence" / "context-variants"

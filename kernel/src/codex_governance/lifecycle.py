@@ -11,12 +11,12 @@ from typing import Any
 RFC3339_RE = re.compile(
     r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])"
     r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:(?:[0-5][0-9]|60)"
-    r"(?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
 
 
 def parse_rfc3339(value: str) -> datetime:
-    """Parse the supported complete RFC 3339 profile and reject invalid dates."""
+    """Parse complete RFC 3339 without accepting lossy fractional precision."""
     if not isinstance(value, str) or RFC3339_RE.fullmatch(value) is None:
         raise ValueError("timestamp must be a complete RFC 3339 value")
     if value[17:19] == "60":

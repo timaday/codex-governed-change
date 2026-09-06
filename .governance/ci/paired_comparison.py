@@ -110,15 +110,15 @@ def _elapsed_milliseconds(
     started = parse_rfc3339(str(started_at))
     ended = parse_rfc3339(str(ended_at))
     interval = ended - started
-    if interval.total_seconds() < 0:
-        raise ValueError("comparison timing interval is negative")
-    elapsed_ms = (
-        (interval.days * 86_400 + interval.seconds) * 1_000
-        + interval.microseconds // 1_000
+    elapsed_microseconds = (
+        (interval.days * 86_400 + interval.seconds) * 1_000_000
+        + interval.microseconds
     )
-    if elapsed_ms > timeout_seconds * 1_000:
+    if elapsed_microseconds < 0:
+        raise ValueError("comparison timing interval is negative")
+    if elapsed_microseconds > timeout_seconds * 1_000_000:
         raise ValueError("comparison timing exceeds its protected deadline")
-    return elapsed_ms
+    return elapsed_microseconds // 1_000
 
 
 def _required_artifacts(arm: str) -> frozenset[str]:

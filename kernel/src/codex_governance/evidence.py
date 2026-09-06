@@ -433,6 +433,9 @@ def evaluate_manifest(
         qualification = load(
             manifest["reviewer_qualification"], "reviewer-qualification"
         )
+        rapid_qualification = load(
+            manifest["rapid_review_qualification"], "reviewer-qualification"
+        )
         task_sha = manifest["task_contract"]["sha256"]
         policy_sha = manifest["effective_policy"]["sha256"]
         protected_reviewer_prompt_sha256 = require_sha256(
@@ -2339,6 +2342,16 @@ def evaluate_manifest(
             qualification_verified_decision_ids=verified_decision_ids,
             qualification_evaluated_at=evaluated_at,
             qualification_prompt_bytes=prompt_bytes,
+            qualification_reviewer_identities={
+                mode: {
+                    field: document.get(field)
+                    for field in REVIEWER_IDENTITY_FIELDS
+                }
+                for mode, document in (
+                    ("conformance", qualification),
+                    ("rapid_review", rapid_qualification),
+                )
+            },
             qualification_deadline=deadline,
         )
         reconstructed_retrieval_index = reconstructed["retrieval_index"]
@@ -2697,9 +2710,6 @@ def evaluate_manifest(
             session_references = list(manifest.get("rapid_review_sessions", ()))
             charters = [load(reference, "review-charter") for reference in charter_references]
             sessions = [load(reference, "rapid-review-session") for reference in session_references]
-            rapid_qualification = load(
-                manifest["rapid_review_qualification"], "reviewer-qualification"
-            )
             rapid_qualification_cases = load(
                 manifest["rapid_review_qualification_cases"],
                 "reviewer-qualification-cases",

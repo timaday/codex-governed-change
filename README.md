@@ -40,6 +40,11 @@ qualification identity. Qualification reconstruction independently derives
 every retained execution interval, rejects reversed or over-timeout evidence,
 checks observed stream/output sizes against the protected limit, and requires
 the execution, post-run context and aggregate latency values to agree exactly.
+Every nested context baseline and candidate record must also match the reviewer
+identity derived outside its own package: from the live runtime and protected
+prompt, mode schemas, launcher and policy during qualification production and
+review, and from the separately protected reviewer qualifications during
+credential-free preparation and admission.
 
 T24's paired comparison is a separate, non-authorizing measurement lane. It
 uses a protected human-labelled held-out corpus and runs governed and ordinary
@@ -54,9 +59,10 @@ the protected reviewer allowlist and must exactly match every execution in both
 arms; environment values are never retained. Each arm retains reconstructable
 per-case disposition, exact expected-finding matching, accepted defects, correct
 completions, false blocks, `UNKNOWN` outcomes, input/cached/output/reasoning
-tokens and elapsed time. Elapsed milliseconds are the floor of the exact
-RFC3339 end-minus-start interval and may not exceed the protected execution
-deadline; reported latency and task/aggregate values must equal that derivation.
+tokens and elapsed time. The exact integer-microsecond RFC3339 interval may not
+exceed the protected execution deadline; elapsed milliseconds are floored only
+after that comparison, and reported latency and task/aggregate values must equal
+the resulting derivation.
 Total tokens
 mean input plus output; reasoning tokens remain a reported subset of output and
 are not added a second time. Retained model

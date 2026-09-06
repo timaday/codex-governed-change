@@ -375,6 +375,7 @@ def context_qualification_valid(
     verified_decision_ids: frozenset[str] = frozenset(),
     evaluated_at: str | None = None,
     prompt_bytes: bytes | None = None,
+    reviewer_identities: Mapping[str, Mapping[str, Any]] | None = None,
     deadline: float | None = None,
 ) -> bool:
     """Recompute one protected projection-profile qualification decision."""
@@ -399,6 +400,7 @@ def context_qualification_valid(
                 and isinstance(protected_repository_id, str)
                 and isinstance(evaluated_at, str)
                 and isinstance(prompt_bytes, bytes)
+                and isinstance(reviewer_identities, Mapping)
                 and context_qualification_evidence_valid(
                     record=record,
                     artifact_reader=artifact_reader,
@@ -407,6 +409,7 @@ def context_qualification_valid(
                     verified_decision_ids=verified_decision_ids,
                     evaluated_at=evaluated_at,
                     prompt_bytes=prompt_bytes,
+                    expected_reviewer_identities=reviewer_identities,
                     deadline=deadline,
                 )
             )
@@ -482,6 +485,9 @@ def compile_context(
     qualification_verified_decision_ids: frozenset[str] = frozenset(),
     qualification_evaluated_at: str | None = None,
     qualification_prompt_bytes: bytes | None = None,
+    qualification_reviewer_identities: Mapping[
+        str, Mapping[str, Any]
+    ] | None = None,
     qualification_deadline: float | None = None,
 ) -> dict[str, Any]:
     if (
@@ -568,6 +574,7 @@ def compile_context(
         verified_decision_ids=qualification_verified_decision_ids,
         evaluated_at=qualification_evaluated_at,
         prompt_bytes=qualification_prompt_bytes,
+        reviewer_identities=qualification_reviewer_identities,
         deadline=qualification_deadline,
     ):
         raise ValueError("context profile/version qualification is unavailable")
