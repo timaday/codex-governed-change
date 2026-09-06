@@ -30,7 +30,9 @@ Topology B uses three distinct roles across two repositories:
    the authority ref. The authority ref contains the governance bundle,
    reusable workflow implementation, policy, schemas, decisions, target
    registry, and release records. Runtime always selects it by a full commit
-   SHA. Each called job derives that SHA from GitHub's resolved reusable
+   SHA and binds exact repository metadata proving public visibility into the
+   retained authority observation; ref access alone is not public-authority
+   evidence. Each called job derives that SHA from GitHub's resolved reusable
    workflow identity and verifies that the configured live authority ref still
    equals it. Reusable workflows hard-code the public repository/ref and the
    sole allowed private broker; they do not accept those identities, a target,

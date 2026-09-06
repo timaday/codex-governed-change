@@ -3692,6 +3692,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
         authority_state = {
             "schema_version": "1.0.0",
             "repository": authority_repository,
+            "visibility": "public",
             "ref": authority_ref,
             "commit": authority_commit,
             "manifest_commit": authority_commit,
@@ -4080,6 +4081,7 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
                 )
 
         for state_defect in (
+            "repository-private",
             "stale-ref",
             "manifest-commit",
             "ruleset-bypass",
@@ -4089,7 +4091,9 @@ class EvidenceReconstructionAcceptanceTest(unittest.TestCase):
             "ruleset-parameter-value",
         ):
             state_variant = deepcopy(authority_state)
-            if state_defect == "stale-ref":
+            if state_defect == "repository-private":
+                state_variant["visibility"] = "private"
+            elif state_defect == "stale-ref":
                 state_variant["commit"] = "d" * 40
             elif state_defect == "manifest-commit":
                 state_variant["manifest_commit"] = "d" * 40

@@ -937,3 +937,32 @@ hosted real-isolation and empirical qualification, paired comparison, protected
 admission reconstruction and separate human release approval remain required.
 Operational qualification, measured benefit and human approval remain
 `UNKNOWN`; release remains blocked.
+
+The source candidate `e370eeb` subsequently passed blueprint integrity, 109
+unit tests, 245 acceptance tests, packaging compilation, rollback rehearsal and
+public-portability checks. Its complete mutation run was superseded before
+completion after the exact public-authority candidate `93c3750` passed 82 local
+authority tests and bundle reconstruction but returned a valid fresh
+ChatGPT-authenticated `gpt-5.6-sol` `BLOCK`. Four findings concern the
+authority-only paired-comparison producer: governed finding-shape mismatch,
+incomplete ordinary primitive reconstruction, omitted ordinary launcher
+model/effort validation, and an asserted rather than reconstructed governed
+`STANDARD` context. A fifth finding reaches the source admission kernel: the
+live public-authority observation did not bind repository visibility, so an
+accessible private repository could satisfy the ref/ruleset/manifest checks.
+
+This working-copy source successor now requires the retained authority state to
+bind `visibility` exactly to `public`, with a private-visibility bootstrap
+regression and a causal semantic operator. The 150-entry corpus has content ID
+`sha256:e9ea0ef8b47ce58295ed6c463c1a50b4fb2d6e7712723b6f57c938842c66d395`
+and protected byte digest
+`sha256:ffb541f5d2d8bba279a665313e464818de1cfdcb69b3576a141f1559b64938af`.
+The focused control survived and the visibility-check mutant was killed. The
+four comparison findings remain authority work and cannot be repaired or
+reviewed until this source successor is frozen and rebound. Exact-candidate
+deterministic and complete paired-control mutation evidence, fresh source and
+authority reviews, protected authority/broker advancement, hosted
+real-isolation and empirical qualification, paired comparison, admission
+reconstruction and separate human release approval remain required. Operational
+qualification, measured benefit and human approval remain `UNKNOWN`; release
+remains blocked.

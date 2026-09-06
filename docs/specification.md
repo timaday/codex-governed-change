@@ -558,6 +558,9 @@ Two deployment profiles are supported:
 Topology B MUST protect the public authority ref independently from the target
 default branch. Runtime MUST verify that the live authority ref equals the
 pinned authority commit before using it and immediately before publication. The
+same bounded live observation MUST retrieve exact repository metadata, require
+the configured authority repository identity, and bind its visibility as
+`public`; an accessible ref in a private repository is not public authority. The
 authority ruleset MUST require linear history. Protected decision and
 authorization-receipt transitions are single-parent commits over their exact
 basis; a two-parent merge commit is invalid even when its tree matches the
@@ -621,12 +624,13 @@ reused.
 
 The bootstrap verification MUST retain the authenticated dispatch assertion
 that selected the bootstrap decision at the exact hosted authority commit, a
-live GitHub observation showing the protected authority ref still resolves to
-that commit and the required sole-user or reviewed ruleset is active without a
-bypass, and the exact authority manifest bytes read from that Git commit. The
+live GitHub observation showing the exact authority repository is public, the
+protected authority ref still resolves to that commit, and the required
+sole-user or reviewed ruleset is active without a bypass, and the exact
+authority manifest bytes read from that Git commit. The
 admission kernel independently resolves those artifacts and their digests; a
-different commit-shaped value, an unprotected ref, or a manifest copied from a
-different tree blocks.
+different repository visibility, commit-shaped value, unprotected ref, or a
+manifest copied from a different tree blocks.
 
 ## 12. Waivers
 
