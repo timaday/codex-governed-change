@@ -54,9 +54,12 @@ arm is ephemeral, read-only and stripped of machine/user configuration, hooks
 and child agents; the ordinary arm differs by receiving only the bounded review
 request and candidate, without the governed context, qualification identity or
 admission machinery. The governed arm uses the protected `STANDARD` context
-profile. One sorted key-only sanitized environment identity is derived through
-the protected reviewer allowlist and must exactly match every execution in both
-arms; environment values are never retained. Each arm retains reconstructable
+profile. Every schema supplied directly to either model uses the supported
+strict structured-output subset: object properties are closed and required,
+and each property declares an explicit type, reference, or union. One sorted
+key-only sanitized environment identity is derived through the protected
+reviewer allowlist and must exactly match every execution in both arms;
+environment values are never retained. Each arm retains reconstructable
 per-case disposition, exact expected-finding matching, accepted defects, correct
 completions, false blocks, `UNKNOWN` outcomes, input/cached/output/reasoning
 tokens and elapsed time. The exact integer-microsecond RFC3339 interval may not

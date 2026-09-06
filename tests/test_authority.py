@@ -1497,6 +1497,40 @@ class AuthorityContractTests(unittest.TestCase):
             evaluated_at=str(decision["issued_at"]),
         )
 
+    def test_every_model_facing_schema_uses_strict_structured_outputs(self) -> None:
+        def inspect(node: object) -> None:
+            if not isinstance(node, dict):
+                return
+            self.assertNotIn("uniqueItems", node)
+            if "properties" in node:
+                properties = node["properties"]
+                self.assertIsInstance(properties, dict)
+                self.assertFalse(node.get("additionalProperties", True))
+                self.assertEqual(set(properties), set(node.get("required", [])))
+                for name, value in properties.items():
+                    self.assertTrue(
+                        isinstance(value, dict)
+                        and any(
+                            keyword in value
+                            for keyword in ("type", "$ref", "anyOf")
+                        ),
+                        f"model-facing property lacks an explicit type: {name}",
+                    )
+            for value in node.values():
+                if isinstance(value, dict):
+                    inspect(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        inspect(item)
+
+        for path in (
+            ROOT / "kernel/schemas/reviewer-result.schema.json",
+            ROOT / "kernel/schemas/rapid-review-session.schema.json",
+            ROOT / ".governance/schemas/paired-comparison-result.schema.json",
+        ):
+            with self.subTest(path=path.relative_to(ROOT)):
+                inspect(load_json(path))
+
     def test_qualification_adapter_scores_fail_closed(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "run_qualification", CI / "run-qualification.py"
