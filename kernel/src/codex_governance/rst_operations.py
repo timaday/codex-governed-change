@@ -41,6 +41,21 @@ def validate_rst_lineage(
     if artifacts is not None:
         # Artifact-kind presence is intentionally never sufficient evidence.
         return DispositionState.UNKNOWN
+    if not all(
+        isinstance(values, Sequence) and not isinstance(values, (str, bytes))
+        for values in (
+            oracle_references,
+            charters,
+            sessions,
+            coverage_notes,
+            follow_ups,
+            requirement_sources,
+            change_sources,
+            mutation_records,
+            reviewer_findings,
+        )
+    ):
+        return DispositionState.UNKNOWN
     documents = [
         risk_assessment,
         risk_register,
@@ -60,13 +75,19 @@ def validate_rst_lineage(
         for item in documents
     ):
         return DispositionState.UNKNOWN
-    if not all(
-        isinstance(values, Sequence) and not isinstance(values, (str, bytes))
-        for values in (oracle_references, charters, sessions, coverage_notes, follow_ups)
-    ):
-        return DispositionState.UNKNOWN
     if not oracle_references or not charters or not sessions or not coverage_notes:
         return DispositionState.UNKNOWN
+
+    def unique_string_sequence(values: Sequence[str]) -> list[str] | None:
+        result: list[str] = []
+        observed: set[str] = set()
+        for identity in values:
+            if not isinstance(identity, str) or not identity or identity in observed:
+                return None
+            result.append(identity)
+            observed.add(identity)
+        return result
+
     try:
         index = {
             str(reference): require_sha256(digest)
@@ -77,12 +98,14 @@ def validate_rst_lineage(
             for charter_id, digest in (charter_digests or {}).items()
         }
         expected_debrief_digest = require_sha256(debrief_digest)
-        protected_requirement_sources = {
-            str(identity) for identity in requirement_sources
-        }
-        protected_change_sources = {str(identity) for identity in change_sources}
     except (TypeError, ValueError):
         return DispositionState.UNKNOWN
+    protected_requirement_sequence = unique_string_sequence(requirement_sources)
+    protected_change_sequence = unique_string_sequence(change_sources)
+    if protected_requirement_sequence is None or protected_change_sequence is None:
+        return DispositionState.UNKNOWN
+    protected_requirement_sources = set(protected_requirement_sequence)
+    protected_change_sources = set(protected_change_sequence)
 
     def unique_by(values: Sequence[Mapping[str, Any]], field: str) -> dict[str, Mapping[str, Any]] | None:
         result: dict[str, Mapping[str, Any]] = {}
@@ -138,6 +161,9 @@ def validate_rst_lineage(
         ):
             return DispositionState.UNKNOWN
 
+    experiment_id_sequence: list[str] = []
+    finding_id_sequence: list[str] = []
+    residual_id_sequence: list[str] = []
     experiment_ids: set[str] = set()
     finding_ids: set[str] = set()
     residual_ids: set[str] = set()
@@ -148,10 +174,25 @@ def validate_rst_lineage(
             or session.get("charter_sha256") != charter_digest_by_id.get(charter_id)
         ):
             return DispositionState.UNKNOWN
-        for collection, field, identities in (
-            (session.get("experiments"), "id", experiment_ids),
-            (session.get("findings", ()), "finding_id", finding_ids),
-            (session.get("residual_risks"), "risk_id", residual_ids),
+        for collection, field, identity_sequence, identities in (
+            (
+                session.get("experiments"),
+                "id",
+                experiment_id_sequence,
+                experiment_ids,
+            ),
+            (
+                session.get("findings", ()),
+                "finding_id",
+                finding_id_sequence,
+                finding_ids,
+            ),
+            (
+                session.get("residual_risks"),
+                "risk_id",
+                residual_id_sequence,
+                residual_ids,
+            ),
         ):
             if not isinstance(collection, Sequence) or isinstance(collection, (str, bytes)):
                 return DispositionState.UNKNOWN
@@ -165,6 +206,7 @@ def validate_rst_lineage(
                 ):
                     return DispositionState.UNKNOWN
                 identities.add(identity)
+                identity_sequence.append(identity)
         for expansion in session.get("retrieval_expansions", ()):
             if (
                 not isinstance(expansion, Mapping)
@@ -225,21 +267,31 @@ def validate_rst_lineage(
     if not risk_ids or not verify_content_address(risk_register, "risk_register_id"):
         return DispositionState.UNKNOWN
 
-    mutant_ids = {
-        str(record.get("mutant_id"))
-        for record in mutation_records
-        if isinstance(record, Mapping) and isinstance(record.get("mutant_id"), str)
-    }
-    reviewer_finding_ids = {
-        str(finding.get("finding_id"))
-        for finding in reviewer_findings
-        if isinstance(finding, Mapping)
-        and isinstance(finding.get("finding_id"), str)
-    }
-    if len(mutant_ids) != len(mutation_records) or len(reviewer_finding_ids) != len(
-        reviewer_findings
-    ) or reviewer_finding_ids & finding_ids:
-        return DispositionState.UNKNOWN
+    mutant_ids: set[str] = set()
+    for record in mutation_records:
+        mutant_id = record.get("mutant_id") if isinstance(record, Mapping) else None
+        if (
+            not isinstance(mutant_id, str)
+            or not mutant_id
+            or mutant_id in mutant_ids
+        ):
+            return DispositionState.UNKNOWN
+        mutant_ids.add(mutant_id)
+    reviewer_finding_id_sequence: list[str] = []
+    reviewer_finding_ids: set[str] = set()
+    for finding in reviewer_findings:
+        finding_id = (
+            finding.get("finding_id") if isinstance(finding, Mapping) else None
+        )
+        if (
+            not isinstance(finding_id, str)
+            or not finding_id
+            or finding_id in reviewer_finding_ids
+            or finding_id in finding_ids
+        ):
+            return DispositionState.UNKNOWN
+        reviewer_finding_id_sequence.append(finding_id)
+        reviewer_finding_ids.add(finding_id)
     typed_sources: dict[str, set[str]] = {
         "session": set(session_by_id),
         "observation": experiment_ids,
@@ -263,21 +315,22 @@ def validate_rst_lineage(
         kind, identity = reference.split(":", 1)
         if identity not in typed_sources.get(kind, set()):
             return DispositionState.UNKNOWN
-    expected_updates = {
-        *(f"requirement:{identity}" for identity in protected_requirement_sources),
-        *(f"change:{identity}" for identity in protected_change_sources),
-        *(f"observation:{identity}" for identity in experiment_ids),
+    expected_updates = [
+        *(f"requirement:{identity}" for identity in protected_requirement_sequence),
+        *(f"change:{identity}" for identity in protected_change_sequence),
+        *(f"observation:{identity}" for identity in experiment_id_sequence),
         *(
             f"mutant:{record['mutant_id']}"
             for record in mutation_records
             if record.get("outcome") == "SURVIVED"
         ),
+        *(f"reviewer_finding:{identity}" for identity in finding_id_sequence),
         *(
             f"reviewer_finding:{identity}"
-            for identity in reviewer_finding_ids | finding_ids
+            for identity in reviewer_finding_id_sequence
         ),
-    }
-    if set(updated_from) != expected_updates:
+    ]
+    if list(updated_from) != expected_updates:
         return DispositionState.UNKNOWN
 
     session_refs = debrief.get("session_refs", ())
@@ -320,13 +373,13 @@ def validate_rst_lineage(
         observations=observations,
         mutants=mutation_records,
         reviewer_findings=[
-            *reviewer_findings,
             *(
                 finding
                 for session in sessions
                 for finding in session.get("findings", ())
                 if isinstance(finding, Mapping)
             ),
+            *reviewer_findings,
         ],
     )
     expected_edges = [
@@ -343,7 +396,7 @@ def validate_rst_lineage(
     ]
     if (
         len(observed_edge_list) != len(set(observed_edge_list))
-        or set(observed_edge_list) != set(expected_edges)
+        or observed_edge_list != expected_edges
     ):
         return DispositionState.UNKNOWN
 

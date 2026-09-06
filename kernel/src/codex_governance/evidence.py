@@ -3046,16 +3046,16 @@ def evaluate_manifest(
                     follow_ups=follow_ups,
                     risk_disposition=risk_disposition,
                     evidence_index=evidence_index,
-                    requirement_sources=frozenset(
+                    requirement_sources=[
                         normalize_repo_path(str(source.get("path")))
                         for source in task.get("authoritative_sources", ())
                         if isinstance(source, Mapping)
                         and source.get("kind") == "requirement"
-                    ),
-                    change_sources=frozenset(
+                    ],
+                    change_sources=[
                         normalize_repo_path(str(path))
                         for path in current_candidate.get("changed_paths", ())
-                    ),
+                    ],
                     charter_digests=charter_sha_by_id,
                     debrief_digest=manifest["rapid_review_debrief"]["sha256"],
                     mutation_records=mutation_records,

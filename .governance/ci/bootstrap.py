@@ -160,7 +160,7 @@ def validate_initial_bootstrap(
     if (
         repository_id != "repo:timaday/codex-governed-change"
         or base_commit != "5393338571f8ed5de5192613dcdd6131044932dc"
-        or head_commit != "8364322b1220830037527f0604e3f7228c0a6423"
+        or head_commit != "adcb3e33dd30c2f4627a24e58370e2cf2682ae94"
         or lkg_commit != "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58"
     ):
         raise ValueError("initial-LKG bootstrap is bound only to release v0.1.0")

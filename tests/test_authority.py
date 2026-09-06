@@ -593,14 +593,14 @@ class AuthorityContractTests(unittest.TestCase):
         target = targets["targets"][0]
         self.assertEqual("release-v0.1.0", target["target_id"])
         self.assertEqual("5393338571f8ed5de5192613dcdd6131044932dc", target["base_sha"])
-        self.assertEqual("8364322b1220830037527f0604e3f7228c0a6423", target["head_sha"])
+        self.assertEqual("adcb3e33dd30c2f4627a24e58370e2cf2682ae94", target["head_sha"])
         self.assertEqual("refs/heads/main", target["target_ref"])
         self.assertEqual(
             "a0a0b01a19e87f2591c7e97e892cd040ce9c6e58",
             target["lkg_governance_commit"],
         )
         self.assertEqual(
-            "8364322b1220830037527f0604e3f7228c0a6423",
+            "adcb3e33dd30c2f4627a24e58370e2cf2682ae94",
             target["kernel_source_commit"],
         )
         self.assertEqual(

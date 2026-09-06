@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "corpus_id": "sha256:d9ae2724db2cd25e21a0ba7e8778dd95ca6cfaedd54fe36f135d749ca64f348d",
+  "corpus_id": "sha256:2bbc2bcea572b028d497b214140f8b0d889e1ed6c15ae4550a2e962b70f6400c",
   "baseline_command": ["python3", "-m", "unittest", "discover", "-s", "tests/acceptance", "-v"],
   "mutants": [
     {
@@ -1275,9 +1275,18 @@
     {
       "mutant_id": "rst-risk-update-subset-accepted",
       "path": "src/codex_governance/rst_operations.py",
-      "old": "    if set(updated_from) != expected_updates:",
-      "new": "    if not set(updated_from).issubset(expected_updates):",
+      "old": "    if list(updated_from) != expected_updates:",
+      "new": "    if not set(updated_from).issubset(set(expected_updates)):",
       "operator": "accept a type-valid subset of required risk-update identities",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
+    },
+    {
+      "mutant_id": "rst-risk-update-order-collapsed",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "    if list(updated_from) != expected_updates:",
+      "new": "    if set(updated_from) != set(expected_updates):",
+      "operator": "collapse the required risk-update sequence into an unordered set",
       "requirement_id": "GOV-057",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
     },
@@ -1320,9 +1329,18 @@
     {
       "mutant_id": "rst-missing-required-follow-up-accepted",
       "path": "src/codex_governance/rst_operations.py",
-      "old": "        or set(observed_edge_list) != set(expected_edges)",
+      "old": "        or observed_edge_list != expected_edges",
       "new": "        or not set(observed_edge_list).issubset(set(expected_edges))",
       "operator": "accept a feedback graph with a missing required relationship",
+      "requirement_id": "GOV-057",
+      "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
+    },
+    {
+      "mutant_id": "rst-follow-up-order-collapsed",
+      "path": "src/codex_governance/rst_operations.py",
+      "old": "        or observed_edge_list != expected_edges",
+      "new": "        or set(observed_edge_list) != set(expected_edges)",
+      "operator": "collapse the required feedback-edge sequence into an unordered set",
       "requirement_id": "GOV-057",
       "selected_command": ["python3", "-I", "-S", "-c", "<PROTECTED_MUTATION_PROBE>", "<MUTATED_PATH>", "tests.acceptance.test_rst_operations.RstOperationsAcceptanceTest.test_risk_updates_exactly_cover_every_protected_source"]
     },
